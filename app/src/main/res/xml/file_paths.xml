@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Thư mục lưu trữ an toàn các tệp hoàn chỉnh theo nhóm -->
+    <files-path name="completed_files" path="transfers/completed/" />
+</paths>
+
