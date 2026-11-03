@@ -1,6 +1,7 @@
 #!/bin/sh
 # Git Hook: commit-msg
-# Tự động kiểm tra định dạng commit theo chuẩn Conventional Commits của SecureShare
+# Tự động kiểm tra định dạng commit theo chuẩn Conventional Commits của SecureShare (file-transfer)
+# Hoạt động 100% bằng Shell thuần trong Git Bash - Không phụ thuộc Node.js hay bất kỳ runtime nào.
 
 COMMIT_MSG_FILE="$1"
 FIRST_LINE=$(head -n 1 "$COMMIT_MSG_FILE")
@@ -10,42 +11,33 @@ if echo "$FIRST_LINE" | grep -qE '^Merge branch|^Merge remote-tracking branch|^R
   exit 0
 fi
 
-# 1. Nếu có commitlint trong node_modules hoặc toàn cục: Chạy commitlint để hiện thông báo chi tiết
-if [ -x "./node_modules/.bin/commitlint" ]; then
-  ./node_modules/.bin/commitlint --edit "$COMMIT_MSG_FILE"
-  exit $?
-fi
-
-if command -v commitlint >/dev/null 2>&1; then
-  commitlint --edit "$COMMIT_MSG_FILE"
-  exit $?
-fi
-
-# 2. Bộ kiểm tra thuần Shell (Hoạt động 100% không cần Node.js hay npm)
+# Danh sách Types và Scopes được định nghĩa trong COMMIT_CONVENTION.md
 TYPES="feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert"
 SCOPES="ui|viewmodel|domain|policy|pairing|protocol|streaming|crypto|buffer|network|storage|database|service|app|build|docs|test|ci|config"
 
-# Cú pháp: type(scope): subject hoặc type: subject
+# Cú pháp chuẩn: type(scope): subject hoặc type: subject
 PATTERN="^($TYPES)(\(($SCOPES)\))?: .+$"
 
 if ! echo "$FIRST_LINE" | grep -qE "$PATTERN"; then
   echo ""
   echo "====================================================================="
-  echo "[GIT HOOK] Commit message không đúng chuẩn Conventional Commits!"
+  echo "❌ [GIT HOOK] Commit message không đúng chuẩn dự án SecureShare!"
   echo "====================================================================="
   echo "Nội dung vừa nhập: \"$FIRST_LINE\""
   echo ""
-  echo "Cú pháp chuẩn: <type>(<scope>): <subject>"
-  echo "   Ví dụ đúng: chore(config): kiểm tra hoạt động của commit hook"
+  echo "👉 Cú pháp chuẩn: <type>(<scope>): <subject>"
+  echo "   Ví dụ đúng: chore(config): cập nhật git hook commit-msg"
   echo "               feat(crypto): tích hợp thuật toán HKDF sinh mã SAS"
-  echo "               fix(network): xử lý socket timeout"
+  echo "               fix(network): xử lý socket timeout khi ngắt kết nối"
   echo ""
-  echo "LƯU Ý PHỔ BIẾN:"
+  echo "⚠️ LƯU Ý PHỔ BIẾN:"
   echo "  - 'config' là SCOPE (phạm vi), không phải TYPE (hành động)."
   echo "  - Khi sửa cấu hình dự án, hãy dùng: chore(config): ... hoặc build(config): ..."
   echo ""
-  echo "Danh sách TYPE  : $TYPES"
-  echo "Danh sách SCOPE : $SCOPES"
+  echo "📌 Danh sách TYPE  : $TYPES"
+  echo "📌 Danh sách SCOPE : $SCOPES"
+  echo ""
+  echo "📖 Tra cứu hướng dẫn chi tiết tại: COMMIT_CONVENTION.md"
   echo "====================================================================="
   echo ""
   exit 1
