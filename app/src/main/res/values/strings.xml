@@ -1,3 +1,11 @@
 <resources>
-    <string name="app_name">file-tranfer</string>
+    <string name="app_name">TeamShare</string>
+    <string name="title_share_target">TeamShare - Chia sẻ vào nhóm</string>
+    <string name="notification_channel_transfer_name">Tiến trình truyền tệp</string>
+    <string name="notification_channel_transfer_desc">Hiển thị tiến độ truyền tải tệp tin P2P và Relay thời gian thực</string>
+    <string name="notification_channel_events_name">Thông báo hoàn tất &amp; Sự kiện</string>
+    <string name="notification_channel_events_desc">Thông báo sự kiện hoàn tất hoặc lỗi truyền tệp</string>
+    <string name="action_pause">Tạm dừng</string>
+    <string name="action_resume">Tiếp tục</string>
+    <string name="action_cancel">Hủy</string>
 </resources>

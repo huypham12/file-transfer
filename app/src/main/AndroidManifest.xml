@@ -2,6 +2,22 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Quyền mạng kết nối LAN và Internet Relay -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
+    <!-- Quyền duy trì xung nhịp CPU và chip Wi-Fi khi tắt màn hình (chống Doze Mode) -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Quyền chạy dịch vụ Foreground Service kiểu dataSync (Android 14+ API 34) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- Quyền hiển thị thông báo trạng thái truyền tải (Android 13+ API 33) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -11,6 +27,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Filetranfer">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -18,10 +35,29 @@
             android:theme="@style/Theme.Filetranfer">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Tiếp nhận chia sẻ tệp từ các ứng dụng khác trên Android OS (Send Intent - SRS FR-MOB-01) -->
+        <activity
+            android:name="com.teamshare.app.presentation.ui.share.ShareIntentHandlerActivity"
+            android:exported="true"
+            android:label="@string/title_share_target"
+            android:theme="@style/Theme.Filetranfer">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
+        <!-- Dịch vụ Nền tảng Di động duy trì truyền tệp chống Doze Mode & LMK (SAD ADR-08, SRS FR-MOB-03) -->
+        <service
+            android:name="com.teamshare.app.core.platform.service.TransferForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- Android FileProvider phục vụ chia sẻ đọc tệp an toàn (Scoped Storage) -->
         <provider
