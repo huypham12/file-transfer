@@ -102,9 +102,40 @@ object ErrorCode {
     const val ERR_INVALID_CREDENTIAL = "0x101"
     const val ERR_MEMBER_REVOKED = "0x102"
     const val ERR_INVITATION_EXPIRED = "0x103"
+    const val ERR_INVALID_ROLE = "0x104"
     const val ERR_RELAY_UNAVAILABLE = "0x201"
     const val ERR_CHECKSUM_MISMATCH = "0x301"
     const val ERR_INSUFFICIENT_STORAGE = "0x302"
     const val ERR_BIOMETRIC_FAILED = "0x401"
 }
+
+/**
+ * Lệnh điều khiển phiên truyền tải dữ liệu P2P (UC-15 / FR-TRF-05).
+ */
+enum class SessionCmd {
+    PAUSE,
+    RESUME,
+    CANCEL
+}
+
+/**
+ * Hành động điều khiển Foreground Service nền tảng (UC-18 / FR-MOB-03).
+ */
+enum class ServiceAction {
+    START,
+    PAUSE,
+    RESUME,
+    CANCEL,
+    STOP
+}
+
+/**
+ * Trạng thái mạng kèm kênh truyền tải khuyến nghị (UC-19 / FR-MOB-04).
+ */
+data class NetworkAdaptiveState(
+    val isOnline: Boolean,
+    val currentNetwork: String,
+    val recommendedChannel: TransferChannel,
+    val message: String
+)
 

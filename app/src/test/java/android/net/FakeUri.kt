@@ -29,4 +29,14 @@ class FakeUri(
     override fun describeContents(): Int = 0
     override fun writeToParcel(dest: Parcel, flags: Int) {}
     override fun toString(): String = "$fakeScheme://$fakePath"
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is Uri) return false
+        return this.toString() == other.toString()
+    }
+
+    override fun hashCode(): Int {
+        return toString().hashCode()
+    }
 }
