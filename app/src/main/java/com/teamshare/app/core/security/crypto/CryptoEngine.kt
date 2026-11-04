@@ -1,12 +1,15 @@
 package com.teamshare.app.core.security.crypto
 
 import java.nio.ByteBuffer
+import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.PrivateKey
 import java.security.PublicKey
 import java.security.SecureRandom
+import java.security.Signature
 import java.security.spec.ECGenParameterSpec
+import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
 import javax.crypto.KeyAgreement
 import javax.crypto.Mac
@@ -56,6 +59,46 @@ object CryptoEngine {
         val kpg = KeyPairGenerator.getInstance("EC")
         kpg.initialize(ECGenParameterSpec(EC_CURVE), secureRandom)
         return kpg.generateKeyPair()
+    }
+
+    /**
+     * Mã hóa khóa công khai EC thành mảng byte định dạng chuẩn X.509 (SubjectPublicKeyInfo).
+     */
+    fun encodeEcPublicKey(publicKey: PublicKey): ByteArray {
+        return publicKey.encoded
+    }
+
+    /**
+     * Giải mã mảng byte X.509 thành đối tượng [PublicKey] trên đường cong Elliptic.
+     */
+    fun decodeEcPublicKey(encodedBytes: ByteArray): PublicKey {
+        val keySpec = X509EncodedKeySpec(encodedBytes)
+        val keyFactory = KeyFactory.getInstance("EC")
+        return keyFactory.generatePublic(keySpec)
+    }
+
+    /**
+     * Ký số dữ liệu bằng khóa riêng tư ECDSA (SHA256withECDSA).
+     */
+    fun signDataWithPrivateKey(privateKey: PrivateKey, data: ByteArray): ByteArray {
+        val sig = Signature.getInstance("SHA256withECDSA")
+        sig.initSign(privateKey)
+        sig.update(data)
+        return sig.sign()
+    }
+
+    /**
+     * Thẩm định tính hợp lệ của chữ ký số ECDSA (SHA256withECDSA).
+     */
+    fun verifySignature(publicKey: PublicKey, data: ByteArray, signature: ByteArray): Boolean {
+        return try {
+            val sig = Signature.getInstance("SHA256withECDSA")
+            sig.initVerify(publicKey)
+            sig.update(data)
+            sig.verify(signature)
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /**

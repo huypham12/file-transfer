@@ -35,6 +35,11 @@ interface TransferProgressCallback {
     fun onCompleted(docId: String, finalSha256: String) {}
 
     /**
+     * Thông báo mã xác thực ngắn SAS 6 chữ số khi bắt tay E2EE hoàn tất.
+     */
+    fun onSasGenerated(sasCode: String) {}
+
+    /**
      * Thông báo lỗi trong quá trình truyền tải.
      */
     fun onError(errorCode: String, message: String) {}

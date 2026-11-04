@@ -84,6 +84,7 @@ Các scope được thiết kế bám sát theo các tầng kiến trúc trong t
 2. **Không chấm câu**: Không để dấu chấm `.` ở cuối dòng subject.
 3. **Ngắn gọn, súc tích**: Khuyến nghị dưới 72 ký tự, thể hiện rõ bản chất thay đổi.
 4. **Tránh ghi mơ hồ**: Tránh các câu như `update code`, `fix bug`, `done task`...
+5. **Thực tế, tránh đao to búa lớn**: Dùng từ ngữ lập trình thực tế, diễn đạt thẳng vào tính năng cụ thể (ví dụ: *"truyền nhận file qua socket LAN"*, *"quản lý bộ đệm"*); tuyệt đối tránh dịch máy/học thuật hóa/ví von đao to búa lớn như *"động cơ"*, *"cỗ máy"*, *"hạ tầng tối thượng"*...
 
 ---
 

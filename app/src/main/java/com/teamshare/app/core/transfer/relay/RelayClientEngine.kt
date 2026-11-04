@@ -1,0 +1,674 @@
+package com.teamshare.app.core.transfer.relay
+
+import com.teamshare.app.core.network.relay.AttachStreamRequest
+import com.teamshare.app.core.network.relay.AttachStreamResponse
+import com.teamshare.app.core.network.relay.RelayWebSocketConnection
+import com.teamshare.app.core.protocol.BinaryFrameParser
+import com.teamshare.app.core.protocol.ChunkAckPayload
+import com.teamshare.app.core.protocol.ChunkFrame
+import com.teamshare.app.core.protocol.ControlSignalPayload
+import com.teamshare.app.core.protocol.DataChunkPayload
+import com.teamshare.app.core.protocol.FrameSerializer
+import com.teamshare.app.core.protocol.HandshakeAuthPayload
+import com.teamshare.app.core.protocol.ManifestResponsePayload
+import com.teamshare.app.core.protocol.TransferManifestPayload
+import com.teamshare.app.core.protocol.VerifyResultPayload
+import com.teamshare.app.core.security.crypto.CryptoEngine
+import com.teamshare.app.core.security.crypto.E2EEncryptionManager
+import com.teamshare.app.core.security.crypto.E2EKeyExchangePayload
+import com.teamshare.app.core.security.crypto.Sha256StreamCalculator
+import com.teamshare.app.core.security.sanitizer.FilenameSanitizer
+import com.teamshare.app.core.storage.saf.SafeFileDeleter
+import com.teamshare.app.core.transfer.buffer.BufferPoolManager
+import com.teamshare.app.core.transfer.checkpoint.CheckpointTracker
+import com.teamshare.app.core.transfer.lan.TransferEngineState
+import com.teamshare.app.core.transfer.lan.TransferProgressCallback
+import com.teamshare.app.data.local.db.dao.TransferSessionDao
+import com.teamshare.app.domain.model.TeamMembershipCredential
+import com.teamshare.app.domain.model.TransferSession
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.EOFException
+import java.io.File
+import java.io.FileInputStream
+import java.io.IOException
+import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
+import java.security.PublicKey
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * Động cơ Truyền tải Chuyển tiếp Internet E2EE qua Zero-Knowledge Relay (RelayClientEngine).
+ * Tuân thủ:
+ * 1. SRS FR-TRF-03: Kênh truyền chuyển tiếp Internet Zero-Knowledge không lưu đĩa.
+ * 2. SAD ADR-01 & ADR-05: WebSocket WSS chuyển tiếp khung tin nhị phân.
+ * 3. SDD Mục 6.3 & 8.3: Trao đổi khóa Ephemeral ECDH, dẫn xuất HKDF, mã hóa khối AES-256-GCM.
+ * 4. Tự động phục hồi đứt mạng với Exponential Backoff (1s, 2s, 4s).
+ */
+class RelayClientEngine(
+    private val bufferPool: BufferPoolManager = BufferPoolManager(),
+    private val sessionDao: TransferSessionDao? = null,
+    private val checkpointThresholdBytes: Long = 2 * 1024 * 1024L,
+    private val e2eManager: E2EEncryptionManager = E2EEncryptionManager(),
+    private val okHttpClient: OkHttpClient = RelayWebSocketConnection.defaultClient
+) {
+    private val serializer = FrameSerializer()
+    private val parser = BinaryFrameParser()
+
+    private val isCancelled = AtomicBoolean(false)
+    private val isPaused = AtomicBoolean(false)
+    private var activeConnection: RelayWebSocketConnection? = null
+
+    @Volatile
+    private var currentState: TransferEngineState = TransferEngineState.IDLE
+
+    fun getState(): TransferEngineState = currentState
+
+    fun pause() {
+        isPaused.set(true)
+        currentState = TransferEngineState.PAUSED
+    }
+
+    fun resume() {
+        isPaused.set(false)
+        currentState = TransferEngineState.TRANSFERRING
+    }
+
+    fun cancel() {
+        isCancelled.set(true)
+        currentState = TransferEngineState.CANCELLED
+        activeConnection?.close(1000, "Người dùng đã hủy phiên")
+    }
+
+    private fun serializeFrame(frame: ChunkFrame): ByteArray {
+        val baos = ByteArrayOutputStream()
+        serializer.serializeTo(frame, baos)
+        return baos.toByteArray()
+    }
+
+    private fun parseFrame(bytes: ByteArray): ChunkFrame {
+        val bais = ByteArrayInputStream(bytes)
+        return parser.parseNextFrame(bais) ?: throw IOException("Khung tin nhị phân không hợp lệ hoặc bị cắt cụt")
+    }
+
+    private fun parseHexOrBytes(hexOrStr: String): ByteArray {
+        return try {
+            val clean = hexOrStr.trim()
+            if (clean.length % 2 == 0 && clean.matches(Regex("^[0-9a-fA-F]+$"))) {
+                ByteArray(clean.length / 2) { i ->
+                    clean.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+                }
+            } else {
+                clean.toByteArray(Charsets.UTF_8)
+            }
+        } catch (_: Exception) {
+            hexOrStr.toByteArray(Charsets.UTF_8)
+        }
+    }
+
+    /**
+     * Gửi tệp tin qua Relay Server (Sender Flow) với cơ chế tự động thử lại khi mất kết nối.
+     */
+    suspend fun sendFileViaRelayWithRetry(
+        relayWsUrl: String,
+        session: TransferSession,
+        fileChannel: FileChannel,
+        expectedSha256: String,
+        localCredential: TeamMembershipCredential,
+        ownerPublicKey: PublicKey,
+        callback: TransferProgressCallback? = null,
+        maxRetries: Int = 3
+    ): Boolean {
+        var attempt = 0
+        val backoffDelays = listOf(1000L, 2000L, 4000L)
+
+        while (attempt <= maxRetries && !isCancelled.get()) {
+            try {
+                return sendFileViaRelay(
+                    relayWsUrl = relayWsUrl,
+                    session = session,
+                    fileChannel = fileChannel,
+                    expectedSha256 = expectedSha256,
+                    localCredential = localCredential,
+                    ownerPublicKey = ownerPublicKey,
+                    callback = callback
+                )
+            } catch (e: Exception) {
+                if (isCancelled.get()) return false
+                attempt++
+                if (attempt > maxRetries) {
+                    currentState = TransferEngineState.FAILED
+                    callback?.onError("0x201", "ERR_RELAY_UNAVAILABLE: Không thể kết nối tới Relay sau $maxRetries lần thử lại")
+                    callback?.onStateChanged(currentState)
+                    throw e
+                }
+                val delayMs = backoffDelays.getOrElse(attempt - 1) { 4000L }
+                callback?.onError("0x201", "Mất kết nối tới Relay. Thử lại sau ${delayMs / 1000} giây (Lần $attempt/$maxRetries)...")
+                delay(delayMs)
+            }
+        }
+        return false
+    }
+
+    /**
+     * Gửi tệp tin qua Relay Server (Sender Flow - Single Attempt).
+     */
+    suspend fun sendFileViaRelay(
+        relayWsUrl: String,
+        session: TransferSession,
+        fileChannel: FileChannel,
+        expectedSha256: String,
+        localCredential: TeamMembershipCredential,
+        ownerPublicKey: PublicKey,
+        callback: TransferProgressCallback? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        isCancelled.set(false)
+        isPaused.set(false)
+        currentState = TransferEngineState.CONNECTING
+        callback?.onStateChanged(currentState)
+
+        val connection = RelayWebSocketConnection(okHttpClient)
+        activeConnection = connection
+
+        val initialOffset = sessionDao?.getSessionById(session.sessionId)?.confirmedOffset ?: session.confirmedOffset
+        val confirmedOffset = AtomicLong(initialOffset)
+        val verifyResultDeferred = CompletableDeferred<VerifyResultPayload>()
+        var readerJob: Job? = null
+        val streamIdInt = 1
+
+        try {
+            connection.connect(relayWsUrl)
+
+            // 1. Gửi bản tin ATTACH_STREAM
+            val attachReq = AttachStreamRequest(
+                streamId = session.sessionId,
+                role = "SENDER"
+            )
+            connection.sendText(attachReq.toJson())
+
+            val attachRespStr = connection.receiveText()
+            val attachResp = AttachStreamResponse.fromJson(attachRespStr)
+            if (!attachResp.isSuccess) {
+                throw IOException("Relay từ chối gắn kết nối: ${attachResp.message}")
+            }
+
+            currentState = TransferEngineState.HANDSHAKING
+            callback?.onStateChanged(currentState)
+
+            // 2. Trao đổi khóa phiên E2EE (Ephemeral ECDH)
+            val localE2ePayload = e2eManager.initSession(session.sessionId)
+            connection.sendText(localE2ePayload.toJson())
+
+            val peerE2eJson = connection.receiveText()
+            val peerE2ePayload = E2EKeyExchangePayload.fromJson(peerE2eJson)
+            val sas = e2eManager.completeKeyExchange(peerE2ePayload)
+            callback?.onSasGenerated(sas)
+
+            // 3. Trao đổi xác thực hai chiều qua Binary Frames
+            val authPayload = HandshakeAuthPayload(
+                teamId = localCredential.teamId,
+                memberId = localCredential.memberId,
+                deviceFingerprint = localCredential.deviceFingerprint,
+                role = localCredential.role.name,
+                credentialData = localCredential.ownerSignature,
+                clientNonce = System.currentTimeMillis().toString()
+            )
+            val authFrame = serializer.buildHandshakeAuthFrame(streamIdInt, authPayload)
+            connection.sendBinary(serializeFrame(authFrame))
+
+            val peerAuthBytes = connection.receiveBinary()
+            val peerAuthFrame = parseFrame(peerAuthBytes)
+            val peerAuthPayload = HandshakeAuthPayload.fromBytes(peerAuthFrame.payload)
+
+            // Thẩm định chữ ký số Owner trên chứng thư của Receiver
+            val peerMemberClaim = "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:${peerAuthPayload.role}".toByteArray(Charsets.UTF_8)
+            val peerSignatureBytes = parseHexOrBytes(peerAuthPayload.credentialData)
+            val isValidPeer = CryptoEngine.verifySignature(
+                publicKey = ownerPublicKey,
+                data = peerMemberClaim,
+                signature = peerSignatureBytes
+            )
+            if (!isValidPeer) {
+                callback?.onError("0x101", "Chứng thư thành viên của bên nhận không hợp lệ (sai chữ ký Owner)")
+                throw SecurityException("Bên nhận mang chứng thư giả mạo hoặc sai chữ ký số của Owner")
+            }
+
+            // 4. Gửi TRANSFER_MANIFEST (0x02) sang Receiver (SDD Mục 6.2)
+            val manifestPayload = TransferManifestPayload(
+                docId = session.docId,
+                fileName = session.docId,
+                fileSize = session.totalBytes,
+                mimeType = "application/octet-stream",
+                expectedSha256 = expectedSha256,
+                chunkSize = bufferPool.bufferSize
+            )
+            val manifestFrame = serializer.buildTransferManifestFrame(streamIdInt, manifestPayload)
+            connection.sendBinary(serializeFrame(manifestFrame))
+
+            // Đợi phản hồi MANIFEST_RESPONSE (0x03) từ Receiver
+            val responseBytes = connection.receiveBinary()
+            val responseFrame = parseFrame(responseBytes)
+            if (responseFrame.msgType != ChunkFrame.TYPE_MANIFEST_RESPONSE) {
+                throw IOException("Khung tin mong đợi MANIFEST_RESPONSE (0x03), nhận được: ${responseFrame.msgType}")
+            }
+            val manifestResp = ManifestResponsePayload.fromBytes(responseFrame.payload)
+            if (!manifestResp.accepted) {
+                val reason = manifestResp.rejectionReason ?: "Bên nhận từ chối yêu cầu truyền tệp"
+                callback?.onError("0x102", reason)
+                throw IOException(reason)
+            }
+
+            val startOffset = manifestResp.startOffset
+            confirmedOffset.set(startOffset)
+            sessionDao?.updateCheckpoint(session.sessionId, startOffset)
+            fileChannel.position(startOffset)
+
+            // 5. Khởi chạy Coroutine lắng nghe các gói tin điều khiển từ Receiver (ACK, VERIFY_RESULT)
+            val coroutineScope = CoroutineScope(Dispatchers.IO)
+            readerJob = coroutineScope.launch {
+                try {
+                    while (isActive && connection.isOpen()) {
+                        val frameBytes = try {
+                            connection.receiveBinary()
+                        } catch (e: Exception) {
+                            break
+                        }
+                        val frame = parseFrame(frameBytes)
+                        when (frame.msgType) {
+                            ChunkFrame.TYPE_CHUNK_ACK -> {
+                                val ack = ChunkAckPayload.fromBytes(frame.payload)
+                                confirmedOffset.set(ack.confirmedOffset)
+                                sessionDao?.updateCheckpoint(session.sessionId, ack.confirmedOffset)
+                            }
+                            ChunkFrame.TYPE_VERIFY_RESULT -> {
+                                verifyResultDeferred.complete(VerifyResultPayload.fromBytes(frame.payload))
+                                break
+                            }
+                            ChunkFrame.TYPE_CONTROL_SIGNAL -> {
+                                val sig = ControlSignalPayload.fromBytes(frame.payload)
+                                if (sig.command == "CANCEL") {
+                                    verifyResultDeferred.completeExceptionally(IOException("Phía nhận đã hủy"))
+                                    break
+                                }
+                            }
+                            else -> {}
+                        }
+                    }
+                } finally {
+                    if (!verifyResultDeferred.isCompleted) {
+                        verifyResultDeferred.completeExceptionally(
+                            EOFException("Kết nối Relay bị đóng trước khi nhận kết quả thẩm định")
+                        )
+                    }
+                }
+            }
+
+            currentState = TransferEngineState.TRANSFERRING
+            callback?.onStateChanged(currentState)
+
+            var currentOffset = startOffset
+            val totalBytes = session.totalBytes
+            var chunkSeq = (startOffset / bufferPool.bufferSize).toInt()
+            val startTime = System.currentTimeMillis()
+
+            // 6. Vòng lặp truyền khối dữ liệu
+            while (currentOffset < totalBytes && !isCancelled.get()) {
+                while (isPaused.get() && !isCancelled.get()) {
+                    delay(200)
+                }
+                if (isCancelled.get()) break
+
+                val buffer = bufferPool.acquire()
+                val bytesRead = try {
+                    fileChannel.read(ByteBuffer.wrap(buffer))
+                } catch (e: Exception) {
+                    bufferPool.release(buffer)
+                    throw e
+                }
+
+                if (bytesRead == -1) {
+                    bufferPool.release(buffer)
+                    break
+                }
+
+                try {
+                    // Mã hóa E2EE cho payload
+                    val encryptedChunk = e2eManager.encryptChunk(
+                        chunkIndex = chunkSeq.toLong(),
+                        plaintext = buffer,
+                        offset = 0,
+                        length = bytesRead
+                    )
+
+                    // Đóng gói Binary Frame DATA_CHUNK
+                    val dataChunkPayload = DataChunkPayload(
+                        chunkSeq = chunkSeq,
+                        chunkOffset = currentOffset,
+                        chunkData = encryptedChunk
+                    )
+                    val frame = serializer.buildDataChunkFrame(streamIdInt, dataChunkPayload)
+                    val frameBytes = serializeFrame(frame)
+
+                    val sent = connection.sendBinary(frameBytes)
+                    if (!sent) {
+                        throw IOException("Gửi binary frame qua WebSocket thất bại")
+                    }
+
+                    currentOffset += bytesRead
+                    chunkSeq++
+
+                    val elapsed = maxOf(1L, System.currentTimeMillis() - startTime)
+                    val speed = (currentOffset - startOffset) * 1000L / elapsed
+                    callback?.onProgress(currentOffset, totalBytes, speed)
+                } finally {
+                    bufferPool.release(buffer)
+                }
+            }
+
+            if (isCancelled.get()) {
+                currentState = TransferEngineState.CANCELLED
+                callback?.onStateChanged(currentState)
+                return@withContext false
+            }
+
+            // 6. Đợi VERIFY_RESULT từ Receiver
+            currentState = TransferEngineState.VERIFYING
+            callback?.onStateChanged(currentState)
+            val verifyResult = verifyResultDeferred.await()
+
+            if (verifyResult.status == "SUCCESS") {
+                currentState = TransferEngineState.COMPLETED
+                callback?.onStateChanged(currentState)
+                callback?.onCompleted(session.docId, verifyResult.actualSha256)
+                true
+            } else {
+                currentState = TransferEngineState.FAILED
+                callback?.onStateChanged(currentState)
+                callback?.onError("0x301", "Sai lệch mã băm SHA-256 từ phía nhận")
+                false
+            }
+
+        } finally {
+            readerJob?.cancel()
+            connection.close()
+            activeConnection = null
+            e2eManager.clear()
+        }
+    }
+
+    /**
+     * Tiếp nhận tệp tin qua Relay Server (Receiver Flow) với cơ chế tự động thử lại khi mất kết nối.
+     */
+    suspend fun receiveFileViaRelayWithRetry(
+        relayWsUrl: String,
+        session: TransferSession,
+        targetFile: File,
+        expectedSha256: String,
+        localCredential: TeamMembershipCredential,
+        ownerPublicKey: PublicKey,
+        callback: TransferProgressCallback? = null,
+        maxRetries: Int = 3
+    ): Boolean {
+        var attempt = 0
+        val backoffDelays = listOf(1000L, 2000L, 4000L)
+
+        while (attempt <= maxRetries && !isCancelled.get()) {
+            try {
+                return receiveFileViaRelay(
+                    relayWsUrl = relayWsUrl,
+                    session = session,
+                    targetFile = targetFile,
+                    expectedSha256 = expectedSha256,
+                    localCredential = localCredential,
+                    ownerPublicKey = ownerPublicKey,
+                    callback = callback
+                )
+            } catch (e: Exception) {
+                if (isCancelled.get()) return false
+                attempt++
+                if (attempt > maxRetries) {
+                    currentState = TransferEngineState.FAILED
+                    callback?.onError("0x201", "ERR_RELAY_UNAVAILABLE: Không thể kết nối tới Relay sau $maxRetries lần thử lại")
+                    callback?.onStateChanged(currentState)
+                    throw e
+                }
+                val delayMs = backoffDelays.getOrElse(attempt - 1) { 4000L }
+                callback?.onError("0x201", "Mất kết nối tới Relay. Thử lại sau ${delayMs / 1000} giây (Lần $attempt/$maxRetries)...")
+                delay(delayMs)
+            }
+        }
+        return false
+    }
+
+    /**
+     * Tiếp nhận tệp tin qua Relay Server (Receiver Flow - Single Attempt).
+     */
+    suspend fun receiveFileViaRelay(
+        relayWsUrl: String,
+        session: TransferSession,
+        targetFile: File,
+        expectedSha256: String,
+        localCredential: TeamMembershipCredential,
+        ownerPublicKey: PublicKey,
+        callback: TransferProgressCallback? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        isCancelled.set(false)
+        isPaused.set(false)
+        currentState = TransferEngineState.CONNECTING
+        callback?.onStateChanged(currentState)
+
+        val connection = RelayWebSocketConnection(okHttpClient)
+        activeConnection = connection
+
+        val partFile = File(targetFile.parentFile, "${targetFile.name}.part")
+        var raf: RandomAccessFile? = null
+        var fileChannel: FileChannel? = null
+        val streamIdInt = 1
+
+        try {
+            connection.connect(relayWsUrl)
+
+            // 1. Gửi bản tin ATTACH_STREAM với vai trò RECEIVER
+            val attachReq = AttachStreamRequest(
+                streamId = session.sessionId,
+                role = "RECEIVER"
+            )
+            connection.sendText(attachReq.toJson())
+
+            val attachRespStr = connection.receiveText()
+            val attachResp = AttachStreamResponse.fromJson(attachRespStr)
+            if (!attachResp.isSuccess) {
+                throw IOException("Relay từ chối gắn kết nối: ${attachResp.message}")
+            }
+
+            currentState = TransferEngineState.HANDSHAKING
+            callback?.onStateChanged(currentState)
+
+            // 2. Trao đổi khóa phiên E2EE (Ephemeral ECDH)
+            val localE2ePayload = e2eManager.initSession(session.sessionId)
+            connection.sendText(localE2ePayload.toJson())
+
+            val peerE2eJson = connection.receiveText()
+            val peerE2ePayload = E2EKeyExchangePayload.fromJson(peerE2eJson)
+            val sas = e2eManager.completeKeyExchange(peerE2ePayload)
+            callback?.onSasGenerated(sas)
+
+            // 3. Trao đổi xác thực hai chiều Handshake Auth
+            val authPayload = HandshakeAuthPayload(
+                teamId = localCredential.teamId,
+                memberId = localCredential.memberId,
+                deviceFingerprint = localCredential.deviceFingerprint,
+                role = localCredential.role.name,
+                credentialData = localCredential.ownerSignature,
+                clientNonce = System.currentTimeMillis().toString()
+            )
+            val authFrame = serializer.buildHandshakeAuthFrame(streamIdInt, authPayload)
+            connection.sendBinary(serializeFrame(authFrame))
+
+            val peerAuthBytes = connection.receiveBinary()
+            val peerAuthFrame = parseFrame(peerAuthBytes)
+            val peerAuthPayload = HandshakeAuthPayload.fromBytes(peerAuthFrame.payload)
+
+            // Thẩm định chữ ký số Owner trên chứng thư của Sender
+            val peerMemberClaim = "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:${peerAuthPayload.role}".toByteArray(Charsets.UTF_8)
+            val peerSignatureBytes = parseHexOrBytes(peerAuthPayload.credentialData)
+            val isValidPeer = CryptoEngine.verifySignature(
+                publicKey = ownerPublicKey,
+                data = peerMemberClaim,
+                signature = peerSignatureBytes
+            )
+            if (!isValidPeer) {
+                callback?.onError("0x101", "Chứng thư thành viên của bên gửi không hợp lệ (sai chữ ký Owner)")
+                throw SecurityException("Bên gửi mang chứng thư giả mạo hoặc sai chữ ký số của Owner")
+            }
+
+            // 4. Nhận TRANSFER_MANIFEST (0x02) từ Sender (SDD Mục 6.2)
+            val manifestBytes = connection.receiveBinary()
+            val manifestFrame = parseFrame(manifestBytes)
+            if (manifestFrame.msgType != ChunkFrame.TYPE_TRANSFER_MANIFEST) {
+                throw IOException("Khung tin mong đợi TRANSFER_MANIFEST (0x02), nhận được: ${manifestFrame.msgType}")
+            }
+            val manifest = TransferManifestPayload.fromBytes(manifestFrame.payload)
+
+            // Kiểm tra mốc Resume từ tệp tạm .part hiện có và checkpoint DB
+            val dbOffset = sessionDao?.getSessionById(session.sessionId)?.confirmedOffset ?: 0L
+            val startOffset = if (partFile.exists() && partFile.length() < manifest.fileSize) {
+                if (dbOffset > 0 && dbOffset <= partFile.length()) dbOffset else partFile.length()
+            } else {
+                if (partFile.exists() && partFile.length() >= manifest.fileSize) {
+                    partFile.delete()
+                }
+                0L
+            }
+
+            // Phản hồi MANIFEST_RESPONSE (0x03) về cho Sender mang startOffset
+            val manifestResp = ManifestResponsePayload(
+                accepted = true,
+                startOffset = startOffset,
+                rejectionReason = null
+            )
+            val responseFrame = serializer.buildManifestResponseFrame(streamIdInt, manifestResp)
+            connection.sendBinary(serializeFrame(responseFrame))
+
+            // 5. Chuẩn bị file `.part` và vị trí ghi
+            raf = RandomAccessFile(partFile, "rw")
+            raf.seek(startOffset)
+            fileChannel = raf.channel
+
+            val checkpointTracker = CheckpointTracker(
+                sessionId = session.sessionId,
+                sessionDao = sessionDao,
+                flushThreshold = checkpointThresholdBytes
+            ).apply { initOffset(startOffset) }
+
+            currentState = TransferEngineState.TRANSFERRING
+            callback?.onStateChanged(currentState)
+            var totalBytesReceived = startOffset
+            val totalBytes = session.totalBytes
+            val startTime = System.currentTimeMillis()
+
+            // 6. Nhận các khối dữ liệu DATA_CHUNK
+            while (totalBytesReceived < totalBytes && !isCancelled.get()) {
+                val frameBytes = try {
+                    connection.receiveBinary()
+                } catch (e: Exception) {
+                    break
+                }
+
+                val frame = parseFrame(frameBytes)
+                if (frame.msgType != ChunkFrame.TYPE_DATA_CHUNK) {
+                    continue
+                }
+
+                val dataChunk = DataChunkPayload.fromBytes(frame.payload)
+
+                // Giải mã E2EE cho payload
+                val decryptedChunk = e2eManager.decryptChunk(
+                    chunkIndex = dataChunk.chunkSeq.toLong(),
+                    encryptedPacket = dataChunk.chunkData
+                )
+
+                fileChannel.write(ByteBuffer.wrap(decryptedChunk))
+                totalBytesReceived += decryptedChunk.size
+
+                val ackOffset = checkpointTracker.recordBytesWritten(fileChannel, decryptedChunk.size)
+                if (ackOffset != null) {
+                    val ackFrame = serializer.buildChunkAckFrame(
+                        streamIdInt,
+                        ChunkAckPayload(confirmedOffset = ackOffset)
+                    )
+                    connection.sendBinary(serializeFrame(ackFrame))
+                }
+
+                val elapsed = maxOf(1L, System.currentTimeMillis() - startTime)
+                val speed = (totalBytesReceived - startOffset) * 1000L / elapsed
+                callback?.onProgress(totalBytesReceived, totalBytes, speed)
+            }
+
+            if (isCancelled.get()) {
+                currentState = TransferEngineState.CANCELLED
+                callback?.onStateChanged(currentState)
+                return@withContext false
+            }
+
+            // 7. Flush dữ liệu cuối cùng và thẩm định SHA-256
+            checkpointTracker.flushFinal(fileChannel)
+            fileChannel.close()
+            fileChannel = null
+            raf.close()
+            raf = null
+
+            currentState = TransferEngineState.VERIFYING
+            callback?.onStateChanged(currentState)
+            val actualSha256 = Sha256StreamCalculator.calculateFileSha256(partFile)
+
+            val isMatch = actualSha256.equals(expectedSha256, ignoreCase = true)
+            val verifyPayload = VerifyResultPayload(
+                docId = session.docId,
+                status = if (isMatch) "SUCCESS" else "CHECKSUM_FAILED",
+                actualSha256 = actualSha256
+            )
+            val verifyFrame = serializer.buildVerifyResultFrame(streamIdInt, verifyPayload)
+            connection.sendBinary(serializeFrame(verifyFrame))
+            delay(100) // Đảm bảo frame VERIFY_RESULT được truyền đi qua mạng trước khi đóng kết nối
+
+            if (isMatch) {
+                if (targetFile.exists()) {
+                    targetFile.delete()
+                }
+                val renamed = partFile.renameTo(targetFile)
+                if (!renamed) {
+                    throw IOException("Không thể đổi tên tệp tạm ${partFile.name} thành ${targetFile.name}")
+                }
+                currentState = TransferEngineState.COMPLETED
+                callback?.onStateChanged(currentState)
+                callback?.onCompleted(session.docId, actualSha256)
+                true
+            } else {
+                SafeFileDeleter.wipeAndSanitizeFile(partFile)
+                currentState = TransferEngineState.FAILED
+                callback?.onStateChanged(currentState)
+                callback?.onError("0x301", "Sai lệch mã băm SHA-256 (Kỳ vọng: $expectedSha256, Thực tế: $actualSha256)")
+                false
+            }
+
+        } finally {
+            try { fileChannel?.close() } catch (_: Exception) {}
+            try { raf?.close() } catch (_: Exception) {}
+            connection.close()
+            activeConnection = null
+            e2eManager.clear()
+        }
+    }
+}
