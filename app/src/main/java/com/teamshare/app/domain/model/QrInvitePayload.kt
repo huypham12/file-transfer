@@ -8,7 +8,8 @@ data class QrInvitePayload(
     val invitationToken: String,
     val expiresAt: Long,
     val ownerPublicKey: String,
-    val signature: String
+    val signature: String,
+    val teamName: String = ""
 ) {
     fun isExpired(currentEpochSeconds: Long = System.currentTimeMillis() / 1000L): Boolean {
         return expiresAt > 0L && currentEpochSeconds >= expiresAt

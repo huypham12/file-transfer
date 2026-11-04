@@ -9,11 +9,14 @@ import com.teamshare.app.domain.model.AuditSeverity
 import com.teamshare.app.domain.model.ErrorCode
 import com.teamshare.app.domain.model.MemberRole
 import com.teamshare.app.domain.model.QrInvitePayload
+import com.teamshare.app.domain.model.Team
 import com.teamshare.app.domain.model.TeamMember
+import com.teamshare.app.domain.model.TeamStatus
 import com.teamshare.app.domain.repository.IAuditRepository
 import com.teamshare.app.domain.repository.ITeamRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
 import java.util.UUID
 
@@ -51,7 +54,38 @@ class JoinTeamViaQrUseCase(
             if (!isSignatureValid) {
                 Result.failure(SecurityException("Chữ ký số Owner trên mã QR không hợp lệ (Mã lỗi: ${ErrorCode.ERR_INVALID_CREDENTIAL})"))
             } else {
-                // 3. Khởi tạo danh tính thiết bị của Member
+                val ownerFingerprint = Sha256StreamCalculator.calculateBytesSha256(ownerPubKeyBytes)
+
+                // 3. Đảm bảo bản ghi Không gian Nhóm (Team) tồn tại trên thiết bị này trước khi thêm thành viên (chống lỗi FOREIGN KEY SQLite code 19/787)
+                val existingTeam = teamRepository.getTeamById(qrPayload.teamId).firstOrNull()
+                if (existingTeam == null) {
+                    val teamNameToUse = qrPayload.teamName.ifBlank { "Không gian nhóm (${qrPayload.teamId.take(8)})" }
+                    val newTeam = Team(
+                        teamId = qrPayload.teamId,
+                        teamName = teamNameToUse,
+                        description = "Gia nhập qua mã QR",
+                        ownerFingerprint = ownerFingerprint,
+                        status = TeamStatus.ACTIVE
+                    )
+                    val createResult = teamRepository.createTeam(newTeam)
+                    if (createResult.isFailure) {
+                        return@flow emit(Result.failure(createResult.exceptionOrNull() ?: Exception("Không thể khởi tạo nhóm trên thiết bị")))
+                    }
+
+                    // Lưu thông tin Trưởng nhóm (Owner) vào danh bạ thành viên nhóm trên thiết bị này
+                    val ownerMember = TeamMember(
+                        memberId = ownerFingerprint,
+                        teamId = qrPayload.teamId,
+                        memberName = "Trưởng nhóm (Owner)",
+                        deviceFingerprint = ownerFingerprint,
+                        role = MemberRole.OWNER,
+                        credentialData = qrPayload.ownerPublicKey,
+                        isActive = true
+                    )
+                    teamRepository.addMember(ownerMember)
+                }
+
+                // 4. Khởi tạo danh tính thiết bị của Member
                 val memberPubKey = keyManager.generateMemberIdentityKey()
                 val deviceFingerprint = Sha256StreamCalculator.calculateBytesSha256(memberPubKey.encoded)
                 val memberId = UUID.randomUUID().toString()

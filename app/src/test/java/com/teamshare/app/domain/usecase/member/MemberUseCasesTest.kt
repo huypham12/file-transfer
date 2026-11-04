@@ -136,6 +136,35 @@ class MemberUseCasesTest {
     }
 
     @Test
+    fun testJoinTeamOnFreshDeviceCreatesLocalTeamAndOwnerRecord() = runBlocking {
+        // Thiết bị Owner sinh mã QR
+        val qrResult = generateQrInviteUseCase(testTeamId, ttlSec = 600L).first()
+        val payload = qrResult.getOrThrow()
+
+        // Thiết bị Thành viên hoàn toàn mới (CSDL cục bộ rỗng, chưa hề có teamId này)
+        val freshTeamRepo = FakeTeamRepository()
+        val freshKeyManager = SoftwareKeyManager()
+        val freshJoinUseCase = JoinTeamViaQrUseCase(freshTeamRepo, freshKeyManager)
+
+        val joinResult = freshJoinUseCase(payload, "huy").first()
+        assertTrue("Gia nhập trên thiết bị mới phải thành công", joinResult.isSuccess)
+
+        val member = joinResult.getOrThrow()
+        assertEquals("huy", member.memberName)
+        assertEquals(MemberRole.MEMBER, member.role)
+
+        // Kiểm chứng nhóm và Trưởng nhóm đã tự động được khởi tạo trên CSDL thiết bị mới
+        val createdTeam = freshTeamRepo.getTeamById(testTeamId).first()
+        assertNotNull("Bản ghi nhóm phải tự động được tạo để thỏa mãn FOREIGN KEY", createdTeam)
+        assertEquals(testTeamId, createdTeam?.teamId)
+
+        val members = freshTeamRepo.getMembersByTeam(testTeamId).first()
+        assertEquals("Phải có 2 thành viên: Trưởng nhóm và thành viên mới gia nhập", 2, members.size)
+        assertTrue(members.any { it.role == MemberRole.OWNER })
+        assertTrue(members.any { it.memberName == "huy" && it.role == MemberRole.MEMBER })
+    }
+
+    @Test
     fun testRevokeMemberTerminatesSessionRapidly() = runBlocking {
         // Add member to revoke
         val memberToRevoke = TeamMember(

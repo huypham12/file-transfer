@@ -52,7 +52,8 @@ class GenerateQrInviteUseCase(
                     invitationToken = invitationToken,
                     expiresAt = expiresAt,
                     ownerPublicKey = ownerPublicKeyHex,
-                    signature = signatureHex
+                    signature = signatureHex,
+                    teamName = team.teamName
                 )
 
                 auditRepository?.logEvent(

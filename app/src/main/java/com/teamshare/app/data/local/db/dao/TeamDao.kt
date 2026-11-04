@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface TeamDao {
 
-    @Insert(onConflict = OnConflictStrategy.ABORT)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTeam(team: TeamEntity): Long
 
     @Query("SELECT * FROM teams WHERE team_id = :teamId LIMIT 1")
