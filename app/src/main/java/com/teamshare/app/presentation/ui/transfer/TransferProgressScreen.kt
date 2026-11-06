@@ -286,7 +286,7 @@ fun TransferProgressScreen(
                     if (!uiState.errorMessage.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Lỗi: ${uiState.errorMessage}",
+                            text = "Lỗi: ${formatFriendlyError(uiState.errorMessage!!)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -376,6 +376,21 @@ fun formatTransferState(state: TransferEngineState): String {
         TransferEngineState.COMPLETED -> "Truyền nhận thành công"
         TransferEngineState.FAILED -> "Lỗi truyền tải"
         TransferEngineState.CANCELLED -> "Đã hủy phiên"
+    }
+}
+
+fun formatFriendlyError(rawError: String): String {
+    val lower = rawError.lowercase()
+    return when {
+        lower.contains("websocket") || lower.contains("closed network") || lower.contains("connection refused") ->
+            "Mất kết nối tới người chia sẻ tệp hoặc máy chủ chuyển tiếp. Hãy kiểm tra kết nối mạng của hai thiết bị."
+        lower.contains("timeout") || lower.contains("quá thời gian") ->
+            "Quá thời gian chờ phản hồi từ người chia sẻ. Hãy nhắc họ mở app TeamShare."
+        lower.contains("sha") || lower.contains("mã băm") ->
+            "Tệp tải về bị sai lệch kiểm tra toàn vẹn SHA-256."
+        lower.contains("chứng thư") || lower.contains("chữ ký") || lower.contains("credential") ->
+            "Xác thực thất bại: Người chia sẻ mang chứng thư không hợp lệ trong nhóm này."
+        else -> rawError
     }
 }
 

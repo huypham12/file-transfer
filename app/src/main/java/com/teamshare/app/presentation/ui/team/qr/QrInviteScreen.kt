@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.HourglassDisabled
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -30,6 +32,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -51,6 +55,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.platform.LocalContext
+import com.teamshare.app.core.platform.network.NetworkAddressHelper
 import com.teamshare.app.domain.model.QrInvitePayload
 import com.teamshare.app.presentation.ui.components.ErrorBanner
 import com.teamshare.app.presentation.viewmodel.TeamViewModel
@@ -64,8 +71,11 @@ fun QrInviteScreen(
     viewModel: TeamViewModel,
     onBackClick: () -> Unit
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.qrInviteUiState.collectAsState()
     var qrBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var showNetworkConfigDialog by remember { mutableStateOf(false) }
+    var relayConfigInput by remember { mutableStateOf(NetworkAddressHelper.configuredRelayHost) }
 
     LaunchedEffect(teamId) {
         viewModel.generateInviteQr(teamId)
@@ -91,6 +101,14 @@ fun QrInviteScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Quay lại"
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showNetworkConfigDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Cấu hình mạng Relay"
                         )
                     }
                 },
@@ -216,6 +234,24 @@ fun QrInviteScreen(
                 )
             }
 
+            uiState.payload?.let { p ->
+                val connInfo = if (!p.ownerHost.isNullOrBlank()) "${p.ownerHost}:${p.ownerPort}" else "Tự động phát hiện"
+                val relayInfo = if (!p.relayUrl.isNullOrBlank()) p.relayUrl else "Chưa cấu hình"
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Điểm kết nối LAN: $connInfo",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    text = "Kênh Relay: $relayInfo",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
 
             // Nút làm mới mã QR
@@ -229,6 +265,48 @@ fun QrInviteScreen(
                 Text(text = if (uiState.isExpired) "Tạo lại mã mới" else "Làm mới mã QR")
             }
         }
+
+        // Hộp thoại cấu hình nâng cao Máy chủ Relay (Tùy chọn dành cho kiểm thử đa mạng)
+        if (showNetworkConfigDialog) {
+            AlertDialog(
+                onDismissRequest = { showNetworkConfigDialog = false },
+                title = { Text("Cấu hình Máy chủ Relay", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column {
+                        Text(
+                            text = "Hệ thống tự động ưu tiên truyền trực tiếp qua Wi-Fi LAN. Khi hai máy khác mạng (4G hoặc qua máy ảo Emulator), kết nối sẽ chuyển tiếp qua Zero-Knowledge Relay:",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = relayConfigInput,
+                            onValueChange = { relayConfigInput = it },
+                            label = { Text("Địa chỉ IP / Host Relay") },
+                            placeholder = { Text("ví dụ: 192.168.1.8") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val clean = relayConfigInput.trim()
+                            NetworkAddressHelper.saveConfiguredRelayHost(context, clean)
+                            showNetworkConfigDialog = false
+                            viewModel.generateInviteQr(teamId)
+                        }
+                    ) {
+                        Text("Áp dụng")
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(onClick = { showNetworkConfigDialog = false }) {
+                        Text("Đóng")
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -236,16 +314,24 @@ fun QrInviteScreen(
  * Đóng gói payload thành chuỗi định dạng TeamShare QR Protocol.
  */
 fun serializeQrPayload(payload: QrInvitePayload): String {
-    val base = "teamshare://invite?teamId=${payload.teamId}" +
-            "&token=${payload.invitationToken}" +
-            "&expiresAt=${payload.expiresAt}" +
-            "&ownerPubKey=${payload.ownerPublicKey}" +
-            "&sig=${payload.signature}"
-    return if (payload.teamName.isNotBlank()) {
-        "$base&name=${payload.teamName}"
-    } else {
-        base
+    val sb = StringBuilder("teamshare://invite?teamId=${payload.teamId}")
+    sb.append("&token=").append(payload.invitationToken)
+    sb.append("&expiresAt=").append(payload.expiresAt)
+    sb.append("&ownerPubKey=").append(payload.ownerPublicKey)
+    sb.append("&sig=").append(payload.signature)
+    if (payload.teamName.isNotBlank()) {
+        sb.append("&name=").append(payload.teamName)
     }
+    if (!payload.ownerHost.isNullOrBlank()) {
+        sb.append("&host=").append(payload.ownerHost)
+    }
+    if (payload.ownerPort > 0) {
+        sb.append("&port=").append(payload.ownerPort)
+    }
+    if (!payload.relayUrl.isNullOrBlank()) {
+        sb.append("&relay=").append(payload.relayUrl)
+    }
+    return sb.toString()
 }
 
 /**
@@ -268,6 +354,9 @@ fun parseQrPayload(content: String): QrInvitePayload? {
         val sig = params["sig"]?.takeIf { it.isNotBlank() } ?: return null
         val teamName = params["name"]?.takeIf { it.isNotBlank() }
             ?: params["teamName"]?.takeIf { it.isNotBlank() } ?: ""
+        val host = params["host"]?.takeIf { it.isNotBlank() }
+        val port = params["port"]?.toIntOrNull() ?: 8988
+        val relay = params["relay"]?.takeIf { it.isNotBlank() }
 
         return QrInvitePayload(
             teamId = teamId,
@@ -275,7 +364,10 @@ fun parseQrPayload(content: String): QrInvitePayload? {
             expiresAt = expiresAt,
             ownerPublicKey = ownerPubKey,
             signature = sig,
-            teamName = teamName
+            teamName = teamName,
+            ownerHost = host,
+            ownerPort = port,
+            relayUrl = relay
         )
     } catch (e: Exception) {
         return null

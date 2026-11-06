@@ -80,7 +80,9 @@ fun DocumentEntity.toDomain(): SharedDocument = SharedDocument(
     requireBiometric = requireBiometric,
     localUri = localUri,
     downloadStatus = runCatching { DownloadStatus.valueOf(downloadStatus) }.getOrDefault(DownloadStatus.NOT_DOWNLOADED),
-    createdAt = createdAt
+    createdAt = createdAt,
+    publisherHost = publisherHost,
+    publisherPort = publisherPort
 )
 
 fun SharedDocument.toEntity(): DocumentEntity = DocumentEntity(
@@ -94,7 +96,9 @@ fun SharedDocument.toEntity(): DocumentEntity = DocumentEntity(
     requireBiometric = requireBiometric,
     localUri = localUri,
     downloadStatus = downloadStatus.name,
-    createdAt = createdAt
+    createdAt = createdAt,
+    publisherHost = publisherHost,
+    publisherPort = publisherPort
 )
 
 // Session Mappings

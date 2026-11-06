@@ -29,6 +29,8 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        com.teamshare.app.core.platform.network.NetworkAddressHelper.init(applicationContext)
+
         handleIncomingShareIntent(intent)
 
         setContent {

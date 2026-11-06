@@ -2,6 +2,8 @@ package com.teamshare.app.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.teamshare.app.core.network.sync.PeerSyncManager
+import com.teamshare.app.core.platform.network.NetworkAddressHelper
 import com.teamshare.app.core.security.keystore.IKeyManager
 import com.teamshare.app.domain.model.MemberRole
 import com.teamshare.app.domain.model.QrInvitePayload
@@ -38,6 +40,7 @@ class TeamViewModel(
     private val getTeamMembersUseCase: GetTeamMembersUseCase,
     private val revokeMemberUseCase: RevokeMemberUseCase,
     private val keyManager: IKeyManager? = null,
+    private val peerSyncManager: PeerSyncManager? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
@@ -105,6 +108,15 @@ class TeamViewModel(
         workspaceObserveJob = scope.launch {
             _workspaceUiState.update { it.copy(isLoading = true, errorMessage = null, isDisbanded = false) }
 
+            // Khởi động Sync Server lắng nghe các peer trong nhóm (Direct LAN + Relay Room)
+            val relayUrl = if (NetworkAddressHelper.isEmulator()) {
+                "ws://10.0.2.2:8080/v1/sync"
+            } else {
+                peerSyncManager?.getRelayUrlForTeam(teamId)
+                    ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/sync")
+            }
+            peerSyncManager?.startSyncServer(teamId = teamId, relayUrl = relayUrl, scope = scope)
+
             val hasOwnerKey = keyManager?.hasKey(IKeyManager.MASTER_KEY_PREFIX + teamId) ?: false
 
             // Lắng nghe thông tin nhóm
@@ -157,11 +169,46 @@ class TeamViewModel(
     /**
      * Sinh mã QR lời mời có chữ ký số và khởi chạy đồng hồ đếm ngược (UC-03 - FR-MEM-01).
      */
-    fun generateInviteQr(teamId: String, ttlSec: Long = 600L) {
+    fun generateInviteQr(
+        teamId: String,
+        ttlSec: Long = 600L,
+        customHost: String? = null,
+        customRelayUrl: String? = null
+    ) {
         countdownJob?.cancel()
         scope.launch {
             _qrInviteUiState.update { it.copy(isLoading = true, errorMessage = null) }
-            generateQrInviteUseCase(teamId, ttlSec).collect { result ->
+
+            // Tự động phát hiện IP Wi-Fi thật của máy tính từ Relay Server nếu chạy trên máy ảo
+            if (NetworkAddressHelper.isEmulator()) {
+                NetworkAddressHelper.autoDetectRelayHostFromEmulator()
+            }
+
+            val syncPort = peerSyncManager?.currentListeningPort?.takeIf { it > 0 }
+                ?: NetworkAddressHelper.DEFAULT_SYNC_PORT
+
+            // Đảm bảo Sync Server đang lắng nghe các peer trong nhóm
+            val relayUrl = customRelayUrl ?: if (NetworkAddressHelper.isEmulator()) {
+                "ws://10.0.2.2:${NetworkAddressHelper.DEFAULT_RELAY_PORT}/v1/sync"
+            } else {
+                NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/sync")
+            }
+            peerSyncManager?.startSyncServer(teamId = teamId, preferredPort = syncPort, relayUrl = relayUrl, scope = scope)
+
+            val resolvedHost = customHost ?: NetworkAddressHelper.getLocalIpv4Address()
+            val relayForQr = if (NetworkAddressHelper.isEmulator() && NetworkAddressHelper.configuredRelayHost.isNotBlank()) {
+                "ws://${NetworkAddressHelper.configuredRelayHost}:${NetworkAddressHelper.DEFAULT_RELAY_PORT}/v1/sync"
+            } else {
+                relayUrl
+            }
+
+            generateQrInviteUseCase(
+                teamId = teamId,
+                ttlSec = ttlSec,
+                customHost = resolvedHost,
+                port = peerSyncManager?.currentListeningPort ?: syncPort,
+                customRelayUrl = relayForQr
+            ).collect { result ->
                 result.fold(
                     onSuccess = { payload ->
                         _qrInviteUiState.update {
@@ -289,5 +336,6 @@ class TeamViewModel(
         super.onCleared()
         countdownJob?.cancel()
         workspaceObserveJob?.cancel()
+        peerSyncManager?.stopSyncServer()
     }
 }

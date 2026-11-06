@@ -3,7 +3,9 @@ package com.teamshare.app.presentation.di
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.teamshare.app.core.network.sync.PeerSyncManager
 import com.teamshare.app.core.platform.network.AndroidNetworkMonitor
+import com.teamshare.app.core.platform.network.NetworkAddressHelper
 import com.teamshare.app.core.platform.service.TransferServiceController
 import com.teamshare.app.core.security.biometric.BiometricAuthManager
 import com.teamshare.app.core.security.keystore.AndroidKeystoreKeyManager
@@ -18,6 +20,10 @@ import com.teamshare.app.data.repository.AuditRepositoryImpl
 import com.teamshare.app.data.repository.DocumentRepositoryImpl
 import com.teamshare.app.data.repository.TeamRepositoryImpl
 import com.teamshare.app.data.repository.TransferRepositoryImpl
+import com.teamshare.app.domain.model.SessionStatus
+import com.teamshare.app.domain.model.TransferChannel
+import com.teamshare.app.domain.model.TransferDirection
+import com.teamshare.app.domain.model.TransferSession
 import com.teamshare.app.domain.usecase.audit.QuerySecurityAuditUseCase
 import com.teamshare.app.domain.usecase.document.DeleteDocumentUseCase
 import com.teamshare.app.domain.usecase.document.GetDocumentCatalogUseCase
@@ -32,6 +38,9 @@ import com.teamshare.app.domain.usecase.platform.HandleSendIntentUseCase
 import com.teamshare.app.domain.usecase.team.CreateTeamUseCase
 import com.teamshare.app.domain.usecase.team.DisbandTeamUseCase
 import com.teamshare.app.domain.usecase.transfer.ControlSessionUseCase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.teamshare.app.presentation.viewmodel.AuditViewModel
 import com.teamshare.app.presentation.viewmodel.DocumentViewModel
 import com.teamshare.app.presentation.viewmodel.TeamViewModel
@@ -67,8 +76,50 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
             transferRepository = transferRepo,
             serviceController = TransferServiceController,
             directoryManager = dirManager,
-            auditRepository = auditRepo
+            auditRepository = auditRepo,
+            keyManager = keyManager,
+            documentRepository = docRepo,
+            teamRepository = teamRepo
         )
+    }
+
+    val peerSyncManager by lazy {
+        PeerSyncManager(
+            teamRepository = teamRepo,
+            documentRepository = docRepo,
+            auditRepository = auditRepo,
+            keyManager = keyManager,
+            context = context
+        ).apply {
+            onFileRequestedListener = { req, doc, file ->
+                val outSession = TransferSession(
+                    sessionId = req.streamId,
+                    docId = doc.docId,
+                    peerMemberId = req.requesterId,
+                    direction = TransferDirection.OUTGOING,
+                    channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+                    status = SessionStatus.TRANSFERRING,
+                    totalBytes = doc.fileSize,
+                    bytesTransferred = 0L
+                )
+                val relayStreamUrl = NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/stream")
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        transferCoordinator.startTransfer(
+                            session = outSession,
+                            file = file,
+                            streamId = req.streamId,
+                            relayUrl = relayStreamUrl,
+                            documentName = doc.fileName,
+                            teamId = req.teamId,
+                            expectedSha256 = doc.expectedSha256
+                        ).collect { progress ->
+                            // Ghi nhận tiến độ truyền gửi
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+        }
     }
 
     val teamViewModel by lazy {
@@ -77,15 +128,22 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
             createTeamUseCase = CreateTeamUseCase(teamRepo, keyManager, auditRepo),
             disbandTeamUseCase = DisbandTeamUseCase(teamRepo, keyManager, auditRepo, transferCoordinator),
             generateQrInviteUseCase = GenerateQrInviteUseCase(teamRepo, keyManager, auditRepo),
-            joinTeamViaQrUseCase = JoinTeamViaQrUseCase(teamRepo, keyManager, auditRepo),
+            joinTeamViaQrUseCase = JoinTeamViaQrUseCase(
+                teamRepository = teamRepo,
+                keyManager = keyManager,
+                auditRepository = auditRepo,
+                peerSyncGateway = peerSyncManager,
+                documentRepository = docRepo
+            ),
             getTeamMembersUseCase = GetTeamMembersUseCase(teamRepo),
             revokeMemberUseCase = RevokeMemberUseCase(teamRepo, transferCoordinator, auditRepo),
-            keyManager = keyManager
+            keyManager = keyManager,
+            peerSyncManager = peerSyncManager
         )
     }
 
     private val biometricManager by lazy { BiometricAuthManager(context) }
-    private val publishDocUseCase by lazy { PublishDocumentUseCase(docRepo, safGateway, auditRepo) }
+    private val publishDocUseCase by lazy { PublishDocumentUseCase(docRepo, safGateway, auditRepo, dirManager) }
     private val biometricUseCase by lazy { AuthenticateBiometricUseCase(biometricManager) }
     private val handleSendIntentUseCase by lazy { HandleSendIntentUseCase(publishDocUseCase, auditRepo) }
 
@@ -96,14 +154,16 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
             openSecureDocumentUseCase = OpenSecureDocumentUseCase(docRepo, fileProvider, dirManager),
             deleteDocumentUseCase = DeleteDocumentUseCase(docRepo, dirManager, auditRepo, teamRepo),
             authenticateBiometricUseCase = biometricUseCase,
-            handleSendIntentUseCase = handleSendIntentUseCase
+            handleSendIntentUseCase = handleSendIntentUseCase,
+            peerSyncManager = peerSyncManager
         )
     }
 
     val transferViewModel by lazy {
         TransferViewModel(
             controlSessionUseCase = ControlSessionUseCase(transferCoordinator, transferRepo, auditRepo),
-            transferCoordinator = transferCoordinator
+            transferCoordinator = transferCoordinator,
+            peerSyncManager = peerSyncManager
         )
     }
 

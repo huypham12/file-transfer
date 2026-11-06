@@ -55,7 +55,8 @@ data class DocumentCatalogUiState(
     val isPublishing: Boolean = false,
     val errorMessage: String? = null,
     val actionMessage: String? = null,
-    val openedDocumentUri: String? = null
+    val openedDocumentUri: String? = null,
+    val openedDocumentMimeType: String? = null
 )
 
 /**

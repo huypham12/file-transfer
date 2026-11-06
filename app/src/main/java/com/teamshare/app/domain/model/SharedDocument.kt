@@ -14,7 +14,9 @@ data class SharedDocument(
     val requireBiometric: Boolean = false,
     val localUri: String? = null,
     val downloadStatus: DownloadStatus = DownloadStatus.NOT_DOWNLOADED,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val publisherHost: String? = null,
+    val publisherPort: Int = 0
 ) {
     val isDownloaded: Boolean get() = downloadStatus == DownloadStatus.COMPLETED
     val isDownloading: Boolean get() = downloadStatus == DownloadStatus.DOWNLOADING

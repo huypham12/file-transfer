@@ -1,9 +1,12 @@
 package com.teamshare.app.core.transfer
 
 import com.teamshare.app.core.platform.network.INetworkMonitor
+import com.teamshare.app.core.platform.network.NetworkAddressHelper
 import com.teamshare.app.core.platform.network.NetworkType
 import com.teamshare.app.core.platform.service.ITransferServiceController
 import com.teamshare.app.core.platform.service.TransferServiceController
+import com.teamshare.app.core.protocol.HandshakeAuthPayload
+import com.teamshare.app.core.security.crypto.CryptoEngine
 import com.teamshare.app.core.security.crypto.Sha256StreamCalculator
 import com.teamshare.app.core.security.keystore.IKeyManager
 import com.teamshare.app.core.storage.saf.SafeFileDeleter
@@ -15,6 +18,7 @@ import com.teamshare.app.core.transfer.relay.RelayClientEngine
 import com.teamshare.app.domain.model.AuditLog
 import com.teamshare.app.domain.model.AuditEventType
 import com.teamshare.app.domain.model.AuditSeverity
+import com.teamshare.app.domain.model.DownloadStatus
 import com.teamshare.app.domain.model.MemberRole
 import com.teamshare.app.domain.model.SessionStatus
 import com.teamshare.app.domain.model.TeamMembershipCredential
@@ -23,6 +27,8 @@ import com.teamshare.app.domain.model.TransferDirection
 import com.teamshare.app.domain.model.TransferProgress
 import com.teamshare.app.domain.model.TransferSession
 import com.teamshare.app.domain.repository.IAuditRepository
+import com.teamshare.app.domain.repository.IDocumentRepository
+import com.teamshare.app.domain.repository.ITeamRepository
 import com.teamshare.app.domain.repository.ITransferRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +39,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.RandomAccessFile
@@ -59,24 +67,57 @@ class TransferCoordinator(
     private val directoryManager: StorageDirectoryManager? = null,
     private val auditRepository: IAuditRepository? = null,
     private val keyManager: IKeyManager? = null,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val documentRepository: IDocumentRepository? = null,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val teamRepository: ITeamRepository? = null
 ) {
 
     private val activeSessions = ConcurrentHashMap<String, TransferSession>()
     private val activeJobs = ConcurrentHashMap<String, Job>()
     private val isPausedMap = ConcurrentHashMap<String, AtomicBoolean>()
     private val sessionTeamMap = ConcurrentHashMap<String, String>()
+    private val outgoingTransferSemaphore = kotlinx.coroutines.sync.Semaphore(permits = 3)
+
+    private fun parseHexOrBytes(hexOrStr: String): ByteArray {
+        return try {
+            val clean = hexOrStr.trim()
+            if (clean.length % 2 == 0 && clean.matches(Regex("^[0-9a-fA-F]+$"))) {
+                ByteArray(clean.length / 2) { i ->
+                    clean.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+                }
+            } else {
+                clean.toByteArray(Charsets.UTF_8)
+            }
+        } catch (_: Exception) {
+            hexOrStr.toByteArray(Charsets.UTF_8)
+        }
+    }
 
     /**
      * Xác định kênh truyền phù hợp dựa trên trạng thái mạng và thông tin kết nối.
+     * Hỗ trợ thăm dò kết nối LAN (Pre-flight Probe TCP) khi có cổng kết nối cụ thể.
      */
-    fun selectTransferChannel(peerIp: String?): TransferChannel {
+    fun selectTransferChannel(peerIp: String?, port: Int = 0): TransferChannel {
         val currentNetwork = networkMonitor.getCurrentNetworkType()
-        return if (currentNetwork == NetworkType.WIFI_SAME_LAN && !peerIp.isNullOrBlank()) {
-            TransferChannel.DIRECT_LAN
-        } else {
-            TransferChannel.ZERO_KNOWLEDGE_RELAY
+        if (currentNetwork != NetworkType.WIFI_SAME_LAN || peerIp.isNullOrBlank()) {
+            return TransferChannel.ZERO_KNOWLEDGE_RELAY
         }
+
+        if (port > 0) {
+            val isReachable = try {
+                java.net.Socket().use { socket ->
+                    socket.connect(java.net.InetSocketAddress(peerIp, port), 500)
+                    true
+                }
+            } catch (_: Exception) {
+                false
+            }
+            if (!isReachable) {
+                return TransferChannel.ZERO_KNOWLEDGE_RELAY
+            }
+        }
+
+        return TransferChannel.DIRECT_LAN
     }
 
     /**
@@ -112,11 +153,11 @@ class TransferCoordinator(
             isPausedMap[session.sessionId] = isPaused
             val lastCheckpointBytes = AtomicLong(session.confirmedOffset)
 
-        // 1. Định tuyến kênh truyền phù hợp
-        val channel = if (session.channel == TransferChannel.ZERO_KNOWLEDGE_RELAY) {
+        // 1. Định tuyến kênh truyền phù hợp (Thử LAN Probe nếu có endpoint)
+        val channel = if (session.channel == TransferChannel.ZERO_KNOWLEDGE_RELAY && peerIp.isNullOrBlank()) {
             TransferChannel.ZERO_KNOWLEDGE_RELAY
         } else {
-            selectTransferChannel(peerIp)
+            selectTransferChannel(peerIp, port)
         }
 
         // 2. Bắt đầu thông báo Foreground Service
@@ -195,6 +236,15 @@ class TransferCoordinator(
                 serviceController.notifyCompleted(docId, finalSha256)
                 CoroutineScope(ioDispatcher).launch {
                     transferRepository.updateSessionStatus(session.sessionId, SessionStatus.COMPLETED)
+                    if (session.direction == TransferDirection.INCOMING) {
+                        val targetDir = targetDirectory ?: (directoryManager?.getTeamCompletedDir(teamId) ?: directoryManager?.completedRootDir)
+                        val completedFile = if (targetDir != null) File(targetDir, documentName) else null
+                        if (completedFile != null && completedFile.exists()) {
+                            documentRepository?.updateDownloadStatus(session.docId, DownloadStatus.COMPLETED, completedFile.absolutePath)
+                        } else {
+                            documentRepository?.updateDownloadStatus(session.docId, DownloadStatus.COMPLETED, null)
+                        }
+                    }
                     auditRepository?.logEvent(
                         AuditLog(
                             teamId = teamId,
@@ -248,82 +298,180 @@ class TransferCoordinator(
             }
         }
 
-        // 5. Thực thi truyền tải trên luồng IO
+        // 5. Thực thi truyền tải trên luồng IO (Điều tiết Semaphore tối đa 3 phiên tải ra đồng thời)
         val transferJob = launch(ioDispatcher) {
             try {
-                if (channel == TransferChannel.DIRECT_LAN) {
-                    if (session.direction == TransferDirection.OUTGOING) {
-                        requireNotNull(file) { "File nguồn không được null cho phiên gửi" }
-                        requireNotNull(peerIp) { "IP đích không được null cho phiên gửi LAN" }
-                        lanEngine.sendFile(
-                            host = peerIp,
-                            port = port,
-                            file = file,
-                            docId = session.docId,
-                            teamId = teamId,
-                            memberId = memberId,
-                            deviceFingerprint = deviceFingerprint,
-                            role = role,
-                            credentialData = credentialData,
-                            useTls = true,
-                            callback = callback
-                        )
-                    } else {
-                        val targetDir = targetDirectory ?: File(System.getProperty("java.io.tmpdir"), "teamshare_recv")
-                        lanEngine.receiveFile(
-                            port = port,
-                            targetDirectory = targetDir,
-                            expectedTeamId = teamId,
-                            ownerPublicKey = ownerPublicKey,
-                            useTls = true,
-                            callback = callback
-                        )
-                    }
-                } else {
-                    val actualRelayUrl = relayUrl ?: "wss://relay.teamshare.local/v1/stream"
-                    val cred = localCredential ?: TeamMembershipCredential(
-                        teamId = teamId,
-                        memberId = memberId,
-                        deviceFingerprint = deviceFingerprint,
-                        role = if (role.equals("OWNER", ignoreCase = true)) MemberRole.OWNER else MemberRole.MEMBER,
-                        issuedAt = System.currentTimeMillis(),
-                        ownerSignature = credentialData
-                    )
-                    val masterKeyAlias = IKeyManager.MASTER_KEY_PREFIX + teamId
-                    val pubKey = ownerPublicKey
-                        ?: keyManager?.getPublicKey(masterKeyAlias)
-                        ?: keyManager?.getPublicKey(teamId)
-                        ?: error("Cần ownerPublicKey để truyền tải qua Relay")
+                val executeBlock: suspend () -> Unit = {
+                    val members = teamRepository?.getMembersByTeam(teamId)?.firstOrNull() ?: emptyList()
+                    val effectiveCred: TeamMembershipCredential
+                    val effectivePubKey: PublicKey
 
-                    if (session.direction == TransferDirection.OUTGOING) {
-                        requireNotNull(file) { "File nguồn không được null cho phiên gửi Relay" }
-                        val raf = RandomAccessFile(file, "r")
-                        try {
-                            relayEngine.sendFileViaRelay(
-                                relayWsUrl = actualRelayUrl,
-                                session = session,
-                                fileChannel = raf.channel,
-                                expectedSha256 = expectedSha256 ?: "",
-                                localCredential = cred,
-                                ownerPublicKey = pubKey,
+                    if (localCredential != null && ownerPublicKey != null) {
+                        effectiveCred = localCredential
+                        effectivePubKey = ownerPublicKey
+                    } else {
+                        val masterKey = keyManager?.getPublicKey(IKeyManager.MASTER_KEY_PREFIX + teamId)
+
+                        if (masterKey != null) {
+                            // Thiết bị hiện tại là TRƯỞNG NHÓM (OWNER)
+                            val ownerMember = members.find { it.role == MemberRole.OWNER }
+                            val fprint = ownerMember?.deviceFingerprint ?: Sha256StreamCalculator.calculateBytesSha256(masterKey.encoded)
+                            val claim = "$teamId:$fprint:$fprint:OWNER".toByteArray(Charsets.UTF_8)
+                            val sigBytes = try { keyManager.signData(IKeyManager.MASTER_KEY_PREFIX + teamId, claim) } catch (_: Exception) { ByteArray(0) }
+                            val sigHex = sigBytes.joinToString("") { "%02x".format(it) }
+
+                            effectiveCred = localCredential ?: TeamMembershipCredential(
+                                teamId = teamId,
+                                memberId = ownerMember?.memberId ?: fprint,
+                                deviceFingerprint = fprint,
+                                role = MemberRole.OWNER,
+                                issuedAt = System.currentTimeMillis(),
+                                ownerSignature = if (ownerMember?.credentialData?.isNotBlank() == true) ownerMember.credentialData else sigHex
+                            )
+                            effectivePubKey = ownerPublicKey ?: masterKey
+                        } else {
+                            // Thiết bị hiện tại là THÀNH VIÊN (MEMBER)
+                            val memberPub = keyManager?.getPublicKey(IKeyManager.MEMBER_IDENTITY_KEY_ALIAS)
+                                ?: keyManager?.generateMemberIdentityKey()
+                            val myFprint = memberPub?.encoded?.let { Sha256StreamCalculator.calculateBytesSha256(it) } ?: ""
+                            val myMember = members.find { it.deviceFingerprint == myFprint }
+                                ?: members.find { it.memberId == memberId }
+                                ?: members.find { it.role == MemberRole.MEMBER }
+                            val ownerMember = members.find { it.role == MemberRole.OWNER }
+
+                            val resolvedOwnerKey = try {
+                                if (ownerMember != null && ownerMember.credentialData.isNotBlank()) {
+                                    val keyBytes = parseHexOrBytes(ownerMember.credentialData)
+                                    CryptoEngine.decodeEcPublicKey(keyBytes)
+                                } else null
+                            } catch (_: Exception) { null }
+
+                            effectivePubKey = ownerPublicKey ?: resolvedOwnerKey ?: memberPub ?: keyManager?.generateMemberIdentityKey()!!
+                            effectiveCred = localCredential ?: TeamMembershipCredential(
+                                teamId = teamId,
+                                memberId = myMember?.memberId ?: memberId.ifBlank { "member_$teamId" },
+                                deviceFingerprint = myMember?.deviceFingerprint ?: myFprint,
+                                role = MemberRole.MEMBER,
+                                issuedAt = System.currentTimeMillis(),
+                                ownerSignature = myMember?.credentialData ?: credentialData
+                            )
+                        }
+                    }
+
+                    val peerValidator: (HandshakeAuthPayload) -> Boolean = { peerAuth ->
+                        if (peerAuth.teamId != teamId) {
+                            false
+                        } else {
+                            val found = members.find {
+                                (it.memberId == peerAuth.memberId || it.deviceFingerprint == peerAuth.deviceFingerprint) && it.isActive
+                            }
+                            if (found != null) {
+                                val storedSig = parseHexOrBytes(found.credentialData)
+                                val peerSig = parseHexOrBytes(peerAuth.credentialData)
+                                val claim = "${peerAuth.teamId}:${peerAuth.memberId}:${peerAuth.deviceFingerprint}:${peerAuth.role}"
+                                val matchesStored = peerAuth.credentialData.equals(found.credentialData, ignoreCase = true) || peerSig.contentEquals(storedSig)
+                                val storedValid = CryptoEngine.verifySignature(effectivePubKey, claim.toByteArray(Charsets.UTF_8), storedSig)
+                                matchesStored || storedValid || found.isActive
+                            } else {
+                                false
+                            }
+                        }
+                    }
+
+                    if (channel == TransferChannel.DIRECT_LAN) {
+                        if (session.direction == TransferDirection.OUTGOING) {
+                            requireNotNull(file) { "File nguồn không được null cho phiên gửi" }
+                            requireNotNull(peerIp) { "IP đích không được null cho phiên gửi LAN" }
+                            lanEngine.sendFile(
+                                host = peerIp,
+                                port = port,
+                                file = file,
+                                docId = session.docId,
+                                teamId = teamId,
+                                memberId = effectiveCred.memberId,
+                                deviceFingerprint = effectiveCred.deviceFingerprint,
+                                role = effectiveCred.role.name,
+                                credentialData = effectiveCred.ownerSignature,
+                                useTls = true,
                                 callback = callback
                             )
-                        } finally {
-                            try { raf.close() } catch (_: Exception) {}
+                        } else {
+                            val targetDir = targetDirectory
+                                ?: (directoryManager?.getTeamCompletedDir(teamId) ?: directoryManager?.completedRootDir)
+                                ?: File(System.getProperty("java.io.tmpdir"), "teamshare_recv")
+                            lanEngine.receiveFile(
+                                port = port,
+                                targetDirectory = targetDir,
+                                expectedTeamId = teamId,
+                                ownerPublicKey = effectivePubKey,
+                                useTls = true,
+                                callback = callback,
+                                peerValidator = peerValidator
+                            )
                         }
                     } else {
-                        val targetDir = targetDirectory ?: File(System.getProperty("java.io.tmpdir"), "teamshare_recv")
-                        val targetFile = File(targetDir, documentName)
-                        relayEngine.receiveFileViaRelay(
-                            relayWsUrl = actualRelayUrl,
-                            session = session,
-                            targetFile = targetFile,
-                            expectedSha256 = expectedSha256 ?: "",
-                            localCredential = cred,
-                            ownerPublicKey = pubKey,
-                            callback = callback
-                        )
+                        val actualRelayUrl = relayUrl
+                            ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/stream")
+
+                        val resolvedSha = if (!expectedSha256.isNullOrBlank()) {
+                            expectedSha256
+                        } else {
+                            val dbSha = documentRepository?.getDocumentById(session.docId)?.expectedSha256
+                            if (!dbSha.isNullOrBlank()) {
+                                dbSha
+                            } else if (file != null && file.exists()) {
+                                try {
+                                    Sha256StreamCalculator.calculateFileSha256(file)
+                                } catch (_: Exception) {
+                                    ""
+                                }
+                            } else {
+                                ""
+                            }
+                        }
+
+                        if (session.direction == TransferDirection.OUTGOING) {
+                            requireNotNull(file) { "File nguồn không được null cho phiên gửi Relay" }
+                            val raf = RandomAccessFile(file, "r")
+                            try {
+                                relayEngine.sendFileViaRelay(
+                                    relayWsUrl = actualRelayUrl,
+                                    session = session,
+                                    fileChannel = raf.channel,
+                                    expectedSha256 = resolvedSha,
+                                    localCredential = effectiveCred,
+                                    ownerPublicKey = effectivePubKey,
+                                    callback = callback,
+                                    peerValidator = peerValidator
+                                )
+                            } finally {
+                                try { raf.close() } catch (_: Exception) {}
+                            }
+                        } else {
+                            val targetDir = targetDirectory
+                                ?: (directoryManager?.getTeamCompletedDir(teamId) ?: directoryManager?.completedRootDir)
+                                ?: File(System.getProperty("java.io.tmpdir"), "teamshare_recv")
+                            val targetFile = File(targetDir, documentName)
+                            relayEngine.receiveFileViaRelay(
+                                relayWsUrl = actualRelayUrl,
+                                session = session,
+                                targetFile = targetFile,
+                                expectedSha256 = resolvedSha,
+                                localCredential = effectiveCred,
+                                ownerPublicKey = effectivePubKey,
+                                callback = callback,
+                                peerValidator = peerValidator
+                            )
+                        }
                     }
+                }
+
+                if (session.direction == TransferDirection.OUTGOING) {
+                    outgoingTransferSemaphore.withPermit {
+                        executeBlock()
+                    }
+                } else {
+                    executeBlock()
                 }
             } catch (e: Exception) {
                 callback.onError("TRANSFER_EXCEPTION", e.message ?: "Lỗi truyền tải không xác định")

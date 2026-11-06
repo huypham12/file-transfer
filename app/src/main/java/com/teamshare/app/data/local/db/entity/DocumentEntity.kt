@@ -63,6 +63,12 @@ data class DocumentEntity(
     val downloadStatus: String = "NOT_DOWNLOADED",
 
     @ColumnInfo(name = "created_at")
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+
+    @ColumnInfo(name = "publisher_host")
+    val publisherHost: String? = null,
+
+    @ColumnInfo(name = "publisher_port")
+    val publisherPort: Int = 0
 )
 

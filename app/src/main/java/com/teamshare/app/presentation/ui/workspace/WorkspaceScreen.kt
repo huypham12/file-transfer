@@ -2,6 +2,8 @@ package com.teamshare.app.presentation.ui.workspace
 
 import android.content.Intent
 import android.net.Uri
+import android.webkit.MimeTypeMap
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -81,15 +83,52 @@ fun WorkspaceScreen(
     LaunchedEffect(catalogState.openedDocumentUri) {
         val uriStr = catalogState.openedDocumentUri
         if (!uriStr.isNullOrBlank()) {
-            runCatching {
-                val openIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(Uri.parse(uriStr), "*/*")
+            try {
+                val parsedUri = Uri.parse(uriStr)
+                val docMime = catalogState.openedDocumentMimeType
+                val resolvedMime = when {
+                    !docMime.isNullOrBlank() && docMime != "application/octet-stream" && docMime != "*/*" -> docMime
+                    parsedUri.scheme == "content" -> context.contentResolver.getType(parsedUri)
+                    else -> null
+                } ?: run {
+                    val ext = MimeTypeMap.getFileExtensionFromUrl(uriStr).ifBlank {
+                        uriStr.substringAfterLast('.', "")
+                    }.lowercase()
+                    MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "*/*"
+                }
+
+                val targetIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(parsedUri, resolvedMime)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                context.startActivity(openIntent)
+
+                val chooser = Intent.createChooser(targetIntent, "Mở tài liệu bằng...")
+                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                context.startActivity(chooser)
+            } catch (e: Exception) {
+                // Thử mở lại với MIME fallback */* nếu lỗi
+                try {
+                    val fallbackIntent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(Uri.parse(uriStr), "*/*")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    val chooser = Intent.createChooser(fallbackIntent, "Mở tài liệu bằng...")
+                    chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    context.startActivity(chooser)
+                } catch (err: Exception) {
+                    Toast.makeText(
+                        context,
+                        "Không thể mở tệp: ${err.message ?: "Chưa cài ứng dụng đọc định dạng này"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            } finally {
+                documentViewModel.clearOpenedDocumentUri()
             }
-            documentViewModel.clearOpenedDocumentUri()
         }
     }
 
@@ -192,19 +231,28 @@ fun WorkspaceScreen(
             TabRow(selectedTabIndex = selectedTabIndex) {
                 Tab(
                     selected = selectedTabIndex == 0,
-                    onClick = { selectedTabIndex = 0 },
+                    onClick = {
+                        selectedTabIndex = 0
+                        documentViewModel.loadDocuments(teamId)
+                    },
                     text = { Text("Tài liệu") },
                     icon = { Icon(imageVector = Icons.Default.Description, contentDescription = null) }
                 )
                 Tab(
                     selected = selectedTabIndex == 1,
-                    onClick = { selectedTabIndex = 1 },
+                    onClick = {
+                        selectedTabIndex = 1
+                        teamViewModel.loadWorkspace(teamId)
+                    },
                     text = { Text("Thành viên") },
                     icon = { Icon(imageVector = Icons.Default.Group, contentDescription = null) }
                 )
                 Tab(
                     selected = selectedTabIndex == 2,
-                    onClick = { selectedTabIndex = 2 },
+                    onClick = {
+                        selectedTabIndex = 2
+                        auditViewModel.loadLogs(teamId)
+                    },
                     text = { Text("Hoạt động") },
                     icon = { Icon(imageVector = Icons.Default.History, contentDescription = null) }
                 )

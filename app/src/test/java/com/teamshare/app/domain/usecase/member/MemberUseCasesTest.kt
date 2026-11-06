@@ -26,6 +26,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -162,6 +163,73 @@ class MemberUseCasesTest {
         assertEquals("Phải có 2 thành viên: Trưởng nhóm và thành viên mới gia nhập", 2, members.size)
         assertTrue(members.any { it.role == MemberRole.OWNER })
         assertTrue(members.any { it.memberName == "huy" && it.role == MemberRole.MEMBER })
+    }
+
+    @Test
+    fun testJoinTeamWithSyncGatewaySuccess_SyncsAllData() = runBlocking {
+        val qrResult = generateQrInviteUseCase(testTeamId, ttlSec = 600L).first()
+        val payload = qrResult.getOrThrow()
+
+        val freshTeamRepo = FakeTeamRepository()
+        val freshKeyManager = SoftwareKeyManager()
+        val mockGateway = object : com.teamshare.app.domain.repository.IPeerSyncGateway {
+            override suspend fun sendJoinRequest(
+                qrPayload: QrInvitePayload,
+                member: TeamMember
+            ): Result<com.teamshare.app.domain.repository.JoinSyncResponse> {
+                return Result.success(
+                    com.teamshare.app.domain.repository.JoinSyncResponse(
+                        status = "OK",
+                        message = "Phê duyệt thành công",
+                        members = listOf(
+                            TeamMember("existing_m2", qrPayload.teamId, "Member 2", "fp2", MemberRole.MEMBER, "cred2", true)
+                        ),
+                        documents = emptyList()
+                    )
+                )
+            }
+        }
+
+        val joinUseCase = JoinTeamViaQrUseCase(
+            teamRepository = freshTeamRepo,
+            keyManager = freshKeyManager,
+            auditRepository = null,
+            peerSyncGateway = mockGateway
+        )
+        val result = joinUseCase(payload, "Test Member").first()
+        assertTrue(result.isSuccess)
+
+        val allMembers = freshTeamRepo.getMembersByTeam(testTeamId).first()
+        assertEquals("Phải có 3 thành viên (Owner + Candidate + Synced Member)", 3, allMembers.size)
+    }
+
+    @Test
+    fun testJoinTeamWithSyncGatewayFailure_AbortsWithoutSaving() = runBlocking {
+        val qrResult = generateQrInviteUseCase(testTeamId, ttlSec = 600L).first()
+        val payload = qrResult.getOrThrow()
+
+        val freshTeamRepo = FakeTeamRepository()
+        val freshKeyManager = SoftwareKeyManager()
+        val mockGateway = object : com.teamshare.app.domain.repository.IPeerSyncGateway {
+            override suspend fun sendJoinRequest(
+                qrPayload: QrInvitePayload,
+                member: TeamMember
+            ): Result<com.teamshare.app.domain.repository.JoinSyncResponse> {
+                return Result.failure(Exception("Mạng không khả dụng"))
+            }
+        }
+
+        val joinUseCase = JoinTeamViaQrUseCase(
+            teamRepository = freshTeamRepo,
+            keyManager = freshKeyManager,
+            auditRepository = null,
+            peerSyncGateway = mockGateway
+        )
+        val result = joinUseCase(payload, "Test Member").first()
+        assertTrue("Bắt tay thất bại thì phải báo lỗi", result.isFailure)
+
+        val team = freshTeamRepo.getTeamById(testTeamId).first()
+        assertNull("Không được lưu nhóm khi bắt tay thất bại", team)
     }
 
     @Test

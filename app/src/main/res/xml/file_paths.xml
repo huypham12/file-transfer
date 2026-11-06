@@ -2,5 +2,11 @@
 <paths>
     <!-- Thư mục lưu trữ an toàn các tệp hoàn chỉnh theo nhóm -->
     <files-path name="completed_files" path="transfers/completed/" />
+    <!-- Toàn bộ thư mục nội bộ an toàn (Internal Files) -->
+    <files-path name="internal_files" path="." />
+    <!-- Thư mục bộ nhớ đệm (Cache Files) -->
+    <cache-path name="cache_files" path="." />
+    <!-- Thư mục lưu trữ ngoài của ứng dụng (External Files) -->
+    <external-files-path name="external_files" path="." />
 </paths>
 

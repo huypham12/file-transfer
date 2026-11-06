@@ -2,11 +2,17 @@ package com.teamshare.app.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.teamshare.app.core.network.sync.PeerSyncManager
+import com.teamshare.app.core.platform.network.NetworkAddressHelper
 import com.teamshare.app.core.transfer.TransferCoordinator
 import com.teamshare.app.core.transfer.lan.TransferEngineState
 import com.teamshare.app.domain.model.SessionCmd
+import com.teamshare.app.domain.model.SessionStatus
+import com.teamshare.app.domain.model.TransferDirection
 import com.teamshare.app.domain.model.TransferProgress
+import com.teamshare.app.domain.model.TransferSession
 import com.teamshare.app.domain.usecase.transfer.ControlSessionUseCase
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -24,6 +30,7 @@ import kotlinx.coroutines.launch
 class TransferViewModel(
     private val controlSessionUseCase: ControlSessionUseCase,
     private val transferCoordinator: TransferCoordinator? = null,
+    private val peerSyncManager: PeerSyncManager? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
@@ -71,7 +78,11 @@ class TransferViewModel(
     /**
      * Lắng nghe dòng dữ liệu tiến độ thời gian thực với cơ chế điều tiết 100ms.
      */
-    fun observeProgress(progressFlow: Flow<TransferProgress>, fileName: String = "") {
+    fun observeProgress(
+        progressFlow: Flow<TransferProgress>,
+        fileName: String = "",
+        onCompleted: (() -> Unit)? = null
+    ) {
         progressJob?.cancel()
         lastEmitTime = 0L
         progressJob = scope.launch {
@@ -92,8 +103,87 @@ class TransferViewModel(
                         )
                     }
                 }
+
+                if (progress.isCompleted) {
+                    onCompleted?.invoke()
+                }
             }
         }
+    }
+
+    /**
+     * Khởi chạy phiên tải tệp từ một thành viên trong nhóm (UC-11, UC-12, UC-13).
+     */
+    fun startDownload(
+        docId: String,
+        fileName: String,
+        fileSize: Long,
+        teamId: String,
+        requesterId: String = "",
+        peerHost: String? = null,
+        peerPort: Int = 0,
+        relayUrl: String? = null,
+        expectedSha256: String? = null,
+        onCompleted: (() -> Unit)? = null
+    ): String {
+        val coordinator = transferCoordinator ?: return "session_dl_$docId"
+        val cleanRequesterId = requesterId.ifBlank { "client_${System.currentTimeMillis() % 100000}" }
+        val sessionId = "session_dl_${docId}_$cleanRequesterId"
+        val relayStreamUrl = relayUrl
+            ?: peerSyncManager?.getRelayUrlForTeam(teamId)?.replace("v1/sync", "v1/stream")
+            ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/stream")
+        val channel = coordinator.selectTransferChannel(peerHost)
+
+        val session = TransferSession(
+            sessionId = sessionId,
+            docId = docId,
+            peerMemberId = peerHost ?: "peer_$docId",
+            direction = TransferDirection.INCOMING,
+            channel = channel,
+            status = SessionStatus.TRANSFERRING,
+            totalBytes = fileSize,
+            bytesTransferred = 0L
+        )
+
+        _uiState.update {
+            it.copy(
+                sessionId = sessionId,
+                fileName = fileName,
+                totalBytes = fileSize,
+                transferredBytes = 0L,
+                progressPercent = 0f,
+                channel = channel,
+                state = TransferEngineState.CONNECTING,
+                errorMessage = null
+            )
+        }
+
+        // Bắn tín hiệu FILE_REQUEST cho người công bố tệp qua kênh đồng bộ Relay / LAN
+        scope.launch {
+            peerSyncManager?.requestFileDownload(
+                teamId = teamId,
+                docId = docId,
+                streamId = sessionId,
+                requesterId = cleanRequesterId,
+                requesterName = "Thành viên",
+                relayUrl = peerSyncManager.getRelayUrlForTeam(teamId)
+                    ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/sync")
+            )
+        }
+
+        val progressFlow = coordinator.startTransfer(
+            session = session,
+            peerIp = peerHost,
+            port = peerPort,
+            relayUrl = relayStreamUrl,
+            streamId = sessionId,
+            documentName = fileName,
+            teamId = teamId,
+            expectedSha256 = expectedSha256
+        )
+
+        observeProgress(progressFlow, fileName, onCompleted)
+        return sessionId
     }
 
     /**

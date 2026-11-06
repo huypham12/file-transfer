@@ -64,7 +64,24 @@ fun AppNavHost(
                     navController.navigate(Screen.QrInvite.createRoute(teamId))
                 },
                 onRequestDownload = { docId ->
-                    val sessionId = "session_dl_$docId"
+                    val doc = documentViewModel.catalogUiState.value.documents.find { it.docId == docId }
+                    val fileName = doc?.fileName ?: "document_$docId"
+                    val fileSize = doc?.fileSize ?: 0L
+                    val currentMemberId = teamViewModel.workspaceUiState.value.currentMemberId ?: "member"
+
+                    val sessionId = transferViewModel.startDownload(
+                        docId = docId,
+                        fileName = fileName,
+                        fileSize = fileSize,
+                        teamId = teamId,
+                        requesterId = currentMemberId,
+                        peerHost = doc?.publisherHost,
+                        peerPort = doc?.publisherPort ?: 0,
+                        expectedSha256 = doc?.expectedSha256,
+                        onCompleted = {
+                            documentViewModel.loadDocuments(teamId)
+                        }
+                    )
                     navController.navigate(Screen.TransferProgress.createRoute(sessionId))
                 },
                 onOpenDocument = { docId ->

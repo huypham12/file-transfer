@@ -18,9 +18,46 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val keystorePath = (project.findProperty("KEYSTORE_FILE") as? String)
+                ?: System.getenv("KEYSTORE_FILE")
+            val keystoreFile = if (keystorePath != null) file(keystorePath) else null
+
+            if (keystoreFile != null && keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = (project.findProperty("KEYSTORE_PASSWORD") as? String)
+                    ?: System.getenv("KEYSTORE_PASSWORD") ?: ""
+                keyAlias = (project.findProperty("KEY_ALIAS") as? String)
+                    ?: System.getenv("KEY_ALIAS") ?: ""
+                keyPassword = (project.findProperty("KEY_PASSWORD") as? String)
+                    ?: System.getenv("KEY_PASSWORD") ?: ""
+            } else {
+                logger.warn("==========================================================================")
+                logger.warn("[WARNING] Không tìm thấy KEYSTORE_FILE. Tự động fallback sang Debug Keystore.")
+                logger.warn("Bản APK này chỉ dùng cho kiểm thử nội bộ/CI. KHÔNG tải lên Google Play Store!")
+                logger.warn("==========================================================================")
+                // Tự động fallback an toàn ký bằng Debug Keystore trên môi trường CI/CD
+                val debugSigning = getByName("debug")
+                storeFile = debugSigning.storeFile
+                storePassword = debugSigning.storePassword
+                keyAlias = debugSigning.keyAlias
+                keyPassword = debugSigning.keyPassword
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            isDebuggable = true
+            buildConfigField("String", "RELAY_URL", "\"ws://10.0.2.2:8080/v1/stream\"")
+        }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
+            buildConfigField("String", "RELAY_URL", "\"wss://relay.teamshare.internal/v1/stream\"")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -33,6 +70,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

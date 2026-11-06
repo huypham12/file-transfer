@@ -1,5 +1,6 @@
 package com.teamshare.app.domain.usecase.member
 
+import com.teamshare.app.core.platform.network.NetworkAddressHelper
 import com.teamshare.app.core.security.crypto.CryptoEngine
 import com.teamshare.app.core.security.keystore.IKeyManager
 import com.teamshare.app.domain.model.AuditLog
@@ -23,7 +24,13 @@ class GenerateQrInviteUseCase(
     private val keyManager: IKeyManager,
     private val auditRepository: IAuditRepository? = null
 ) {
-    operator fun invoke(teamId: String, ttlSec: Long = 600L): Flow<Result<QrInvitePayload>> = flow {
+    operator fun invoke(
+        teamId: String,
+        ttlSec: Long = 600L,
+        customHost: String? = null,
+        port: Int = NetworkAddressHelper.DEFAULT_SYNC_PORT,
+        customRelayUrl: String? = null
+    ): Flow<Result<QrInvitePayload>> = flow {
         if (teamId.isBlank()) {
             emit(Result.failure(IllegalArgumentException("teamId không được để trống")))
             return@flow
@@ -47,13 +54,19 @@ class GenerateQrInviteUseCase(
                 val signatureBytes = keyManager.signData(masterKeyAlias, payloadData.toByteArray())
                 val signatureHex = signatureBytes.joinToString("") { "%02x".format(it) }
 
+                val ownerHost = customHost ?: NetworkAddressHelper.getLocalIpv4Address()
+                val relayUrl = customRelayUrl ?: NetworkAddressHelper.getDefaultRelayUrl(ownerHost)
+
                 val qrPayload = QrInvitePayload(
                     teamId = teamId,
                     invitationToken = invitationToken,
                     expiresAt = expiresAt,
                     ownerPublicKey = ownerPublicKeyHex,
                     signature = signatureHex,
-                    teamName = team.teamName
+                    teamName = team.teamName,
+                    ownerHost = ownerHost,
+                    ownerPort = port,
+                    relayUrl = relayUrl
                 )
 
                 auditRepository?.logEvent(

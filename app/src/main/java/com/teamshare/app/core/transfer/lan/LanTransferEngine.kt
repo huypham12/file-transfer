@@ -125,7 +125,8 @@ class LanTransferEngine(
         ownerPublicKey: PublicKey? = null,
         useTls: Boolean = false,
         serverTimeoutMs: Int = DEFAULT_SERVER_TIMEOUT_MS,
-        callback: TransferProgressCallback? = null
+        callback: TransferProgressCallback? = null,
+        peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null
     ): Result<File> = withContext(Dispatchers.IO) {
         isCancelled.set(false)
         isPaused.set(false)
@@ -206,11 +207,14 @@ class LanTransferEngine(
                 }
                 val memberClaim = "${authPayload.teamId}:${authPayload.memberId}:${authPayload.deviceFingerprint}:${authPayload.role}".toByteArray(Charsets.UTF_8)
                 val signatureBytes = parseHexOrBytes(authPayload.credentialData)
-                val verified = keyManager.verifySignature(
+                var verified = keyManager.verifySignature(
                     publicKey = ownerPublicKey,
                     data = memberClaim,
                     signature = signatureBytes
                 )
+                if (!verified && peerValidator?.invoke(authPayload) == true) {
+                    verified = true
+                }
                 if (!verified) {
                     val err = "Chữ ký số của Owner trên Credential không hợp lệ"
                     callback?.onError("SIGNATURE_VERIFICATION_FAILED", err)

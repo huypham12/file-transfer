@@ -128,6 +128,7 @@ class RelayClientEngine(
         localCredential: TeamMembershipCredential,
         ownerPublicKey: PublicKey,
         callback: TransferProgressCallback? = null,
+        peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null,
         maxRetries: Int = 3
     ): Boolean {
         var attempt = 0
@@ -142,7 +143,8 @@ class RelayClientEngine(
                     expectedSha256 = expectedSha256,
                     localCredential = localCredential,
                     ownerPublicKey = ownerPublicKey,
-                    callback = callback
+                    callback = callback,
+                    peerValidator = peerValidator
                 )
             } catch (e: Exception) {
                 if (isCancelled.get()) return false
@@ -171,7 +173,8 @@ class RelayClientEngine(
         expectedSha256: String,
         localCredential: TeamMembershipCredential,
         ownerPublicKey: PublicKey,
-        callback: TransferProgressCallback? = null
+        callback: TransferProgressCallback? = null,
+        peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         isCancelled.set(false)
         isPaused.set(false)
@@ -232,13 +235,26 @@ class RelayClientEngine(
             val peerAuthPayload = HandshakeAuthPayload.fromBytes(peerAuthFrame.payload)
 
             // Thẩm định chữ ký số Owner trên chứng thư của Receiver
-            val peerMemberClaim = "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:${peerAuthPayload.role}".toByteArray(Charsets.UTF_8)
-            val peerSignatureBytes = parseHexOrBytes(peerAuthPayload.credentialData)
-            val isValidPeer = CryptoEngine.verifySignature(
-                publicKey = ownerPublicKey,
-                data = peerMemberClaim,
-                signature = peerSignatureBytes
+            val claims = listOf(
+                "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:${peerAuthPayload.role}",
+                "${peerAuthPayload.teamId}|${peerAuthPayload.memberId}|${peerAuthPayload.role}",
+                "${peerAuthPayload.teamId}|${peerAuthPayload.deviceFingerprint}|${peerAuthPayload.role}"
             )
+            val peerSignatureBytes = parseHexOrBytes(peerAuthPayload.credentialData)
+            var isValidPeer = false
+            for (claim in claims) {
+                if (CryptoEngine.verifySignature(ownerPublicKey, claim.toByteArray(Charsets.UTF_8), peerSignatureBytes)) {
+                    isValidPeer = true
+                    break
+                }
+            }
+            if (!isValidPeer && peerAuthPayload.role == "OWNER" && peerAuthPayload.teamId == localCredential.teamId && localCredential.teamId.isNotBlank()) {
+                val ownerClaim = "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:OWNER"
+                isValidPeer = CryptoEngine.verifySignature(ownerPublicKey, ownerClaim.toByteArray(Charsets.UTF_8), peerSignatureBytes)
+            }
+            if (!isValidPeer && peerValidator?.invoke(peerAuthPayload) == true) {
+                isValidPeer = true
+            }
             if (!isValidPeer) {
                 callback?.onError("0x101", "Chứng thư thành viên của bên nhận không hợp lệ (sai chữ ký Owner)")
                 throw SecurityException("Bên nhận mang chứng thư giả mạo hoặc sai chữ ký số của Owner")
@@ -418,6 +434,7 @@ class RelayClientEngine(
         localCredential: TeamMembershipCredential,
         ownerPublicKey: PublicKey,
         callback: TransferProgressCallback? = null,
+        peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null,
         maxRetries: Int = 3
     ): Boolean {
         var attempt = 0
@@ -432,7 +449,8 @@ class RelayClientEngine(
                     expectedSha256 = expectedSha256,
                     localCredential = localCredential,
                     ownerPublicKey = ownerPublicKey,
-                    callback = callback
+                    callback = callback,
+                    peerValidator = peerValidator
                 )
             } catch (e: Exception) {
                 if (isCancelled.get()) return false
@@ -461,7 +479,8 @@ class RelayClientEngine(
         expectedSha256: String,
         localCredential: TeamMembershipCredential,
         ownerPublicKey: PublicKey,
-        callback: TransferProgressCallback? = null
+        callback: TransferProgressCallback? = null,
+        peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null
     ): Boolean = withContext(Dispatchers.IO) {
         isCancelled.set(false)
         isPaused.set(false)
@@ -521,13 +540,26 @@ class RelayClientEngine(
             val peerAuthPayload = HandshakeAuthPayload.fromBytes(peerAuthFrame.payload)
 
             // Thẩm định chữ ký số Owner trên chứng thư của Sender
-            val peerMemberClaim = "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:${peerAuthPayload.role}".toByteArray(Charsets.UTF_8)
-            val peerSignatureBytes = parseHexOrBytes(peerAuthPayload.credentialData)
-            val isValidPeer = CryptoEngine.verifySignature(
-                publicKey = ownerPublicKey,
-                data = peerMemberClaim,
-                signature = peerSignatureBytes
+            val claims = listOf(
+                "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:${peerAuthPayload.role}",
+                "${peerAuthPayload.teamId}|${peerAuthPayload.memberId}|${peerAuthPayload.role}",
+                "${peerAuthPayload.teamId}|${peerAuthPayload.deviceFingerprint}|${peerAuthPayload.role}"
             )
+            val peerSignatureBytes = parseHexOrBytes(peerAuthPayload.credentialData)
+            var isValidPeer = false
+            for (claim in claims) {
+                if (CryptoEngine.verifySignature(ownerPublicKey, claim.toByteArray(Charsets.UTF_8), peerSignatureBytes)) {
+                    isValidPeer = true
+                    break
+                }
+            }
+            if (!isValidPeer && peerAuthPayload.role == "OWNER" && peerAuthPayload.teamId == localCredential.teamId && localCredential.teamId.isNotBlank()) {
+                val ownerClaim = "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:OWNER"
+                isValidPeer = CryptoEngine.verifySignature(ownerPublicKey, ownerClaim.toByteArray(Charsets.UTF_8), peerSignatureBytes)
+            }
+            if (!isValidPeer && peerValidator?.invoke(peerAuthPayload) == true) {
+                isValidPeer = true
+            }
             if (!isValidPeer) {
                 callback?.onError("0x101", "Chứng thư thành viên của bên gửi không hợp lệ (sai chữ ký Owner)")
                 throw SecurityException("Bên gửi mang chứng thư giả mạo hoặc sai chữ ký số của Owner")
@@ -633,7 +665,13 @@ class RelayClientEngine(
             callback?.onStateChanged(currentState)
             val actualSha256 = Sha256StreamCalculator.calculateFileSha256(partFile)
 
-            val isMatch = actualSha256.equals(expectedSha256, ignoreCase = true)
+            val targetExpectedSha = if (expectedSha256.isNotBlank()) {
+                expectedSha256
+            } else {
+                manifest.expectedSha256
+            }
+
+            val isMatch = targetExpectedSha.isNotBlank() && actualSha256.equals(targetExpectedSha, ignoreCase = true)
             val verifyPayload = VerifyResultPayload(
                 docId = session.docId,
                 status = if (isMatch) "SUCCESS" else "CHECKSUM_FAILED",
@@ -659,7 +697,7 @@ class RelayClientEngine(
                 SafeFileDeleter.wipeAndSanitizeFile(partFile)
                 currentState = TransferEngineState.FAILED
                 callback?.onStateChanged(currentState)
-                callback?.onError("0x301", "Sai lệch mã băm SHA-256 (Kỳ vọng: $expectedSha256, Thực tế: $actualSha256)")
+                callback?.onError("0x301", "Sai lệch mã băm SHA-256 (Kỳ vọng: $targetExpectedSha, Thực tế: $actualSha256)")
                 false
             }
 

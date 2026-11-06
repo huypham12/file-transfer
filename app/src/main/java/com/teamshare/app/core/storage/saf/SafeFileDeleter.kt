@@ -15,14 +15,12 @@ object SafeFileDeleter {
     private const val BUFFER_SIZE = 64 * 1024 // 64 KB chunk
 
     /**
-     * Ghi đè toàn bộ nội dung tệp bằng 0x00 rồi xóa inode.
-     * @param file Tệp cần tiêu hủy an toàn
-     * @return true nếu xóa thành công hoặc tệp không tồn tại
+     * Ghi đè toàn bộ nội dung tệp bằng 0x00 và đồng bộ xuống đĩa Flash (không xóa file).
+     * @param file Tệp cần ghi đè an toàn
+     * @return true nếu ghi đè thành công hoặc file rỗng
      */
-    fun wipeAndSanitizeFile(file: File): Boolean {
-        if (!file.exists()) return true
-        if (file.isDirectory) return wipeDirectory(file)
-
+    fun wipeFileContent(file: File): Boolean {
+        if (!file.exists() || !file.isFile) return false
         return try {
             val length = file.length()
             if (length > 0) {
@@ -40,6 +38,23 @@ object SafeFileDeleter {
                     raf.fd.sync() // Cưỡng bức flush bộ đệm xuống bộ nhớ flash
                 }
             }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Ghi đè toàn bộ nội dung tệp bằng 0x00 rồi xóa inode.
+     * @param file Tệp cần tiêu hủy an toàn
+     * @return true nếu xóa thành công hoặc tệp không tồn tại
+     */
+    fun wipeAndSanitizeFile(file: File): Boolean {
+        if (!file.exists()) return true
+        if (file.isDirectory) return wipeDirectory(file)
+
+        wipeFileContent(file)
+        return try {
             file.delete()
         } catch (e: Exception) {
             // Cố gắng xóa inode dù ghi đè thất bại

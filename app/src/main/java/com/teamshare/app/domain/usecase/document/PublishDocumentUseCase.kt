@@ -4,6 +4,7 @@ import android.net.Uri
 import com.teamshare.app.core.security.crypto.Sha256StreamCalculator
 import com.teamshare.app.core.security.sanitizer.FilenameSanitizer
 import com.teamshare.app.core.storage.saf.SafStorageGateway
+import com.teamshare.app.core.storage.saf.StorageDirectoryManager
 import com.teamshare.app.domain.model.AuditLog
 import com.teamshare.app.domain.model.AuditEventType
 import com.teamshare.app.domain.model.AuditSeverity
@@ -25,7 +26,8 @@ import java.util.UUID
 class PublishDocumentUseCase(
     private val documentRepository: IDocumentRepository,
     private val safStorageGateway: SafStorageGateway? = null,
-    private val auditRepository: IAuditRepository? = null
+    private val auditRepository: IAuditRepository? = null,
+    private val directoryManager: StorageDirectoryManager? = null
 ) {
     operator fun invoke(
         teamId: String,
@@ -57,17 +59,37 @@ class PublishDocumentUseCase(
             if (fileSize <= 0L) {
                 Result.failure(IllegalArgumentException("Tệp tin có kích thước 0 byte hoặc không hợp lệ: $sanitizedName"))
             } else {
-                // 3. Tính toán SHA-256 dạng streaming an toàn bộ nhớ RAM
-                val inStream = customInputStream
-                    ?: safStorageGateway?.openInputStream(uri)
-                    ?: throw IllegalStateException("Không thể mở luồng dữ liệu đọc tệp từ Content URI: $uri")
+                // 3. Sao chép vào thư mục sandbox an toàn và tính toán SHA-256 dạng streaming
+                val docId = UUID.randomUUID().toString()
+                val targetFile = directoryManager?.getCompletedFile(teamId, "${docId}_$sanitizedName")
+                val expectedSha256: String
+                val effectiveUri: String
 
-                val expectedSha256 = inStream.use { stream ->
-                    Sha256StreamCalculator.calculateStreamSha256(stream)
+                if (targetFile != null) {
+                    targetFile.parentFile?.mkdirs()
+                    val inStream = customInputStream
+                        ?: safStorageGateway?.openInputStream(uri)
+                        ?: throw IllegalStateException("Không thể mở luồng dữ liệu đọc tệp từ Content URI: $uri")
+                    inStream.use { input ->
+                        targetFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    expectedSha256 = targetFile.inputStream().use { stream ->
+                        Sha256StreamCalculator.calculateStreamSha256(stream)
+                    }
+                    effectiveUri = targetFile.absolutePath
+                } else {
+                    val inStream = customInputStream
+                        ?: safStorageGateway?.openInputStream(uri)
+                        ?: throw IllegalStateException("Không thể mở luồng dữ liệu đọc tệp từ Content URI: $uri")
+                    expectedSha256 = inStream.use { stream ->
+                        Sha256StreamCalculator.calculateStreamSha256(stream)
+                    }
+                    effectiveUri = uri.toString()
                 }
 
                 // 4. Tạo thực thể SharedDocument và lưu CSDL
-                val docId = UUID.randomUUID().toString()
                 val document = SharedDocument(
                     docId = docId,
                     teamId = teamId,
@@ -77,7 +99,7 @@ class PublishDocumentUseCase(
                     mimeType = mimeType,
                     expectedSha256 = expectedSha256,
                     requireBiometric = requireBiometric,
-                    localUri = uri.toString(),
+                    localUri = effectiveUri,
                     downloadStatus = DownloadStatus.COMPLETED
                 )
 

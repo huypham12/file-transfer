@@ -161,5 +161,17 @@ class TransferViewModelTest {
         assertEquals(20_000_000L, state.totalBytes)
         assertEquals(0.25f, state.progressPercent, 0.001f)
     }
+
+    @Test
+    fun `startDownload generates unique sessionId containing requesterId`() = runBlocking {
+        val sessionId = transferViewModel.startDownload(
+            docId = "doc_999",
+            fileName = "report.pdf",
+            fileSize = 1000L,
+            teamId = "team_1",
+            requesterId = "user_bob"
+        )
+        assertEquals("session_dl_doc_999_user_bob", sessionId)
+    }
 }
 

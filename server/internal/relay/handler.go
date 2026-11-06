@@ -3,7 +3,9 @@ package relay
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -106,7 +108,55 @@ func HandleStream(hub *Hub) http.HandlerFunc {
 	}
 }
 
-// HandleHealth xử lý endpoint kiểm tra sức khỏe hệ thống /health.
+// GetHostLanIP tự động phát hiện địa chỉ IPv4 Wi-Fi / LAN của máy tính đang chạy Relay Server.
+func GetHostLanIP() string {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+
+	var candidates []string
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() || ip.To4() == nil {
+				continue
+			}
+			ipStr := ip.String()
+			// Bỏ qua dải APIPA 169.254.x và card ảo Docker/VMware
+			if strings.HasPrefix(ipStr, "169.254.") {
+				continue
+			}
+			nameLower := strings.ToLower(iface.Name)
+			// Ưu tiên card Wi-Fi hoặc Wireless LAN
+			if strings.Contains(nameLower, "wi-fi") || strings.Contains(nameLower, "wlan") || strings.Contains(nameLower, "wireless") {
+				return ipStr
+			}
+			if !strings.Contains(nameLower, "vmnet") && !strings.Contains(nameLower, "vbox") && !strings.Contains(nameLower, "virtual") {
+				candidates = append(candidates, ipStr)
+			}
+		}
+	}
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return ""
+}
+
+// HandleHealth xử lý endpoint kiểm tra sức khỏe hệ thống /health và trả về IP LAN của máy chủ.
 func HandleHealth(hub *Hub) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -114,6 +164,7 @@ func HandleHealth(hub *Hub) http.HandlerFunc {
 			"status":        "UP",
 			"service":       "teamshare-zero-knowledge-relay",
 			"activeBridges": hub.CountActiveBridges(),
+			"hostIp":        GetHostLanIP(),
 			"timestamp":     time.Now().Unix(),
 		})
 	}

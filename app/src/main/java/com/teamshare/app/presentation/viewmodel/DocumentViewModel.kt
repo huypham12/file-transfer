@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.teamshare.app.core.network.sync.PeerSyncManager
 import com.teamshare.app.domain.model.MemberRole
 import com.teamshare.app.domain.usecase.document.DeleteDocumentUseCase
 import com.teamshare.app.domain.usecase.document.GetDocumentCatalogUseCase
@@ -31,6 +32,7 @@ class DocumentViewModel(
     private val deleteDocumentUseCase: DeleteDocumentUseCase,
     private val authenticateBiometricUseCase: AuthenticateBiometricUseCase? = null,
     private val handleSendIntentUseCase: HandleSendIntentUseCase? = null,
+    private val peerSyncManager: PeerSyncManager? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
@@ -107,6 +109,14 @@ class DocumentViewModel(
         catalogObserveJob?.cancel()
         catalogObserveJob = scope.launch {
             _catalogUiState.update { it.copy(isLoading = true, errorMessage = null) }
+
+            // Chủ động gửi CATALOG_QUERY để kéo danh mục tài liệu mới nhất từ Relay / LAN
+            launch {
+                try {
+                    peerSyncManager?.queryCatalog(teamId)
+                } catch (_: Exception) {}
+            }
+
             getDocumentCatalogUseCase(teamId).collect { docs ->
                 _catalogUiState.update {
                     it.copy(documents = docs, isLoading = false, errorMessage = null)
@@ -143,6 +153,15 @@ class DocumentViewModel(
             ).collect { result ->
                 result.fold(
                     onSuccess = { doc ->
+                        // Phát sóng thông báo tài liệu mới tới các thành viên trong nhóm
+                        launch {
+                            peerSyncManager?.broadcastCatalogAnnounce(
+                                teamId = teamId,
+                                document = doc,
+                                publisherName = publisherId
+                            )
+                        }
+
                         _catalogUiState.update {
                             it.copy(
                                 isPublishing = false,
@@ -204,13 +223,18 @@ class DocumentViewModel(
         docId: String,
         onUriReady: ((Uri) -> Unit)? = null
     ) {
+        val doc = _catalogUiState.value.documents.find { it.docId == docId }
         scope.launch {
-            _catalogUiState.update { it.copy(isLoading = true, errorMessage = null, openedDocumentUri = null) }
+            _catalogUiState.update { it.copy(isLoading = true, errorMessage = null, openedDocumentUri = null, openedDocumentMimeType = null) }
             openSecureDocumentUseCase(docId).collect { result ->
                 result.fold(
                     onSuccess = { contentUri ->
                         _catalogUiState.update {
-                            it.copy(isLoading = false, openedDocumentUri = contentUri.toString())
+                            it.copy(
+                                isLoading = false,
+                                openedDocumentUri = contentUri.toString(),
+                                openedDocumentMimeType = doc?.mimeType
+                            )
                         }
                         onUriReady?.invoke(contentUri)
                     },
@@ -255,11 +279,11 @@ class DocumentViewModel(
     }
 
     fun clearOpenedDocumentUri() {
-        _catalogUiState.update { it.copy(openedDocumentUri = null) }
+        _catalogUiState.update { it.copy(openedDocumentUri = null, openedDocumentMimeType = null) }
     }
 
     fun clearActionMessage() {
-        _catalogUiState.update { it.copy(actionMessage = null, openedDocumentUri = null) }
+        _catalogUiState.update { it.copy(actionMessage = null, openedDocumentUri = null, openedDocumentMimeType = null) }
     }
 
     fun clearError() {
