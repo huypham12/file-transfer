@@ -237,4 +237,35 @@ class TeamViewModelTest {
         assertTrue(disbandedCallbackCalled)
         assertTrue(teamViewModel.workspaceUiState.value.isDisbanded)
     }
+
+    @Test
+    fun `leaveTeam revokes member and executes callback`() = runBlocking {
+        val team = Team(
+            teamId = "t-leave",
+            teamName = "Team To Leave",
+            description = "Desc",
+            ownerFingerprint = "fp-owner"
+        )
+        teamRepository.createTeam(team)
+        val member = TeamMember(
+            memberId = "mem-1",
+            teamId = "t-leave",
+            memberName = "Member 1",
+            deviceFingerprint = "fp-mem-1",
+            role = MemberRole.MEMBER,
+            credentialData = "cred-1",
+            joinedAt = System.currentTimeMillis(),
+            isActive = true
+        )
+        teamRepository.addMember(member)
+
+        var leaveCallbackCalled = false
+        teamViewModel.leaveTeam("t-leave", "mem-1") {
+            leaveCallbackCalled = true
+        }
+
+        assertTrue(leaveCallbackCalled)
+        assertTrue(teamViewModel.workspaceUiState.value.isDisbanded)
+        assertFalse(teamRepository.isMemberActive("t-leave", "mem-1"))
+    }
 }

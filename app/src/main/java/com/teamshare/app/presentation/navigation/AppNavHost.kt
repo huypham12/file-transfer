@@ -58,10 +58,14 @@ fun AppNavHost(
                 teamId = teamId,
                 teamViewModel = teamViewModel,
                 documentViewModel = documentViewModel,
+                transferViewModel = transferViewModel,
                 auditViewModel = auditViewModel,
                 onBackClick = { navController.popBackStack() },
                 onInviteQrClick = {
                     navController.navigate(Screen.QrInvite.createRoute(teamId))
+                },
+                onViewTransfer = { sessionId ->
+                    navController.navigate(Screen.TransferProgress.createRoute(sessionId))
                 },
                 onRequestDownload = { docId ->
                     val doc = documentViewModel.catalogUiState.value.documents.find { it.docId == docId }

@@ -4,19 +4,25 @@ import android.content.Intent
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -26,12 +32,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import com.teamshare.app.presentation.ui.theme.LanBadgeColor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -48,9 +55,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import com.teamshare.app.presentation.ui.components.ConfirmationDialog
+import com.teamshare.app.presentation.ui.components.MiniTransferBar
+import com.teamshare.app.presentation.ui.components.SecurityInfoDialog
 import com.teamshare.app.presentation.viewmodel.AuditViewModel
 import com.teamshare.app.presentation.viewmodel.DocumentViewModel
 import com.teamshare.app.presentation.viewmodel.TeamViewModel
+import com.teamshare.app.presentation.viewmodel.TransferViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,9 +68,11 @@ fun WorkspaceScreen(
     teamId: String,
     teamViewModel: TeamViewModel,
     documentViewModel: DocumentViewModel,
+    transferViewModel: TransferViewModel,
     auditViewModel: AuditViewModel,
     onBackClick: () -> Unit,
     onInviteQrClick: () -> Unit,
+    onViewTransfer: (sessionId: String) -> Unit = {},
     onRequestDownload: (docId: String) -> Unit,
     onOpenDocument: (docId: String) -> Unit
 ) {
@@ -68,10 +80,13 @@ fun WorkspaceScreen(
     val workspaceState by teamViewModel.workspaceUiState.collectAsState()
     val catalogState by documentViewModel.catalogUiState.collectAsState()
     val pendingSharedUris by documentViewModel.pendingSharedUris.collectAsState()
+    val transferUiState by transferViewModel.uiState.collectAsState()
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     var showMenu by remember { mutableStateOf(false) }
     var showDisbandConfirm by remember { mutableStateOf(false) }
+    var showLeaveConfirm by remember { mutableStateOf(false) }
+    var showSecurityDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(teamId) {
         teamViewModel.loadWorkspace(teamId)
@@ -143,12 +158,28 @@ fun WorkspaceScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = workspaceState.team?.teamName ?: "Không gian làm việc",
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Column {
+                        Text(
+                            text = workspaceState.team?.teamName ?: "Không gian làm việc",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .background(LanBadgeColor, shape = CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text(
+                                text = if (workspaceState.isOwner) "Trưởng nhóm • E2EE" else "Thành viên • E2EE",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
@@ -159,19 +190,42 @@ fun WorkspaceScreen(
                     }
                 },
                 actions = {
-                    if (workspaceState.isOwner) {
-                        IconButton(onClick = { showMenu = true }) {
-                            Icon(imageVector = Icons.Default.MoreVert, contentDescription = "Tùy chọn")
-                        }
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false }
-                        ) {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(imageVector = Icons.Default.MoreVert, contentDescription = "Tùy chọn")
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Thông tin An ninh & Thiết bị") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                showSecurityDialog = true
+                            }
+                        )
+
+                        if (workspaceState.isOwner) {
                             DropdownMenuItem(
                                 text = { Text("Giải tán nhóm", color = MaterialTheme.colorScheme.error) },
                                 onClick = {
                                     showMenu = false
                                     showDisbandConfirm = true
+                                }
+                            )
+                        } else {
+                            DropdownMenuItem(
+                                text = { Text("Rời khỏi nhóm", color = MaterialTheme.colorScheme.error) },
+                                onClick = {
+                                    showMenu = false
+                                    showLeaveConfirm = true
                                 }
                             )
                         }
@@ -180,6 +234,15 @@ fun WorkspaceScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
+            )
+        },
+        bottomBar = {
+            MiniTransferBar(
+                uiState = transferUiState,
+                onBarClick = onViewTransfer,
+                onPauseClick = { transferViewModel.pauseSession(it) },
+                onResumeClick = { transferViewModel.resumeSession(it) },
+                onCancelClick = { transferViewModel.cancelSession(it) }
             )
         }
     ) { paddingValues ->
@@ -228,7 +291,7 @@ fun WorkspaceScreen(
                 }
             }
 
-            TabRow(selectedTabIndex = selectedTabIndex) {
+            PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
                 Tab(
                     selected = selectedTabIndex == 0,
                     onClick = {
@@ -268,6 +331,11 @@ fun WorkspaceScreen(
                         onRequestDownload = onRequestDownload,
                         onOpenDocument = { docId ->
                             documentViewModel.openDocument(docId, activity = context as? FragmentActivity)
+                        },
+                        onViewTransfer = {
+                            if (transferUiState.sessionId.isNotBlank()) {
+                                onViewTransfer(transferUiState.sessionId)
+                            }
                         }
                     )
                     1 -> MemberListTab(
@@ -295,6 +363,30 @@ fun WorkspaceScreen(
                     }
                 },
                 onDismiss = { showDisbandConfirm = false }
+            )
+        }
+
+        if (showLeaveConfirm) {
+            ConfirmationDialog(
+                title = "Rời khỏi nhóm?",
+                message = "Hành động này sẽ xóa dữ liệu nhóm trên thiết bị của bạn và hủy bỏ tư cách thành viên. Bạn có chắc chắn muốn rời nhóm?",
+                confirmText = "Rời nhóm",
+                isDestructive = true,
+                onConfirm = {
+                    val memberId = workspaceState.currentMemberId ?: ""
+                    teamViewModel.leaveTeam(teamId, memberId) {
+                        showLeaveConfirm = false
+                        onBackClick()
+                    }
+                },
+                onDismiss = { showLeaveConfirm = false }
+            )
+        }
+
+        if (showSecurityDialog) {
+            SecurityInfoDialog(
+                deviceFingerprint = workspaceState.currentMemberId,
+                onDismiss = { showSecurityDialog = false }
             )
         }
     }

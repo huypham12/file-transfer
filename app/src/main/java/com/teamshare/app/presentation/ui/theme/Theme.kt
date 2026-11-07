@@ -25,6 +25,8 @@ private val TeamShareLightColorScheme = lightColorScheme(
     onSurface = TeamShareOnSurfaceLight,
     surfaceVariant = TeamShareSurfaceVariantLight,
     onSurfaceVariant = TeamShareOnSurfaceVariantLight,
+    outline = TeamShareOutlineLight,
+    outlineVariant = TeamShareOutlineVariantLight,
     error = TeamShareErrorLight,
     onError = TeamShareOnErrorLight,
     errorContainer = TeamShareErrorContainerLight,
@@ -46,6 +48,8 @@ private val TeamShareDarkColorScheme = darkColorScheme(
     onSurface = TeamShareOnSurfaceDark,
     surfaceVariant = TeamShareSurfaceVariantDark,
     onSurfaceVariant = TeamShareOnSurfaceVariantDark,
+    outline = TeamShareOutlineDark,
+    outlineVariant = TeamShareOutlineVariantDark,
     error = TeamShareErrorDark,
     onError = TeamShareOnErrorDark,
     errorContainer = TeamShareErrorContainerDark,
@@ -55,7 +59,7 @@ private val TeamShareDarkColorScheme = darkColorScheme(
 @Composable
 fun TeamShareTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

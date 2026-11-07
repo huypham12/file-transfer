@@ -23,12 +23,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -38,7 +36,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 
 @Composable
 fun ErrorBanner(
@@ -74,11 +71,11 @@ fun ErrorBanner(
                 modifier = Modifier.weight(1f)
             )
             if (onDismiss != null) {
-                IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Đóng",
-                        modifier = Modifier.size(16.dp)
+                        contentDescription = "Đóng thông báo lỗi",
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -97,8 +94,8 @@ fun SuccessBanner(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFFE8F5E9),
-            contentColor = Color(0xFF1B5E20)
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
         ),
         shape = RoundedCornerShape(12.dp)
     ) {
@@ -111,7 +108,7 @@ fun SuccessBanner(
             Icon(
                 imageVector = Icons.Default.CheckCircle,
                 contentDescription = "Thành công",
-                tint = Color(0xFF2E7D32),
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(12.dp))
@@ -121,11 +118,11 @@ fun SuccessBanner(
                 modifier = Modifier.weight(1f)
             )
             if (onDismiss != null) {
-                IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = onDismiss) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Đóng",
-                        modifier = Modifier.size(16.dp)
+                        contentDescription = "Đóng thông báo thành công",
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -186,57 +183,89 @@ fun EmptyStateView(
 }
 
 @Composable
-fun LoadingDialog(message: String = "Đang xử lý...") {
-    Dialog(onDismissRequest = {}) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp
-        ) {
-            Row(
-                modifier = Modifier.padding(24.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(36.dp))
-                Spacer(modifier = Modifier.width(20.dp))
-                Text(text = message, style = MaterialTheme.typography.bodyLarge)
-            }
-        }
-    }
-}
-
-@Composable
 fun ConfirmationDialog(
     title: String,
     message: String,
     confirmText: String = "Xác nhận",
     dismissText: String = "Hủy",
     isDestructive: Boolean = false,
+    icon: ImageVector? = if (isDestructive) Icons.Default.Warning else null,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(text = title, fontWeight = FontWeight.Bold) },
-        text = { Text(text = message, style = MaterialTheme.typography.bodyMedium) },
+        icon = icon?.let {
+            {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(
+                            color = if (isDestructive) MaterialTheme.colorScheme.errorContainer 
+                                   else MaterialTheme.colorScheme.primaryContainer,
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = it,
+                        contentDescription = null,
+                        tint = if (isDestructive) MaterialTheme.colorScheme.error 
+                               else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+            }
+        },
+        title = { 
+            Text(
+                text = title, 
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                textAlign = if (icon != null) TextAlign.Center else TextAlign.Start,
+                modifier = Modifier.fillMaxWidth()
+            ) 
+        },
+        text = { 
+            Text(
+                text = message, 
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 1.25,
+                textAlign = if (icon != null) TextAlign.Center else TextAlign.Start,
+                modifier = Modifier.fillMaxWidth()
+            ) 
+        },
         confirmButton = {
             Button(
                 onClick = onConfirm,
+                shape = RoundedCornerShape(12.dp),
                 colors = if (isDestructive) {
                     androidx.compose.material3.ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error,
                         contentColor = MaterialTheme.colorScheme.onError
                     )
-                } else androidx.compose.material3.ButtonDefaults.buttonColors()
+                } else {
+                    androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
             ) {
-                Text(text = confirmText)
+                Text(text = confirmText, fontWeight = FontWeight.SemiBold)
             }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss) {
+            OutlinedButton(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(12.dp)
+            ) {
                 Text(text = dismissText)
             }
-        }
+        },
+        shape = RoundedCornerShape(24.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 6.dp
     )
 }
 

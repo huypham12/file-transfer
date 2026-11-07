@@ -8,4 +8,52 @@
     <string name="action_pause">Tạm dừng</string>
     <string name="action_resume">Tiếp tục</string>
     <string name="action_cancel">Hủy</string>
+
+    <!-- Team List & Workspace -->
+    <string name="team_list_title">TeamShare</string>
+    <string name="team_list_search_hint">Tìm kiếm nhóm theo tên hoặc mô tả...</string>
+    <string name="team_list_empty_title">Chưa tham gia nhóm nào</string>
+    <string name="team_list_empty_subtitle">Tạo nhóm mới để bắt đầu chia sẻ tài liệu an toàn hoặc quét mã QR lời mời từ Trưởng nhóm.</string>
+    <string name="team_list_btn_join_qr">Gia nhập qua mã QR</string>
+    <string name="team_list_create_dialog_title">Tạo nhóm chia sẻ mới</string>
+    <string name="team_list_create_btn">Tạo nhóm</string>
+
+    <!-- Document Catalog -->
+    <string name="doc_tab_title">Tài liệu</string>
+    <string name="doc_search_hint">Tìm kiếm tài liệu trong nhóm...</string>
+    <string name="doc_empty_title">Chưa có tài liệu nào</string>
+    <string name="doc_empty_subtitle">Bấm nút công bố bên dưới để chia sẻ tài liệu đầu tiên vào nhóm an toàn.</string>
+    <string name="doc_btn_publish">Công bố tài liệu mới</string>
+    <string name="doc_btn_download">Tải về</string>
+    <string name="doc_btn_open">Mở tệp</string>
+    <string name="doc_status_downloading">Đang tải...</string>
+    <string name="doc_status_available">Đã có trên máy</string>
+    <string name="doc_status_not_downloaded">Chưa tải</string>
+    <string name="folder_create_title">Tạo thư mục mới</string>
+    <string name="folder_name_hint">Tên thư mục</string>
+    <string name="folder_create_btn">Tạo</string>
+
+    <!-- Member List -->
+    <string name="member_tab_title">Thành viên</string>
+    <string name="member_empty_title">Chưa có thành viên nào</string>
+    <string name="member_empty_subtitle_owner">Nhấn nút bên dưới hoặc mã QR để tạo lời mời kết nối thành viên mới vào nhóm.</string>
+    <string name="member_empty_subtitle_member">Nhóm chưa có thành viên nào khác.</string>
+    <string name="member_btn_invite_qr">Mời QR</string>
+    <string name="member_role_owner">Trưởng nhóm</string>
+    <string name="member_role_member">Thành viên</string>
+    <string name="member_action_leave">Rời khỏi nhóm</string>
+    <string name="member_action_revoke">Tước quyền</string>
+
+    <!-- Activity Log -->
+    <string name="activity_tab_title">Hoạt động</string>
+    <string name="activity_empty_title">Chưa có hoạt động nào</string>
+    <string name="activity_empty_subtitle">Mọi thao tác quan trọng (tạo nhóm, mời thành viên, chia sẻ tệp, cảnh báo bảo mật) sẽ được ghi vết bất biến tại đây.</string>
+
+    <!-- Security Info Dialog -->
+    <string name="security_dialog_title">Trung tâm An ninh &amp; Thiết bị</string>
+    <string name="security_dialog_keystore">Android Keystore</string>
+    <string name="security_dialog_biometric">Xác thực Sinh trắc học</string>
+    <string name="security_dialog_e2ee">Mã hóa Đầu cuối (E2EE)</string>
+    <string name="security_dialog_fingerprint">Vân tay Thiết bị</string>
+    <string name="security_dialog_btn_close">Đóng</string>
 </resources>

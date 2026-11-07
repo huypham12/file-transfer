@@ -15,6 +15,7 @@ interface ITeamRepository {
     suspend fun disbandTeam(teamId: String): Result<Unit>
     suspend fun addMember(member: TeamMember): Result<Unit>
     suspend fun revokeMember(teamId: String, memberId: String): Result<Unit>
+    suspend fun leaveTeam(teamId: String, memberId: String): Result<Unit> = revokeMember(teamId, memberId)
     fun getMembersByTeam(teamId: String): Flow<List<TeamMember>>
     suspend fun isMemberActive(teamId: String, memberId: String): Boolean
 

@@ -30,6 +30,8 @@ class NotificationManagerHelper(
         const val NOTIFICATION_ID_TRANSFER = 1001
         const val NOTIFICATION_ID_COMPLETED = 1002
 
+        const val EXTRA_SESSION_ID = "extra_session_id"
+
         const val ACTION_PAUSE = "com.teamshare.app.ACTION_PAUSE"
         const val ACTION_RESUME = "com.teamshare.app.ACTION_RESUME"
         const val ACTION_CANCEL = "com.teamshare.app.ACTION_CANCEL"
@@ -95,7 +97,8 @@ class NotificationManagerHelper(
         totalBytes: Long,
         speedBytesPerSec: Long,
         isPaused: Boolean,
-        isLan: Boolean
+        isLan: Boolean,
+        sessionId: String = ""
     ): Notification {
         val percent = if (totalBytes > 0) ((bytesTransferred * 100) / totalBytes).toInt().coerceIn(0, 100) else 0
         val channelTag = if (isLan) "[LAN P2P]" else "[Internet E2EE]"
@@ -115,7 +118,7 @@ class NotificationManagerHelper(
             .setContentTitle(title)
             .setContentText(content)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentIntent(createContentIntent(ctx))
+            .setContentIntent(createContentIntent(ctx, sessionId))
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -157,9 +160,12 @@ class NotificationManagerHelper(
         return builder.build()
     }
 
-    private fun createContentIntent(ctx: Context): PendingIntent {
+    private fun createContentIntent(ctx: Context, sessionId: String = ""): PendingIntent {
         val intent = Intent(ctx, com.teamshare.app.presentation.MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (sessionId.isNotBlank()) {
+                putExtra(EXTRA_SESSION_ID, sessionId)
+            }
         }
         return PendingIntent.getActivity(
             ctx,
@@ -218,7 +224,8 @@ class NotificationManagerHelper(
         speedBytesPerSec: Long,
         isPaused: Boolean,
         isLan: Boolean,
-        force: Boolean = false
+        force: Boolean = false,
+        sessionId: String = ""
     ) {
         if (shouldUpdate(force)) {
             val notification = buildTransferNotification(
@@ -227,7 +234,8 @@ class NotificationManagerHelper(
                 totalBytes,
                 speedBytesPerSec,
                 isPaused,
-                isLan
+                isLan,
+                sessionId
             )
             try {
                 notificationManager?.notify(NOTIFICATION_ID_TRANSFER, notification)

@@ -322,6 +322,28 @@ class TeamViewModel(
     }
 
     /**
+     * Rời khỏi nhóm cộng tác dành cho Member (UC-06 - FR-MEM-04).
+     */
+    fun leaveTeam(teamId: String, memberId: String, onSuccess: () -> Unit) {
+        scope.launch {
+            _workspaceUiState.update { it.copy(isLoading = true, errorMessage = null) }
+            teamRepository.leaveTeam(teamId, memberId).fold(
+                onSuccess = {
+                    _workspaceUiState.update {
+                        it.copy(isLoading = false, isDisbanded = true, actionSuccessMessage = "Đã rời khỏi nhóm")
+                    }
+                    onSuccess()
+                },
+                onFailure = { error ->
+                    _workspaceUiState.update {
+                        it.copy(isLoading = false, errorMessage = error.message ?: "Không thể rời khỏi nhóm")
+                    }
+                }
+            )
+        }
+    }
+
+    /**
      * Giải tán nhóm (UC-02 - FR-TEAM-02).
      */
     fun disbandTeam(teamId: String, onSuccess: () -> Unit) {

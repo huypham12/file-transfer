@@ -1,12 +1,15 @@
 package com.teamshare.app.presentation.ui.workspace
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
@@ -36,10 +38,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.teamshare.app.domain.model.AuditEventType
 import com.teamshare.app.domain.model.AuditLog
 import com.teamshare.app.domain.model.AuditSeverity
 import com.teamshare.app.presentation.ui.components.EmptyStateView
+import com.teamshare.app.presentation.ui.theme.LanBadgeColor
 import com.teamshare.app.presentation.ui.theme.SecurityAlertColor
 import com.teamshare.app.presentation.ui.theme.SecurityInfoColor
 import com.teamshare.app.presentation.ui.theme.SecurityWarningColor
@@ -77,7 +82,7 @@ fun ActivityLogTab(
 
 @Composable
 fun AuditLogCard(log: AuditLog) {
-    val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault()) }
+    val dateFormat = remember { SimpleDateFormat("HH:mm • dd/MM/yyyy", Locale.getDefault()) }
     val formattedDate = remember(log.timestamp) { dateFormat.format(Date(log.timestamp)) }
 
     val (badgeColor, badgeText, icon) = when (log.severity) {
@@ -86,24 +91,57 @@ fun AuditLogCard(log: AuditLog) {
         AuditSeverity.INFO -> Triple(SecurityInfoColor, "THÔNG TIN", Icons.Default.Info)
     }
 
+    val eventTitle = remember(log.eventType) {
+        when (log.eventType) {
+            AuditEventType.TEAM_CREATED -> "Khởi tạo nhóm"
+            AuditEventType.TEAM_DISBANDED -> "Giải tán nhóm"
+            AuditEventType.INVITATION_GENERATED -> "Tạo mã QR lời mời"
+            AuditEventType.MEMBER_JOINED -> "Thành viên gia nhập"
+            AuditEventType.MEMBER_REVOKED -> "Thu hồi quyền thành viên"
+            AuditEventType.DOCUMENT_PUBLISHED -> "Công bố tài liệu"
+            AuditEventType.TRANSFER_STARTED -> "Bắt đầu truyền tệp"
+            AuditEventType.TRANSFER_COMPLETED -> "Truyền tệp hoàn tất"
+            AuditEventType.TRANSFER_PAUSED -> "Tạm dừng truyền tệp"
+            AuditEventType.CHECKSUM_FAILED -> "Lỗi kiểm tra toàn vẹn"
+            AuditEventType.SECURITY_ALERT -> "Cảnh báo an ninh"
+        }
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-        )
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Min)
+        ) {
+            // Dải màu biểu thị mức độ nghiêm trọng ở cạnh trái
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(badgeColor)
+            )
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(14.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
-                            .background(badgeColor.copy(alpha = 0.2f), shape = RoundedCornerShape(6.dp))
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                            .background(badgeColor.copy(alpha = 0.12f), shape = RoundedCornerShape(6.dp))
+                            .padding(horizontal = 7.dp, vertical = 2.dp)
                     ) {
                         Text(
                             text = badgeText,
@@ -114,51 +152,57 @@ fun AuditLogCard(log: AuditLog) {
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = log.eventType.name,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold
+                        text = eventTitle,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = formattedDate,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
                     )
                 }
 
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = formattedDate,
-                    style = MaterialTheme.typography.labelSmall,
+                    text = log.details,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            }
 
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = log.details,
-                style = MaterialTheme.typography.bodyMedium
-            )
-
-            val actorDisplay = when {
-                log.actorName.isNotBlank() -> log.actorName
-                log.actorId.length > 16 -> "${log.actorId.take(8)}...${log.actorId.takeLast(6)}"
-                log.actorId.isNotBlank() -> log.actorId
-                else -> ""
-            }
-            if (actorDisplay.isNotBlank()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Tác nhân: $actorDisplay",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                    )
-                    if (log.signature.isNotBlank()) {
+                val actorDisplay = when {
+                    log.actorName.isNotBlank() -> log.actorName
+                    log.actorId.length > 16 -> "${log.actorId.take(8)}...${log.actorId.takeLast(6)}"
+                    log.actorId.isNotBlank() -> log.actorId
+                    else -> ""
+                }
+                if (actorDisplay.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = "✓ Đã ký số E2EE",
+                            text = "Tác nhân: $actorDisplay",
                             style = MaterialTheme.typography.labelSmall,
-                            color = androidx.compose.ui.graphics.Color(0xFF2E7D32),
-                            fontWeight = FontWeight.Medium
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
+                        if (log.signature.isNotBlank()) {
+                            Text(
+                                text = "✓ Đã xác thực E2EE",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = LanBadgeColor,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }

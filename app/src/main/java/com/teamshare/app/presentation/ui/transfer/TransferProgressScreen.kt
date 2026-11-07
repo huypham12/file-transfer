@@ -11,9 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cancel
@@ -57,6 +60,7 @@ import com.teamshare.app.core.transfer.lan.TransferEngineState
 import com.teamshare.app.domain.model.TransferChannel
 import com.teamshare.app.presentation.ui.theme.LanBadgeColor
 import com.teamshare.app.presentation.ui.theme.RelayBadgeColor
+import com.teamshare.app.presentation.ui.theme.SecurityWarningColor
 import com.teamshare.app.presentation.ui.workspace.formatFileSize
 import com.teamshare.app.presentation.viewmodel.TransferViewModel
 
@@ -91,9 +95,10 @@ fun TransferProgressScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(24.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             // Phần 1: Tên tệp & Kênh truyền
             Column(
@@ -144,13 +149,13 @@ fun TransferProgressScreen(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
-                            .background(Color(0xFFEDE7F6), shape = RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(8.dp))
                             .padding(horizontal = 12.dp, vertical = 4.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Security,
-                            contentDescription = null,
-                            tint = Color(0xFF512DA8),
+                            contentDescription = "Bảo mật SAS",
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -159,7 +164,7 @@ fun TransferProgressScreen(
                             style = MaterialTheme.typography.labelMedium,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF512DA8)
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                     }
                 }
@@ -168,7 +173,9 @@ fun TransferProgressScreen(
             // Phần 2: Đồng hồ tròn biểu thị % tiến trình & tốc độ
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.size(240.dp)
+                modifier = Modifier
+                    .sizeIn(minWidth = 180.dp, maxWidth = 240.dp, minHeight = 180.dp, maxHeight = 240.dp)
+                    .size(220.dp)
             ) {
                 CircularProgressIndicator(
                     progress = { uiState.progressPercent },
@@ -176,7 +183,7 @@ fun TransferProgressScreen(
                     strokeWidth = 14.dp,
                     color = when (uiState.state) {
                         TransferEngineState.COMPLETED -> LanBadgeColor
-                        TransferEngineState.PAUSED -> Color(0xFFEF6C00)
+                        TransferEngineState.PAUSED -> SecurityWarningColor
                         TransferEngineState.FAILED -> MaterialTheme.colorScheme.error
                         else -> MaterialTheme.colorScheme.primary
                     },
@@ -276,11 +283,31 @@ fun TransferProgressScreen(
                             fontWeight = FontWeight.Bold,
                             color = when (uiState.state) {
                                 TransferEngineState.COMPLETED -> LanBadgeColor
-                                TransferEngineState.PAUSED -> Color(0xFFEF6C00)
+                                TransferEngineState.PAUSED -> SecurityWarningColor
                                 TransferEngineState.FAILED -> MaterialTheme.colorScheme.error
                                 else -> MaterialTheme.colorScheme.primary
                             }
                         )
+                    }
+
+                    if (uiState.state == TransferEngineState.TRANSFERRING || uiState.state == TransferEngineState.PAUSED) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Thời gian còn lại:",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = formatEta(uiState.etaSeconds),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                     }
 
                     if (!uiState.errorMessage.isNullOrBlank()) {
@@ -391,6 +418,17 @@ fun formatFriendlyError(rawError: String): String {
         lower.contains("chứng thư") || lower.contains("chữ ký") || lower.contains("credential") ->
             "Xác thực thất bại: Người chia sẻ mang chứng thư không hợp lệ trong nhóm này."
         else -> rawError
+    }
+}
+
+fun formatEta(seconds: Long): String {
+    if (seconds <= 0L) return "Đang tính toán..."
+    val mins = seconds / 60
+    val secs = seconds % 60
+    return if (mins > 0) {
+        String.format("%d phút %02d giây", mins, secs)
+    } else {
+        String.format("%d giây", secs)
     }
 }
 

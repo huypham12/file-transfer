@@ -4,10 +4,10 @@
     <selectionStates>
       <SelectionState runConfigName="app">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2026-11-07T03:39:52.902713100Z">
+        <DropdownSelection timestamp="2026-11-07T07:34:08.108714900Z">
           <Target type="DEFAULT_BOOT">
             <handle>
-              <DeviceId pluginId="PhysicalDevice" identifier="serial=14dc1ad2" />
+              <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\ThinkPad T14s\.android\avd\Small_Phone.avd" />
             </handle>
           </Target>
         </DropdownSelection>

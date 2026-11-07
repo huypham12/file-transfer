@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Fingerprint
@@ -98,7 +99,8 @@ fun PublishDocumentDialog(
         confirmButton = {
             Button(
                 onClick = { onConfirm(requireBiometric) },
-                enabled = !isLoading
+                enabled = !isLoading,
+                shape = RoundedCornerShape(12.dp)
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(
@@ -106,15 +108,20 @@ fun PublishDocumentDialog(
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                 } else {
-                    Text("Công bố")
+                    Text("Công bố", fontWeight = FontWeight.SemiBold)
                 }
             }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss, enabled = !isLoading) {
+            OutlinedButton(
+                onClick = onDismiss, 
+                enabled = !isLoading,
+                shape = RoundedCornerShape(12.dp)
+            ) {
                 Text("Hủy")
             }
-        }
+        },
+        shape = RoundedCornerShape(24.dp)
     )
 }
 

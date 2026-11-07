@@ -45,4 +45,9 @@ class NotificationManagerHelperTest {
         // Gọi với cờ force = true (như khi Pause/Complete) phải được phép
         assertTrue(helper.shouldUpdate(force = true))
     }
+
+    @Test
+    fun testExtraSessionIdConstant() {
+        assertEquals("extra_session_id", NotificationManagerHelper.EXTRA_SESSION_ID)
+    }
 }

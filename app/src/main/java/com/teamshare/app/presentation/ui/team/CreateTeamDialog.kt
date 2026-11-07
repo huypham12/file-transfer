@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -112,7 +113,8 @@ fun CreateTeamDialog(
                         onConfirm(trimmed, description.trim(), trimmedOwner)
                     }
                 },
-                enabled = !isLoading
+                enabled = !isLoading,
+                shape = RoundedCornerShape(12.dp)
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(
@@ -121,15 +123,20 @@ fun CreateTeamDialog(
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                 } else {
-                    Text("Tạo nhóm")
+                    Text("Tạo nhóm", fontWeight = FontWeight.SemiBold)
                 }
             }
         },
         dismissButton = {
-            OutlinedButton(onClick = onDismiss, enabled = !isLoading) {
+            OutlinedButton(
+                onClick = onDismiss, 
+                enabled = !isLoading,
+                shape = RoundedCornerShape(12.dp)
+            ) {
                 Text("Hủy")
             }
-        }
+        },
+        shape = RoundedCornerShape(24.dp)
     )
 }
 

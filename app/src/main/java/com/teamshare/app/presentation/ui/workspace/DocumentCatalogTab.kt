@@ -3,6 +3,8 @@ package com.teamshare.app.presentation.ui.workspace
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,15 +19,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -34,11 +42,13 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.UploadFile
+import com.teamshare.app.core.security.sanitizer.FilenameSanitizer
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,6 +73,9 @@ import com.teamshare.app.presentation.ui.components.ConfirmationDialog
 import com.teamshare.app.presentation.ui.components.EmptyStateView
 import com.teamshare.app.presentation.ui.components.ErrorBanner
 import com.teamshare.app.presentation.ui.components.SuccessBanner
+import com.teamshare.app.presentation.ui.components.getFileIcon
+import com.teamshare.app.presentation.ui.theme.LanBadgeColor
+import com.teamshare.app.presentation.ui.theme.SecurityWarningColor
 import com.teamshare.app.presentation.viewmodel.DocumentViewModel
 
 @Composable
@@ -72,7 +85,8 @@ fun DocumentCatalogTab(
     isOwner: Boolean,
     viewModel: DocumentViewModel,
     onRequestDownload: (docId: String) -> Unit,
-    onOpenDocument: (docId: String) -> Unit
+    onOpenDocument: (docId: String) -> Unit,
+    onViewTransfer: () -> Unit = {}
 ) {
     val uiState by viewModel.catalogUiState.collectAsState()
     val peerPresence by viewModel.peerPresence.collectAsState()
@@ -83,6 +97,7 @@ fun DocumentCatalogTab(
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var docToDelete by remember { mutableStateOf<SharedDocument?>(null) }
     var folderToDelete by remember { mutableStateOf<com.teamshare.app.domain.model.TeamFolder?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -95,9 +110,18 @@ fun DocumentCatalogTab(
         }
     )
 
-    // Lọc thư mục và tài liệu theo cấp hiện tại
+    // Lọc thư mục và tài liệu theo cấp hiện tại và từ khóa tìm kiếm
     val currentFolders = uiState.folders.filter { !it.isDeleted && it.parentFolderId == uiState.currentFolderId }
     val currentDocs = uiState.documents.filter { it.folderId == uiState.currentFolderId }
+
+    val filteredFolders = remember(currentFolders, searchQuery) {
+        if (searchQuery.isBlank()) currentFolders
+        else currentFolders.filter { it.folderName.contains(searchQuery, ignoreCase = true) }
+    }
+    val filteredDocs = remember(currentDocs, searchQuery) {
+        if (searchQuery.isBlank()) currentDocs
+        else currentDocs.filter { it.fileName.contains(searchQuery, ignoreCase = true) }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -115,18 +139,46 @@ fun DocumentCatalogTab(
                 )
             }
 
+            // Thanh tìm kiếm tài liệu
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Tìm kiếm tài liệu hoặc thư mục...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Xóa tìm kiếm", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+            )
+
             // Thanh điều hướng Breadcrumb & Tạo thư mục
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -181,10 +233,17 @@ fun DocumentCatalogTab(
             if (currentFolders.isEmpty() && currentDocs.isEmpty() && !uiState.isLoading) {
                 EmptyStateView(
                     title = if (uiState.currentFolderId == null) "Chưa có tài liệu nào" else "Thư mục trống",
-                    subtitle = "Tạo thư mục con hoặc chọn tệp từ máy của bạn để chia sẻ trong thư mục này.",
+                    subtitle = "Tạo thư mục con hoặc nhấn nút 'Công bố tài liệu' ở góc dưới để tải lên tệp tin.",
                     icon = if (uiState.currentFolderId == null) Icons.Default.Description else Icons.Default.Folder,
-                    actionLabel = "Công bố tài liệu mới",
-                    onAction = { filePickerLauncher.launch(arrayOf("*/*")) },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else if (filteredFolders.isEmpty() && filteredDocs.isEmpty()) {
+                EmptyStateView(
+                    title = "Không tìm thấy tài liệu",
+                    subtitle = "Không có tài liệu hoặc thư mục nào khớp với từ khóa '$searchQuery'.",
+                    icon = Icons.Default.Search,
+                    actionLabel = "Xóa tìm kiếm",
+                    onAction = { searchQuery = "" },
                     modifier = Modifier.fillMaxSize()
                 )
             } else {
@@ -209,7 +268,7 @@ fun DocumentCatalogTab(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.ArrowBack,
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                         contentDescription = "Quay lại thư mục cha",
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(24.dp)
@@ -227,7 +286,7 @@ fun DocumentCatalogTab(
                     }
 
                     // Hiển thị danh sách thư mục con
-                    items(currentFolders, key = { "folder_${it.folderId}" }) { folder ->
+                    items(filteredFolders, key = { "folder_${it.folderId}" }) { folder ->
                         val childFolderCount = uiState.folders.count { !it.isDeleted && it.parentFolderId == folder.folderId }
                         val childDocCount = uiState.documents.count { it.folderId == folder.folderId }
                         val canDeleteFolder = isOwner || (currentMemberId != null && folder.createdBy == currentMemberId)
@@ -242,7 +301,7 @@ fun DocumentCatalogTab(
                     }
 
                     // Hiển thị danh sách tài liệu trong thư mục hiện tại
-                    items(currentDocs, key = { "doc_${it.docId}" }) { doc ->
+                    items(filteredDocs, key = { "doc_${it.docId}" }) { doc ->
                         val canDelete = isOwner || (currentMemberId != null && doc.publisherId == currentMemberId)
                         val isPublisherOnline = peerPresence[doc.publisherId]?.isOnline == true || doc.publisherId == currentMemberId
                         DocumentCard(
@@ -251,7 +310,8 @@ fun DocumentCatalogTab(
                             isPublisherOnline = isPublisherOnline,
                             onDownloadClick = { onRequestDownload(doc.docId) },
                             onOpenClick = { onOpenDocument(doc.docId) },
-                            onDeleteClick = { docToDelete = doc }
+                            onDeleteClick = { docToDelete = doc },
+                            onViewTransfer = onViewTransfer
                         )
                     }
                 }
@@ -259,16 +319,17 @@ fun DocumentCatalogTab(
         }
 
         // Nút FAB công bố tài liệu
-        FloatingActionButton(
+        ExtendedFloatingActionButton(
             onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
+            icon = { Icon(imageVector = Icons.Default.UploadFile, contentDescription = null) },
+            text = { Text("Công bố tài liệu", fontWeight = FontWeight.SemiBold) },
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
+            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 3.dp),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp)
-        ) {
-            Icon(imageVector = Icons.Default.UploadFile, contentDescription = "Công bố tài liệu mới")
-        }
+        )
 
         // Hộp thoại tạo thư mục mới
         if (showCreateFolderDialog) {
@@ -354,8 +415,10 @@ fun FolderCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            containerColor = MaterialTheme.colorScheme.surface
         ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         onClick = onClick
     ) {
         Row(
@@ -364,20 +427,31 @@ fun FolderCard(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.Folder,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(36.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(12.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Folder,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(14.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = folder.folderName,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -408,24 +482,41 @@ fun CreateFolderDialog(
     onConfirm: (name: String) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
+    val isTooLong = name.length > 50
+    val containsIllegalChars = name.contains('/') || name.contains('\\') || name.contains("..")
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Tạo thư mục mới") },
         text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Tên thư mục") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { if (it.length <= 50) name = it },
+                    label = { Text("Tên thư mục") },
+                    singleLine = true,
+                    isError = isTooLong || containsIllegalChars,
+                    supportingText = {
+                        if (containsIllegalChars) {
+                            Text(
+                                text = "Tên không được chứa '/', '\\' hoặc '..'",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        } else {
+                            Text("${name.length}/50 ký tự")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (name.isNotBlank()) onConfirm(name.trim())
+                    val sanitized = FilenameSanitizer.sanitize(name.trim()).take(50)
+                    if (sanitized.isNotBlank()) onConfirm(sanitized)
                 },
-                enabled = name.isNotBlank()
+                enabled = name.isNotBlank() && !containsIllegalChars && !isTooLong
             ) {
                 Text("Tạo")
             }
@@ -445,85 +536,111 @@ fun DocumentCard(
     isPublisherOnline: Boolean = false,
     onDownloadClick: () -> Unit,
     onOpenClick: () -> Unit,
-    onDeleteClick: () -> Unit
+    onDeleteClick: () -> Unit,
+    onViewTransfer: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        )
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Description,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(12.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = getFileIcon(document.fileName, document.mimeType),
+                        contentDescription = "Loại tệp tin",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(14.dp))
+
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = document.fileName,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = formatFileSize(document.fileSize),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        if (isPublisherOnline) {
-                            Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (isPublisherOnline) LanBadgeColor.copy(alpha = 0.12f)
+                                           else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
                             Text(
-                                text = "• Trực tuyến",
+                                text = if (isPublisherOnline) "● Trực tuyến" else "○ Ngoại tuyến",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF2E7D32),
+                                color = if (isPublisherOnline) LanBadgeColor
+                                       else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                                 fontWeight = FontWeight.Medium
-                            )
-                        } else {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "• Ngoại tuyến",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.Gray,
-                                fontWeight = FontWeight.Normal
                             )
                         }
                     }
                 }
 
                 if (document.requireBiometric) {
-                    Icon(
-                        imageVector = Icons.Default.Fingerprint,
-                        contentDescription = "Yêu cầu vân tay",
-                        tint = MaterialTheme.colorScheme.secondary,
+                    Box(
                         modifier = Modifier
-                            .size(24.dp)
                             .padding(end = 4.dp)
-                    )
+                            .background(
+                                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f),
+                                shape = CircleShape
+                            )
+                            .padding(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Fingerprint,
+                            contentDescription = "Yêu cầu vân tay",
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
 
                 if (canDelete) {
-                    IconButton(onClick = onDeleteClick, modifier = Modifier.size(28.dp)) {
+                    IconButton(onClick = onDeleteClick) {
                         Icon(
                             imageVector = Icons.Default.Delete,
                             contentDescription = "Xóa tài liệu",
-                            tint = MaterialTheme.colorScheme.error
+                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -537,24 +654,36 @@ fun DocumentCard(
                             onClick = {},
                             label = { Text("Chưa tải") }
                         )
-                        Button(onClick = onDownloadClick) {
+                        Button(
+                            onClick = onDownloadClick,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
                             Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Tải về")
+                            Text("Tải về", fontWeight = FontWeight.SemiBold)
                         }
                     }
                     DownloadStatus.DOWNLOADING -> {
                         AssistChip(
-                            onClick = {},
-                            label = { Text("Đang tải...", color = Color(0xFFEF6C00)) }
+                            onClick = onViewTransfer,
+                            label = { Text("Đang tải...", color = SecurityWarningColor) }
                         )
+                        OutlinedButton(
+                            onClick = onViewTransfer,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Xem tiến trình")
+                        }
                     }
                     DownloadStatus.COMPLETED -> {
                         AssistChip(
                             onClick = {},
-                            label = { Text("Đã có trên máy", color = Color(0xFF2E7D32)) }
+                            label = { Text("✓ Đã lưu cục bộ", color = LanBadgeColor) }
                         )
-                        OutlinedButton(onClick = onOpenClick) {
+                        OutlinedButton(
+                            onClick = onOpenClick,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
                             Icon(imageVector = Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Mở tệp")

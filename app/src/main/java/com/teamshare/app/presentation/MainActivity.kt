@@ -8,11 +8,17 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
 import androidx.navigation.compose.rememberNavController
+import com.teamshare.app.core.platform.service.NotificationManagerHelper
 import com.teamshare.app.presentation.di.ViewModelFactory
 import com.teamshare.app.presentation.navigation.AppNavHost
+import com.teamshare.app.presentation.navigation.Screen
 import com.teamshare.app.presentation.ui.share.ShareIntentHandlerActivity
 import com.teamshare.app.presentation.ui.theme.TeamShareTheme
 
@@ -24,6 +30,7 @@ import com.teamshare.app.presentation.ui.theme.TeamShareTheme
 class MainActivity : FragmentActivity() {
 
     private val viewModelFactory by lazy { ViewModelFactory(applicationContext) }
+    private var pendingSessionId by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,12 +38,21 @@ class MainActivity : FragmentActivity() {
 
         com.teamshare.app.core.platform.network.NetworkAddressHelper.init(applicationContext)
 
-        handleIncomingShareIntent(intent)
+        handleIncomingIntent(intent)
 
         setContent {
             TeamShareTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val navController = rememberNavController()
+
+                    LaunchedEffect(pendingSessionId) {
+                        pendingSessionId?.let { sId ->
+                            navController.navigate(Screen.TransferProgress.createRoute(sId)) {
+                                launchSingleTop = true
+                            }
+                            pendingSessionId = null
+                        }
+                    }
 
                     AppNavHost(
                         navController = navController,
@@ -52,11 +68,19 @@ class MainActivity : FragmentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleIncomingShareIntent(intent)
+        handleIncomingIntent(intent)
     }
 
-    private fun handleIncomingShareIntent(intent: Intent?) {
+    private fun handleIncomingIntent(intent: Intent?) {
         if (intent == null) return
+
+        // 1. Kiểm tra deep-link từ Notification truyền tệp (SC-01 / P1-T2)
+        val notifSessionId = intent.getStringExtra(NotificationManagerHelper.EXTRA_SESSION_ID)
+        if (!notifSessionId.isNullOrBlank()) {
+            pendingSessionId = notifSessionId
+        }
+
+        // 2. Kiểm tra tệp tin chia sẻ ngoài từ Sharesheet
         val isFromShare = intent.getBooleanExtra(ShareIntentHandlerActivity.EXTRA_FROM_SHARE_INTENT, false)
         if (isFromShare) {
             val sharedUris: ArrayList<Uri>? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -71,4 +95,5 @@ class MainActivity : FragmentActivity() {
         }
     }
 }
+
 

@@ -251,7 +251,8 @@ class TransferForegroundService : Service() {
             totalBytes = currentTotalBytes,
             speedBytesPerSec = 0L,
             isPaused = false,
-            isLan = isLanTransfer
+            isLan = isLanTransfer,
+            sessionId = currentSessionId ?: ""
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -276,7 +277,8 @@ class TransferForegroundService : Service() {
                             totalBytes = state.totalBytes,
                             speedBytesPerSec = state.speedBytesPerSec,
                             isPaused = false,
-                            isLan = state.isLan
+                            isLan = state.isLan,
+                            sessionId = currentSessionId ?: ""
                         )
                     }
 
@@ -289,7 +291,8 @@ class TransferForegroundService : Service() {
                             speedBytesPerSec = 0L,
                             isPaused = true,
                             isLan = state.isLan,
-                            force = true
+                            force = true,
+                            sessionId = currentSessionId ?: ""
                         )
                     }
 

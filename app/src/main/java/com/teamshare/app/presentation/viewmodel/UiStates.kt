@@ -77,10 +77,13 @@ data class TransferUiState(
     val state: TransferEngineState = TransferEngineState.IDLE,
     val sasCode: String? = null,
     val errorCode: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val etaSeconds: Long = 0L
 ) {
     companion object {
         fun fromProgress(progress: TransferProgress, fileName: String = ""): TransferUiState {
+            val remainingBytes = (progress.totalBytes - progress.bytesTransferred).coerceAtLeast(0L)
+            val eta = if (progress.speedBytesPerSec > 0L) remainingBytes / progress.speedBytesPerSec else 0L
             return TransferUiState(
                 sessionId = progress.sessionId,
                 fileName = fileName,
@@ -92,7 +95,8 @@ data class TransferUiState(
                 state = progress.state,
                 sasCode = progress.sasCode,
                 errorCode = progress.errorCode,
-                errorMessage = progress.errorMessage
+                errorMessage = progress.errorMessage,
+                etaSeconds = eta
             )
         }
     }

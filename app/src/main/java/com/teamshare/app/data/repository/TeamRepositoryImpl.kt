@@ -66,6 +66,14 @@ class TeamRepositoryImpl(
         }
     }
 
+    override suspend fun leaveTeam(teamId: String, memberId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            memberDao.updateActiveStatus(teamId, memberId, false)
+            teamDao.deleteTeam(teamId)
+            Unit
+        }
+    }
+
     override fun getMembersByTeam(teamId: String): Flow<List<TeamMember>> {
         return memberDao.getMembersByTeam(teamId).map { list -> list.map { it.toDomain() } }
     }
