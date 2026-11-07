@@ -142,15 +142,15 @@ object NetworkAddressHelper {
      * @param endpoint Điểm cuối API ("v1/sync" hoặc "v1/stream")
      */
     fun getDefaultRelayUrl(customHost: String? = null, endpoint: String = "v1/sync"): String {
-        if (isEmulator()) {
-            return "ws://10.0.2.2:$DEFAULT_RELAY_PORT/$endpoint"
-        }
-
         val trimmed = customHost?.trim()?.takeIf { it.isNotBlank() } ?: configuredRelayHost.trim()
         if (trimmed.isNotBlank()) {
             val hostWithPort = if (trimmed.contains(":")) trimmed else "$trimmed:$DEFAULT_RELAY_PORT"
             val cleanHost = hostWithPort.removePrefix("ws://").removePrefix("wss://")
             return "ws://$cleanHost/$endpoint"
+        }
+
+        if (isEmulator()) {
+            return "ws://10.0.2.2:$DEFAULT_RELAY_PORT/$endpoint"
         }
 
         val localIp = getLocalIpv4Address()

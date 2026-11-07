@@ -51,6 +51,9 @@ data class QrInviteUiState(
  */
 data class DocumentCatalogUiState(
     val documents: List<SharedDocument> = emptyList(),
+    val folders: List<com.teamshare.app.domain.model.TeamFolder> = emptyList(),
+    val currentFolderId: String? = null,
+    val folderPath: List<com.teamshare.app.domain.model.TeamFolder> = emptyList(),
     val isLoading: Boolean = false,
     val isPublishing: Boolean = false,
     val errorMessage: String? = null,

@@ -17,8 +17,14 @@ interface AuditDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLog(log: AuditEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLogs(logs: List<AuditEntity>): List<Long>
+
     @Query("SELECT * FROM security_audit_logs WHERE team_id = :teamId ORDER BY timestamp DESC")
     fun getLogsByTeam(teamId: String): Flow<List<AuditEntity>>
+
+    @Query("SELECT * FROM security_audit_logs WHERE team_id = :teamId AND timestamp > :sinceTimestamp ORDER BY timestamp ASC")
+    suspend fun getLogsSince(teamId: String, sinceTimestamp: Long): List<AuditEntity>
 
     @Query("SELECT * FROM security_audit_logs ORDER BY timestamp DESC LIMIT :limit")
     fun getRecentLogs(limit: Int): Flow<List<AuditEntity>>

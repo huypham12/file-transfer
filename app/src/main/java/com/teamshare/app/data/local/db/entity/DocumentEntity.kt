@@ -27,7 +27,8 @@ import androidx.room.PrimaryKey
     ],
     indices = [
         Index(name = "idx_docs_team_created", value = ["team_id", "created_at"]),
-        Index(name = "idx_docs_publisher", value = ["publisher_id"])
+        Index(name = "idx_docs_publisher", value = ["publisher_id"]),
+        Index(name = "idx_docs_folder", value = ["folder_id"])
     ]
 )
 data class DocumentEntity(
@@ -69,6 +70,9 @@ data class DocumentEntity(
     val publisherHost: String? = null,
 
     @ColumnInfo(name = "publisher_port")
-    val publisherPort: Int = 0
+    val publisherPort: Int = 0,
+
+    @ColumnInfo(name = "folder_id")
+    val folderId: String? = null
 )
 

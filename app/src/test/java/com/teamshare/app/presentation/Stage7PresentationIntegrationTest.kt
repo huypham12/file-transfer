@@ -101,6 +101,30 @@ class Stage7PresentationIntegrationTest {
         override suspend fun isMemberActive(teamId: String, memberId: String): Boolean {
             return members[teamId]?.find { it.memberId == memberId }?.isActive ?: false
         }
+
+        val revocations = ConcurrentHashMap<String, MutableList<com.teamshare.app.data.local.db.entity.RevocationEntity>>()
+
+        override suspend fun recordRevocation(revocation: com.teamshare.app.data.local.db.entity.RevocationEntity): Result<Unit> {
+            revocations.getOrPut(revocation.teamId) { mutableListOf() }.add(revocation)
+            return Result.success(Unit)
+        }
+
+        override suspend fun recordRevocations(revocationsList: List<com.teamshare.app.data.local.db.entity.RevocationEntity>): Result<Unit> {
+            revocationsList.forEach { recordRevocation(it) }
+            return Result.success(Unit)
+        }
+
+        override fun getRevocationsByTeam(teamId: String): Flow<List<com.teamshare.app.data.local.db.entity.RevocationEntity>> =
+            flowOf(revocations[teamId] ?: emptyList())
+
+        override suspend fun isMemberRevoked(teamId: String, memberId: String): Boolean =
+            revocations[teamId]?.any { it.revokedMemberId == memberId } ?: false
+
+        override suspend fun isTeamDisbanded(teamId: String): Boolean =
+            revocations[teamId]?.any { it.revocationType == "TEAM_DISBAND" } ?: false
+
+        override suspend fun getAllRevocationsList(teamId: String): List<com.teamshare.app.data.local.db.entity.RevocationEntity> =
+            revocations[teamId] ?: emptyList()
     }
 
     private class IntegrationDocRepo : IDocumentRepository {

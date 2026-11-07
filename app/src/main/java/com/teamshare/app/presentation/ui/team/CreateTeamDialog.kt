@@ -24,11 +24,13 @@ import androidx.compose.ui.unit.dp
 fun CreateTeamDialog(
     isLoading: Boolean,
     onDismiss: () -> Unit,
-    onConfirm: (name: String, desc: String) -> Unit
+    onConfirm: (name: String, desc: String, ownerName: String) -> Unit
 ) {
     var teamName by remember { mutableStateOf("") }
+    var ownerName by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var nameError by remember { mutableStateOf<String?>(null) }
+    var ownerNameError by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = { if (!isLoading) onDismiss() },
@@ -37,6 +39,26 @@ fun CreateTeamDialog(
         },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = ownerName,
+                    onValueChange = {
+                        ownerName = it
+                        if (ownerNameError != null) ownerNameError = null
+                    },
+                    label = { Text("Tên hiển thị của bạn (*)") },
+                    singleLine = true,
+                    isError = ownerNameError != null,
+                    supportingText = {
+                        if (ownerNameError != null) {
+                            Text(text = ownerNameError!!, color = MaterialTheme.colorScheme.error)
+                        } else {
+                            Text(text = "Tên hiển thị của bạn với vai trò Trưởng nhóm")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isLoading
+                )
+                Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = teamName,
                     onValueChange = {
@@ -70,13 +92,24 @@ fun CreateTeamDialog(
         confirmButton = {
             Button(
                 onClick = {
+                    val trimmedOwner = ownerName.trim()
                     val trimmed = teamName.trim()
+                    var hasError = false
+
+                    if (trimmedOwner.isEmpty()) {
+                        ownerNameError = "Tên hiển thị không được để trống"
+                        hasError = true
+                    }
                     if (trimmed.isEmpty()) {
                         nameError = "Tên nhóm không được để trống"
+                        hasError = true
                     } else if (trimmed.length > 50) {
                         nameError = "Tên nhóm không được vượt quá 50 ký tự"
-                    } else {
-                        onConfirm(trimmed, description.trim())
+                        hasError = true
+                    }
+
+                    if (!hasError) {
+                        onConfirm(trimmed, description.trim(), trimmedOwner)
                     }
                 },
                 enabled = !isLoading

@@ -103,10 +103,17 @@ class TransferCoordinator(
             return TransferChannel.ZERO_KNOWLEDGE_RELAY
         }
 
+        // Nếu thiết bị này là Android Emulator và peer là thiết bị LAN vật lý bên ngoài (NAT máy ảo không cho phép kết nối ngược vào 10.0.2.16)
+        if (com.teamshare.app.core.platform.network.NetworkAddressHelper.isEmulator() &&
+            !peerIp.startsWith("10.0.2.") && !peerIp.startsWith("127.0.0.1") && peerIp != "localhost"
+        ) {
+            return TransferChannel.ZERO_KNOWLEDGE_RELAY
+        }
+
         if (port > 0) {
             val isReachable = try {
                 java.net.Socket().use { socket ->
-                    socket.connect(java.net.InetSocketAddress(peerIp, port), 500)
+                    socket.connect(java.net.InetSocketAddress(peerIp, port), 1500)
                     true
                 }
             } catch (_: Exception) {
@@ -275,6 +282,8 @@ class TransferCoordinator(
                 trySend(
                     TransferProgress(
                         sessionId = session.sessionId,
+                        bytesTransferred = lastCheckpointBytes.get(),
+                        totalBytes = session.totalBytes,
                         channel = channel,
                         state = TransferEngineState.FAILED,
                         errorCode = errorCode,
@@ -378,6 +387,23 @@ class TransferCoordinator(
                         }
                     }
 
+                    val resolvedSha = if (!expectedSha256.isNullOrBlank()) {
+                        expectedSha256
+                    } else {
+                        val dbSha = documentRepository?.getDocumentById(session.docId)?.expectedSha256
+                        if (!dbSha.isNullOrBlank()) {
+                            dbSha
+                        } else if (file != null && file.exists()) {
+                            try {
+                                Sha256StreamCalculator.calculateFileSha256(file)
+                            } catch (_: Exception) {
+                                ""
+                            }
+                        } else {
+                            ""
+                        }
+                    }
+
                     if (channel == TransferChannel.DIRECT_LAN) {
                         if (session.direction == TransferDirection.OUTGOING) {
                             requireNotNull(file) { "File nguồn không được null cho phiên gửi" }
@@ -393,6 +419,7 @@ class TransferCoordinator(
                                 role = effectiveCred.role.name,
                                 credentialData = effectiveCred.ownerSignature,
                                 useTls = true,
+                                expectedSha256 = resolvedSha,
                                 callback = callback
                             )
                         } else {
@@ -412,23 +439,6 @@ class TransferCoordinator(
                     } else {
                         val actualRelayUrl = relayUrl
                             ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/stream")
-
-                        val resolvedSha = if (!expectedSha256.isNullOrBlank()) {
-                            expectedSha256
-                        } else {
-                            val dbSha = documentRepository?.getDocumentById(session.docId)?.expectedSha256
-                            if (!dbSha.isNullOrBlank()) {
-                                dbSha
-                            } else if (file != null && file.exists()) {
-                                try {
-                                    Sha256StreamCalculator.calculateFileSha256(file)
-                                } catch (_: Exception) {
-                                    ""
-                                }
-                            } else {
-                                ""
-                            }
-                        }
 
                         if (session.direction == TransferDirection.OUTGOING) {
                             requireNotNull(file) { "File nguồn không được null cho phiên gửi Relay" }

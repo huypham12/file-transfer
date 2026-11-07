@@ -16,7 +16,8 @@ import kotlinx.coroutines.launch
  */
 class AuditViewModel(
     private val querySecurityAuditUseCase: QuerySecurityAuditUseCase,
-    private val customScope: CoroutineScope? = null
+    private val customScope: CoroutineScope? = null,
+    private val peerSyncManager: com.teamshare.app.core.network.sync.PeerSyncManager? = null
 ) : ViewModel() {
 
     private val scope: CoroutineScope get() = customScope ?: viewModelScope
@@ -33,6 +34,12 @@ class AuditViewModel(
         auditJob?.cancel()
         auditJob = scope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            launch {
+                try {
+                    val maxTimestamp = _uiState.value.logs.maxOfOrNull { it.timestamp } ?: 0L
+                    peerSyncManager?.queryAuditLogs(teamId, maxTimestamp)
+                } catch (_: Exception) {}
+            }
             querySecurityAuditUseCase(teamId).collect { logs ->
                 _uiState.update {
                     it.copy(logs = logs, isLoading = false, errorMessage = null)

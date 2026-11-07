@@ -28,5 +28,16 @@ class AuditRepositoryImpl(
     override fun getRecentLogs(limit: Int): Flow<List<AuditLog>> {
         return auditDao.getRecentLogs(limit).map { list -> list.map { it.toDomain() } }
     }
+
+    override suspend fun getLogsSince(teamId: String, sinceTimestamp: Long): List<AuditLog> = withContext(Dispatchers.IO) {
+        auditDao.getLogsSince(teamId, sinceTimestamp).map { it.toDomain() }
+    }
+
+    override suspend fun saveLogs(logs: List<AuditLog>): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            auditDao.insertLogs(logs.map { it.toEntity() })
+            Unit
+        }
+    }
 }
 

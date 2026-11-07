@@ -337,11 +337,18 @@ class RelayClientEngine(
             val totalBytes = session.totalBytes
             var chunkSeq = (startOffset / bufferPool.bufferSize).toInt()
             val startTime = System.currentTimeMillis()
+            val maxInflightBytes = 4 * 1024 * 1024L // 4MB Cửa sổ trượt (Sliding Window Flow Control)
 
             // 6. Vòng lặp truyền khối dữ liệu
             while (currentOffset < totalBytes && !isCancelled.get()) {
                 while (isPaused.get() && !isCancelled.get()) {
                     delay(200)
+                }
+                if (isCancelled.get()) break
+
+                // Backpressure: Nếu lượng dữ liệu bay trước vượt quá 4MB so với mốc ACK đã xác nhận, tạm dừng nhường luồng chờ ACK
+                while (currentOffset - confirmedOffset.get() >= maxInflightBytes && !isCancelled.get()) {
+                    delay(10)
                 }
                 if (isCancelled.get()) break
 

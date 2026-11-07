@@ -73,6 +73,7 @@ fun DocumentEntity.toDomain(): SharedDocument = SharedDocument(
     docId = docId,
     teamId = teamId,
     publisherId = publisherId,
+    folderId = folderId,
     fileName = fileName,
     fileSize = fileSize,
     mimeType = mimeType,
@@ -89,6 +90,7 @@ fun SharedDocument.toEntity(): DocumentEntity = DocumentEntity(
     docId = docId,
     teamId = teamId,
     publisherId = publisherId,
+    folderId = folderId,
     fileName = fileName,
     fileSize = fileSize,
     mimeType = mimeType,
@@ -100,6 +102,29 @@ fun SharedDocument.toEntity(): DocumentEntity = DocumentEntity(
     publisherHost = publisherHost,
     publisherPort = publisherPort
 )
+
+// Folder Mappings
+fun com.teamshare.app.data.local.db.entity.TeamFolderEntity.toDomain(): com.teamshare.app.domain.model.TeamFolder =
+    com.teamshare.app.domain.model.TeamFolder(
+        folderId = folderId,
+        teamId = teamId,
+        parentFolderId = parentFolderId,
+        folderName = folderName,
+        createdBy = createdBy,
+        createdAt = createdAt,
+        isDeleted = isDeleted
+    )
+
+fun com.teamshare.app.domain.model.TeamFolder.toEntity(): com.teamshare.app.data.local.db.entity.TeamFolderEntity =
+    com.teamshare.app.data.local.db.entity.TeamFolderEntity(
+        folderId = folderId,
+        teamId = teamId,
+        parentFolderId = parentFolderId,
+        folderName = folderName,
+        createdBy = createdBy,
+        createdAt = createdAt,
+        isDeleted = isDeleted
+    )
 
 // Session Mappings
 fun SessionEntity.toDomain(): TransferSession = TransferSession(

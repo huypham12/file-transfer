@@ -133,17 +133,34 @@ fun AuditLogCard(log: AuditLog) {
                 style = MaterialTheme.typography.bodyMedium
             )
 
-            if (log.actorId.isNotBlank()) {
+            val actorDisplay = when {
+                log.actorName.isNotBlank() -> log.actorName
+                log.actorId.length > 16 -> "${log.actorId.take(8)}...${log.actorId.takeLast(6)}"
+                log.actorId.isNotBlank() -> log.actorId
+                else -> ""
+            }
+            if (actorDisplay.isNotBlank()) {
                 Spacer(modifier = Modifier.height(6.dp))
-                val actorSnippet = if (log.actorId.length > 16) {
-                    "${log.actorId.take(8)}...${log.actorId.takeLast(6)}"
-                } else log.actorId
-                Text(
-                    text = "Tác nhân: $actorSnippet",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Tác nhân: $actorDisplay",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    )
+                    if (log.signature.isNotBlank()) {
+                        Text(
+                            text = "✓ Đã ký số E2EE",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = androidx.compose.ui.graphics.Color(0xFF2E7D32),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
             }
         }
     }

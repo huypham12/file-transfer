@@ -10,6 +10,8 @@ data class AuditLog(
     val timestamp: Long = System.currentTimeMillis(),
     val eventType: AuditEventType,
     val severity: AuditSeverity = AuditSeverity.INFO,
-    val details: String
+    val details: String,
+    val actorName: String = "",
+    val signature: String = ""
 )
 

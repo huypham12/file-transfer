@@ -15,6 +15,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -66,11 +75,14 @@ fun DocumentCatalogTab(
     onOpenDocument: (docId: String) -> Unit
 ) {
     val uiState by viewModel.catalogUiState.collectAsState()
+    val peerPresence by viewModel.peerPresence.collectAsState()
 
     var selectedUriToPublish by remember { mutableStateOf<Uri?>(null) }
     var selectedFileName by remember { mutableStateOf("") }
     var showPublishDialog by remember { mutableStateOf(false) }
+    var showCreateFolderDialog by remember { mutableStateOf(false) }
     var docToDelete by remember { mutableStateOf<SharedDocument?>(null) }
+    var folderToDelete by remember { mutableStateOf<com.teamshare.app.domain.model.TeamFolder?>(null) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -82,6 +94,10 @@ fun DocumentCatalogTab(
             }
         }
     )
+
+    // Lọc thư mục và tài liệu theo cấp hiện tại
+    val currentFolders = uiState.folders.filter { !it.isDeleted && it.parentFolderId == uiState.currentFolderId }
+    val currentDocs = uiState.documents.filter { it.folderId == uiState.currentFolderId }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -99,11 +115,74 @@ fun DocumentCatalogTab(
                 )
             }
 
-            if (uiState.documents.isEmpty() && !uiState.isLoading) {
+            // Thanh điều hướng Breadcrumb & Tạo thư mục
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Breadcrumb Scrollable
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AssistChip(
+                            onClick = { viewModel.navigateToFolder(null) },
+                            label = { Text("Gốc", fontWeight = if (uiState.currentFolderId == null) FontWeight.Bold else FontWeight.Normal) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Home,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        )
+
+                        uiState.folderPath.forEachIndexed { index, folder ->
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            val isLast = index == uiState.folderPath.lastIndex
+                            AssistChip(
+                                onClick = { viewModel.navigateToFolder(folder) },
+                                label = { Text(folder.folderName, fontWeight = if (isLast) FontWeight.Bold else FontWeight.Normal) }
+                            )
+                        }
+                    }
+
+                    // Nút Tạo thư mục mới
+                    IconButton(
+                        onClick = { showCreateFolderDialog = true },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CreateNewFolder,
+                            contentDescription = "Tạo thư mục mới",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+
+            if (currentFolders.isEmpty() && currentDocs.isEmpty() && !uiState.isLoading) {
                 EmptyStateView(
-                    title = "Chưa có tài liệu nào",
-                    subtitle = "Chọn tệp từ máy của bạn để chia sẻ an toàn với các thành viên trong nhóm.",
-                    icon = Icons.Default.Description,
+                    title = if (uiState.currentFolderId == null) "Chưa có tài liệu nào" else "Thư mục trống",
+                    subtitle = "Tạo thư mục con hoặc chọn tệp từ máy của bạn để chia sẻ trong thư mục này.",
+                    icon = if (uiState.currentFolderId == null) Icons.Default.Description else Icons.Default.Folder,
                     actionLabel = "Công bố tài liệu mới",
                     onAction = { filePickerLauncher.launch(arrayOf("*/*")) },
                     modifier = Modifier.fillMaxSize()
@@ -114,11 +193,62 @@ fun DocumentCatalogTab(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(uiState.documents, key = { it.docId }) { doc ->
+                    // Nút quay lại cấp cha nếu đang ở trong thư mục con
+                    if (uiState.currentFolderId != null) {
+                        item(key = "__navigate_up__") {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)),
+                                onClick = { viewModel.navigateUp() }
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowBack,
+                                        contentDescription = "Quay lại thư mục cha",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        text = ".. (Quay lại thư mục cha)",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Hiển thị danh sách thư mục con
+                    items(currentFolders, key = { "folder_${it.folderId}" }) { folder ->
+                        val childFolderCount = uiState.folders.count { !it.isDeleted && it.parentFolderId == folder.folderId }
+                        val childDocCount = uiState.documents.count { it.folderId == folder.folderId }
+                        val canDeleteFolder = isOwner || (currentMemberId != null && folder.createdBy == currentMemberId)
+
+                        FolderCard(
+                            folder = folder,
+                            itemCount = childFolderCount + childDocCount,
+                            canDelete = canDeleteFolder,
+                            onClick = { viewModel.navigateToFolder(folder) },
+                            onDeleteClick = { folderToDelete = folder }
+                        )
+                    }
+
+                    // Hiển thị danh sách tài liệu trong thư mục hiện tại
+                    items(currentDocs, key = { "doc_${it.docId}" }) { doc ->
                         val canDelete = isOwner || (currentMemberId != null && doc.publisherId == currentMemberId)
+                        val isPublisherOnline = peerPresence[doc.publisherId]?.isOnline == true || doc.publisherId == currentMemberId
                         DocumentCard(
                             document = doc,
                             canDelete = canDelete,
+                            isPublisherOnline = isPublisherOnline,
                             onDownloadClick = { onRequestDownload(doc.docId) },
                             onOpenClick = { onOpenDocument(doc.docId) },
                             onDeleteClick = { docToDelete = doc }
@@ -140,6 +270,21 @@ fun DocumentCatalogTab(
             Icon(imageVector = Icons.Default.UploadFile, contentDescription = "Công bố tài liệu mới")
         }
 
+        // Hộp thoại tạo thư mục mới
+        if (showCreateFolderDialog) {
+            CreateFolderDialog(
+                onDismiss = { showCreateFolderDialog = false },
+                onConfirm = { folderName ->
+                    viewModel.createFolder(
+                        teamId = teamId,
+                        folderName = folderName,
+                        createdBy = currentMemberId ?: "unknown"
+                    )
+                    showCreateFolderDialog = false
+                }
+            )
+        }
+
         // Hộp thoại công bố tài liệu đã chọn
         if (showPublishDialog && selectedUriToPublish != null) {
             PublishDocumentDialog(
@@ -156,6 +301,21 @@ fun DocumentCatalogTab(
                         onSuccess = { showPublishDialog = false }
                     )
                 }
+            )
+        }
+
+        // Hộp thoại xác nhận xóa thư mục
+        if (folderToDelete != null) {
+            ConfirmationDialog(
+                title = "Xóa thư mục?",
+                message = "Hành động này sẽ xóa thư mục '${folderToDelete!!.folderName}'. Các tệp tin bên trong vẫn được lưu trữ an toàn trong nhóm.",
+                confirmText = "Xóa",
+                isDestructive = true,
+                onConfirm = {
+                    viewModel.deleteFolder(teamId, folderToDelete!!.folderId)
+                    folderToDelete = null
+                },
+                onDismiss = { folderToDelete = null }
             )
         }
 
@@ -183,9 +343,106 @@ fun DocumentCatalogTab(
 }
 
 @Composable
+fun FolderCard(
+    folder: com.teamshare.app.domain.model.TeamFolder,
+    itemCount: Int,
+    canDelete: Boolean,
+    onClick: () -> Unit,
+    onDeleteClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Folder,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(36.dp)
+            )
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = folder.folderName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "$itemCount mục",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (canDelete) {
+                IconButton(onClick = onDeleteClick) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Xóa thư mục",
+                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CreateFolderDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (name: String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Tạo thư mục mới") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Tên thư mục") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (name.isNotBlank()) onConfirm(name.trim())
+                },
+                enabled = name.isNotBlank()
+            ) {
+                Text("Tạo")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("Hủy")
+            }
+        }
+    )
+}
+
+@Composable
 fun DocumentCard(
     document: SharedDocument,
     canDelete: Boolean,
+    isPublisherOnline: Boolean = false,
     onDownloadClick: () -> Unit,
     onOpenClick: () -> Unit,
     onDeleteClick: () -> Unit
@@ -224,13 +481,21 @@ fun DocumentCard(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        if (!document.publisherHost.isNullOrBlank()) {
+                        if (isPublisherOnline) {
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "• LAN sẵn sàng",
+                                text = "• Trực tuyến",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color(0xFF2E7D32),
                                 fontWeight = FontWeight.Medium
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "• Ngoại tuyến",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.Gray,
+                                fontWeight = FontWeight.Normal
                             )
                         }
                     }

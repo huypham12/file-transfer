@@ -2,7 +2,9 @@ package com.teamshare.app.data.repository
 
 import com.teamshare.app.core.security.keystore.IKeyManager
 import com.teamshare.app.data.local.db.dao.MemberDao
+import com.teamshare.app.data.local.db.dao.RevocationDao
 import com.teamshare.app.data.local.db.dao.TeamDao
+import com.teamshare.app.data.local.db.entity.RevocationEntity
 import com.teamshare.app.data.local.db.mapper.toDomain
 import com.teamshare.app.data.local.db.mapper.toEntity
 import com.teamshare.app.domain.model.Team
@@ -11,6 +13,7 @@ import com.teamshare.app.domain.model.TeamStatus
 import com.teamshare.app.domain.repository.ITeamRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
@@ -20,7 +23,8 @@ import kotlinx.coroutines.withContext
 class TeamRepositoryImpl(
     private val teamDao: TeamDao,
     private val memberDao: MemberDao,
-    private val keyManager: IKeyManager
+    private val keyManager: IKeyManager,
+    private val revocationDao: RevocationDao? = null
 ) : ITeamRepository {
 
     override suspend fun createTeam(team: Team): Result<Team> = withContext(Dispatchers.IO) {
@@ -72,6 +76,39 @@ class TeamRepositoryImpl(
             return@withContext false
         }
         memberDao.isMemberActive(teamId, memberId) ?: false
+    }
+
+    override suspend fun recordRevocation(revocation: RevocationEntity): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            revocationDao?.insertRevocation(revocation)
+            Unit
+        }
+    }
+
+    override suspend fun recordRevocations(revocations: List<RevocationEntity>): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            revocationDao?.insertRevocations(revocations)
+            Unit
+        }
+    }
+
+    override fun getRevocationsByTeam(teamId: String): Flow<List<RevocationEntity>> {
+        return revocationDao?.getRevocationsByTeam(teamId) ?: flowOf(emptyList())
+    }
+
+    override suspend fun isMemberRevoked(teamId: String, memberId: String): Boolean = withContext(Dispatchers.IO) {
+        revocationDao?.getRevocationForMember(teamId, memberId) != null
+    }
+
+    override suspend fun isTeamDisbanded(teamId: String): Boolean = withContext(Dispatchers.IO) {
+        val disband = revocationDao?.getTeamDisbandRecord(teamId)
+        if (disband != null) return@withContext true
+        val team = teamDao.findTeamByIdSync(teamId)
+        team?.status == TeamStatus.DISBANDED.name
+    }
+
+    override suspend fun getAllRevocationsList(teamId: String): List<RevocationEntity> = withContext(Dispatchers.IO) {
+        revocationDao?.getAllRevocationsList(teamId) ?: emptyList()
     }
 }
 

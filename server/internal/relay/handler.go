@@ -66,6 +66,14 @@ func HandleStream(hub *Hub) http.HandlerFunc {
 		}
 
 		bridge, isNew := hub.GetOrCreateBridge(attachMsg.StreamId)
+		if bridge == nil {
+			_ = conn.WriteJSON(AttachResponse{
+				Status:  "ERROR",
+				Message: "Máy chủ đang quá tải số phiên chuyển tiếp đồng thời (vui lòng thử lại sau)",
+			})
+			_ = conn.Close()
+			return
+		}
 		attached := false
 
 		switch attachMsg.Role {

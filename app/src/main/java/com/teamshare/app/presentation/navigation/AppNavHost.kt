@@ -67,7 +67,8 @@ fun AppNavHost(
                     val doc = documentViewModel.catalogUiState.value.documents.find { it.docId == docId }
                     val fileName = doc?.fileName ?: "document_$docId"
                     val fileSize = doc?.fileSize ?: 0L
-                    val currentMemberId = teamViewModel.workspaceUiState.value.currentMemberId ?: "member"
+                    val currentMemberId = teamViewModel.workspaceUiState.value.currentMemberId ?: ""
+                    val currentMemberName = teamViewModel.workspaceUiState.value.members.find { it.memberId == currentMemberId }?.memberName ?: ""
 
                     val sessionId = transferViewModel.startDownload(
                         docId = docId,
@@ -75,6 +76,8 @@ fun AppNavHost(
                         fileSize = fileSize,
                         teamId = teamId,
                         requesterId = currentMemberId,
+                        requesterName = currentMemberName,
+                        publisherId = doc?.publisherId ?: "",
                         peerHost = doc?.publisherHost,
                         peerPort = doc?.publisherPort ?: 0,
                         expectedSha256 = doc?.expectedSha256,

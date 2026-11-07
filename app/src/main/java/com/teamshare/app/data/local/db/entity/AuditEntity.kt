@@ -44,6 +44,12 @@ data class AuditEntity(
     val severity: String,
 
     @ColumnInfo(name = "details")
-    val details: String
+    val details: String,
+
+    @ColumnInfo(name = "actor_name")
+    val actorName: String = "",
+
+    @ColumnInfo(name = "signature")
+    val signature: String = ""
 )
 

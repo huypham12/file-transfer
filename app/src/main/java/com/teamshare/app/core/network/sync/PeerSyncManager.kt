@@ -5,6 +5,7 @@ import android.net.Uri
 import com.teamshare.app.core.network.relay.RelayWebSocketConnection
 import com.teamshare.app.core.platform.network.NetworkAddressHelper
 import com.teamshare.app.core.security.keystore.IKeyManager
+import com.teamshare.app.data.local.db.entity.RevocationEntity
 import com.teamshare.app.domain.model.AuditLog
 import com.teamshare.app.domain.model.AuditEventType
 import com.teamshare.app.domain.model.AuditSeverity
@@ -12,22 +13,30 @@ import com.teamshare.app.domain.model.DownloadStatus
 import com.teamshare.app.domain.model.MemberRole
 import com.teamshare.app.domain.model.QrInvitePayload
 import com.teamshare.app.domain.model.SharedDocument
+import com.teamshare.app.domain.model.TeamFolder
 import com.teamshare.app.domain.model.TeamMember
 import com.teamshare.app.domain.repository.IAuditRepository
 import com.teamshare.app.domain.repository.IDocumentRepository
+import com.teamshare.app.domain.repository.IFolderRepository
 import com.teamshare.app.domain.repository.IPeerSyncGateway
 import com.teamshare.app.domain.repository.ITeamRepository
 import com.teamshare.app.domain.repository.JoinSyncResponse
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -36,8 +45,19 @@ import java.io.OutputStreamWriter
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * Thông tin trạng thái hiện diện (Presence) thời gian thực của một peer trong nhóm.
+ */
+data class PeerPresenceInfo(
+    val memberId: String,
+    val memberName: String,
+    val lastSeenTimestamp: Long,
+    val isOnline: Boolean
+)
 
 /**
  * Trợ thủ ghi log an toàn, tự động tương thích môi trường Android Runtime và JVM Unit Test.
@@ -72,7 +92,8 @@ class PeerSyncManager(
     private val auditRepository: IAuditRepository? = null,
     private val keyManager: IKeyManager? = null,
     private val context: Context? = null,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val folderRepository: IFolderRepository? = null
 ) : IPeerSyncGateway {
 
     private val isRunning = AtomicBoolean(false)
@@ -93,7 +114,24 @@ class PeerSyncManager(
     private val processedFileRequests = ConcurrentHashMap<String, Long>() // streamId -> timestamp
     private val teamRelayUrls = ConcurrentHashMap<String, String>() // teamId -> relayWsUrl
 
+    private val _peerPresenceFlow = MutableStateFlow<Map<String, PeerPresenceInfo>>(emptyMap())
+    val peerPresenceFlow: StateFlow<Map<String, PeerPresenceInfo>> = _peerPresenceFlow.asStateFlow()
+
+    private val peerPresenceMap = ConcurrentHashMap<String, PeerPresenceInfo>()
+    private val pendingProbes = ConcurrentHashMap<String, CompletableDeferred<FileProbeResponseMessage>>()
+    private val pendingAcks = ConcurrentHashMap<String, CompletableDeferred<FileRequestAckMessage>>()
+    private var heartbeatJob: Job? = null
+
+    @Volatile
+    var myMemberId: String? = null
+        private set
+
+    @Volatile
+    var myMemberName: String? = null
+        private set
+
     var onFileRequestedListener: ((req: FileRequestMessage, doc: SharedDocument, file: java.io.File) -> Unit)? = null
+    var onSessionAbortRequested: ((memberId: String?, teamId: String?) -> Unit)? = null
 
     /**
      * Ghi nhớ Relay URL cho từng nhóm và đồng bộ vào cấu hình mạng chung.
@@ -112,6 +150,33 @@ class PeerSyncManager(
      * Lấy Relay URL đã được xác thực của nhóm.
      */
     fun getRelayUrlForTeam(teamId: String): String? = teamRelayUrls[teamId]
+
+    /**
+     * Cập nhật danh tính thành viên cục bộ và thông báo ngay tới Relay Server.
+     */
+    fun updateMemberIdentity(memberId: String, memberName: String, teamId: String) {
+        myMemberId = memberId
+        myMemberName = memberName
+        activeTeamId = teamId
+        val conn = activeRelayConnection
+        if (conn != null && conn.isOpen()) {
+            val myIp = NetworkAddressHelper.getLocalIpv4Address()
+            val hbMsg = PeerHeartbeatMessage(
+                teamId = teamId,
+                memberId = memberId,
+                memberName = memberName,
+                clientHost = myIp,
+                clientPort = currentListeningPort
+            ).toJson()
+            conn.sendText(hbMsg)
+            SyncLog.d("TeamShareSync", "Đã gửi cập nhật danh tính thành viên lên Relay: $memberId ($memberName)")
+        }
+    }
+
+    /**
+     * Lấy địa chỉ IP và cổng LAN đã biết của một peer trong nhóm.
+     */
+    fun getPeerHostAndPort(peerId: String): Pair<String, Int>? = knownPeers[peerId]
 
     /**
      * Chủ động phát yêu cầu CATALOG_QUERY tới các peer và Relay Room để kéo danh mục tài liệu mới nhất.
@@ -146,14 +211,21 @@ class PeerSyncManager(
         teamId: String,
         preferredPort: Int = NetworkAddressHelper.DEFAULT_SYNC_PORT,
         relayUrl: String? = null,
-        scope: CoroutineScope
+        scope: CoroutineScope,
+        memberId: String? = null,
+        memberName: String? = null
     ): Int {
+        if (memberId != null) myMemberId = memberId
+        if (memberName != null) myMemberName = memberName
+
         if (isRunning.get() && activeTeamId == teamId && currentListeningPort > 0) {
             return currentListeningPort
         }
 
         stopSyncServer()
         activeTeamId = teamId
+        myMemberId = memberId
+        myMemberName = memberName
         isRunning.set(true)
 
         // 1. Mở ServerSocket LAN
@@ -187,6 +259,43 @@ class PeerSyncManager(
             }
         }
 
+        // 3. Vòng lặp phát nhịp tim định kỳ (Heartbeat - mỗi 15 giây)
+        heartbeatJob = scope.launch(ioDispatcher) {
+            while (isActive && isRunning.get()) {
+                delay(15_000L)
+                val currentTeam = activeTeamId ?: continue
+                val currentMem = myMemberId ?: continue
+                val currentName = myMemberName ?: "Thành viên"
+                val myIp = NetworkAddressHelper.getLocalIpv4Address()
+                val hbMsg = PeerHeartbeatMessage(
+                    teamId = currentTeam,
+                    memberId = currentMem,
+                    memberName = currentName,
+                    clientHost = myIp,
+                    clientPort = currentListeningPort
+                ).toJson()
+
+                activeRelayConnection?.let { conn ->
+                    if (conn.isOpen()) {
+                        conn.sendText(hbMsg)
+                    }
+                }
+
+                // Dọn dẹp trạng thái presence: nếu quá 40 giây không có heartbeat, đánh dấu ngoại tuyến
+                val now = System.currentTimeMillis()
+                var changed = false
+                peerPresenceMap.forEach { (id, presence) ->
+                    if (presence.isOnline && (now - presence.lastSeenTimestamp > 40_000L)) {
+                        peerPresenceMap[id] = presence.copy(isOnline = false)
+                        changed = true
+                    }
+                }
+                if (changed) {
+                    _peerPresenceFlow.value = peerPresenceMap.toMap()
+                }
+            }
+        }
+
         return currentListeningPort
     }
 
@@ -195,6 +304,15 @@ class PeerSyncManager(
      */
     fun stopSyncServer() {
         isRunning.set(false)
+        heartbeatJob?.cancel()
+        heartbeatJob = null
+        peerPresenceMap.clear()
+        _peerPresenceFlow.value = emptyMap()
+        pendingProbes.values.forEach { it.cancel() }
+        pendingProbes.clear()
+        pendingAcks.values.forEach { it.cancel() }
+        pendingAcks.clear()
+
         try {
             serverSocket?.close()
         } catch (_: Exception) {}
@@ -256,9 +374,13 @@ class PeerSyncManager(
      * Vòng lặp lắng nghe bản tin đồng bộ chuyển tiếp qua WebSocket Relay.
      */
     private suspend fun runRelaySyncLoop(relayUrl: String, teamId: String) {
+        val queryParam = StringBuilder("teamId=$teamId")
+        myMemberId?.takeIf { it.isNotBlank() }?.let {
+            queryParam.append("&peerId=$it")
+        }
         val wsUrl = if (relayUrl.contains("?teamId=")) relayUrl else {
             val sep = if (relayUrl.contains("?")) "&" else "?"
-            "$relayUrl${sep}teamId=$teamId"
+            "$relayUrl$sep$queryParam"
         }
 
         while (isRunning.get()) {
@@ -324,7 +446,32 @@ class PeerSyncManager(
 
                 SyncLog.d("TeamShareSync", "Trưởng nhóm nhận được JOIN_REQUEST từ thành viên ${req.memberName} (${req.memberId})")
 
-                // 1. Lưu thành viên mới vào CSDL của máy này (ký cấp chứng thư hợp chuẩn E2EE nếu có Master Key)
+                // 1. Kiểm tra trùng lặp tên hiển thị trong nhóm (Owner Uniqueness Control)
+                val existingMembers = teamRepository.getMembersByTeam(currentTeamId).firstOrNull() ?: emptyList()
+                val isNameTaken = existingMembers.any {
+                    it.isActive && it.memberName.equals(req.memberName.trim(), ignoreCase = true) && it.memberId != req.memberId
+                }
+                if (isNameTaken) {
+                    SyncLog.w("TeamShareSync", "Từ chối JOIN_REQUEST: Tên '${req.memberName}' đã tồn tại trong nhóm!")
+                    return JoinResponseMessage(
+                        status = "ERROR",
+                        message = "Tên hiển thị '${req.memberName}' đã tồn tại trong nhóm. Vui lòng chọn một tên khác."
+                    ).toJson()
+                }
+
+                // 2. Kiểm tra nếu thành viên đã bị thu hồi quyền (CRL / Tombstone)
+                val isRevoked = existingMembers.any {
+                    it.memberId == req.memberId && !it.isActive
+                }
+                if (isRevoked) {
+                    SyncLog.w("TeamShareSync", "Từ chối JOIN_REQUEST: Thành viên ${req.memberName} (${req.memberId}) đã bị thu hồi quyền trước đó!")
+                    return JoinResponseMessage(
+                        status = "ERROR",
+                        message = "Tài khoản của bạn đã bị thu hồi quyền truy cập nhóm này."
+                    ).toJson()
+                }
+
+                // 3. Lưu thành viên mới vào CSDL của máy này (ký cấp chứng thư hợp chuẩn E2EE nếu có Master Key)
                 val masterKeyAlias = IKeyManager.MASTER_KEY_PREFIX + currentTeamId
                 val memberClaim = "${req.teamId}:${req.memberId}:${req.deviceFingerprint}:MEMBER".toByteArray(Charsets.UTF_8)
                 val signedCred = try {
@@ -368,7 +515,9 @@ class PeerSyncManager(
                 val memberDtos = allMembers.map {
                     MemberSyncDto(it.memberId, it.memberName, it.deviceFingerprint, it.role.name, it.credentialData)
                 }
+                val myLocalIp = NetworkAddressHelper.getLocalIpv4Address()
                 val docDtos = allDocs.map {
+                    val isMyDoc = it.publisherId == myMemberId || (myMemberId == null && !it.localUri.isNullOrBlank())
                     DocumentSyncDto(
                         docId = it.docId,
                         fileName = it.fileName,
@@ -377,8 +526,9 @@ class PeerSyncManager(
                         expectedSha256 = it.expectedSha256,
                         publisherId = it.publisherId,
                         requireBiometric = it.requireBiometric,
-                        publisherHost = remoteHost,
-                        publisherPort = currentListeningPort
+                        publisherHost = if (isMyDoc) (myLocalIp ?: remoteHost) else (it.publisherHost ?: remoteHost),
+                        publisherPort = if (isMyDoc && currentListeningPort > 0) currentListeningPort else it.publisherPort,
+                        folderId = it.folderId
                     )
                 }
 
@@ -396,7 +546,9 @@ class PeerSyncManager(
                 SyncLog.d("TeamShareSync", "Nhận CATALOG_QUERY từ peer. Phản hồi danh mục tài liệu & danh bạ thành viên hiện tại...")
                 val allDocs = documentRepository.getDocumentsByTeam(currentTeamId).firstOrNull() ?: emptyList()
                 val allMembers = teamRepository.getMembersByTeam(currentTeamId).firstOrNull() ?: emptyList()
+                val myLocalIp = NetworkAddressHelper.getLocalIpv4Address()
                 val docDtos = allDocs.map {
+                    val isMyDoc = it.publisherId == myMemberId || (myMemberId == null && !it.localUri.isNullOrBlank())
                     DocumentSyncDto(
                         docId = it.docId,
                         fileName = it.fileName,
@@ -405,8 +557,9 @@ class PeerSyncManager(
                         expectedSha256 = it.expectedSha256,
                         publisherId = it.publisherId,
                         requireBiometric = it.requireBiometric,
-                        publisherHost = remoteHost,
-                        publisherPort = currentListeningPort
+                        publisherHost = if (isMyDoc) (myLocalIp ?: remoteHost) else (it.publisherHost ?: remoteHost),
+                        publisherPort = if (isMyDoc && currentListeningPort > 0) currentListeningPort else it.publisherPort,
+                        folderId = it.folderId
                     )
                 }
                 val memberDtos = allMembers.map {
@@ -431,14 +584,19 @@ class PeerSyncManager(
                 syncResp.members.forEach { m ->
                     val existing = currentMemberMap[m.memberId]
                     val role = try { MemberRole.valueOf(m.role) } catch (_: Exception) { MemberRole.MEMBER }
-                    if (existing == null || (m.credentialData.isNotBlank() && existing.credentialData != m.credentialData)) {
+                    // Bảo vệ khóa công khai của Owner: Nếu bản ghi hiện tại là Owner và đã lưu khóa công khai (hoặc QR key),
+                    // không ghi đè bằng signature hex của Owner trong syncResp
+                    val isOwnerKeyAlreadyStored = existing?.role == MemberRole.OWNER && existing.credentialData.isNotBlank() && role == MemberRole.OWNER
+                    val credDataToSave = if (isOwnerKeyAlreadyStored) existing!!.credentialData else m.credentialData
+
+                    if (existing == null || (m.credentialData.isNotBlank() && existing.credentialData != m.credentialData && !isOwnerKeyAlreadyStored)) {
                         val member = TeamMember(
                             memberId = m.memberId,
                             teamId = syncResp.teamId,
                             memberName = m.memberName,
                             deviceFingerprint = m.deviceFingerprint,
                             role = role,
-                            credentialData = m.credentialData,
+                            credentialData = credDataToSave,
                             isActive = true
                         )
                         teamRepository.addMember(member)
@@ -447,12 +605,16 @@ class PeerSyncManager(
                 }
 
                 syncResp.documents.forEach { d ->
+                    if (!d.publisherHost.isNullOrBlank() && d.publisherPort > 0) {
+                        knownPeers[d.publisherId] = d.publisherHost to d.publisherPort
+                    }
                     val existing = documentRepository.getDocumentById(d.docId)
                     if (existing == null) {
                         val newDoc = SharedDocument(
                             docId = d.docId,
                             teamId = syncResp.teamId,
                             publisherId = d.publisherId,
+                            folderId = d.folderId,
                             fileName = d.fileName,
                             fileSize = d.fileSize,
                             mimeType = d.mimeType,
@@ -498,6 +660,7 @@ class PeerSyncManager(
                         docId = announce.docId,
                         teamId = announce.teamId,
                         publisherId = announce.publisherId,
+                        folderId = announce.folderId,
                         fileName = announce.fileName,
                         fileSize = announce.fileSize,
                         mimeType = announce.mimeType,
@@ -525,15 +688,79 @@ class PeerSyncManager(
                 null
             }
 
+            PeerHeartbeatMessage.ACTION -> {
+                val hb = PeerHeartbeatMessage.fromJson(jsonStr) ?: return null
+                if (hb.teamId != currentTeamId) return null
+                if (!hb.clientHost.isNullOrBlank() && hb.clientPort > 0) {
+                    knownPeers[hb.memberId] = hb.clientHost to hb.clientPort
+                }
+                peerPresenceMap[hb.memberId] = PeerPresenceInfo(
+                    memberId = hb.memberId,
+                    memberName = hb.memberName,
+                    lastSeenTimestamp = System.currentTimeMillis(),
+                    isOnline = true
+                )
+                _peerPresenceFlow.value = peerPresenceMap.toMap()
+                null
+            }
+
+            FileProbeRequestMessage.ACTION -> {
+                val probe = FileProbeRequestMessage.fromJson(jsonStr) ?: return null
+                if (probe.teamId != currentTeamId) return null
+                val doc = documentRepository.getDocumentById(probe.docId)
+                val file = doc?.localUri?.let { java.io.File(it) }
+                val exists = file != null && file.exists() && file.canRead()
+                val response = FileProbeResponseMessage(
+                    teamId = probe.teamId,
+                    docId = probe.docId,
+                    streamId = probe.streamId,
+                    status = if (exists) "READY" else "FILE_MISSING",
+                    message = if (exists) "OK" else "Tệp nguồn không còn tồn tại trên máy người chia sẻ",
+                    targetPeerId = probe.requesterId
+                )
+                response.toJson()
+            }
+
+            FileProbeResponseMessage.ACTION -> {
+                val resp = FileProbeResponseMessage.fromJson(jsonStr) ?: return null
+                if (resp.teamId != currentTeamId) return null
+                pendingProbes[resp.streamId]?.complete(resp)
+                null
+            }
+
+            FileRequestAckMessage.ACTION -> {
+                val ack = FileRequestAckMessage.fromJson(jsonStr) ?: return null
+                if (ack.teamId != currentTeamId) return null
+                pendingAcks[ack.streamId]?.complete(ack)
+                null
+            }
+
             FileRequestMessage.ACTION -> {
                 val req = FileRequestMessage.fromJson(jsonStr) ?: return null
                 if (req.teamId != currentTeamId) return null
+
+                // 1. Phản hồi ngay lập tức bản tin xác nhận FILE_REQUEST_ACK
+                val ack = FileRequestAckMessage(
+                    teamId = req.teamId,
+                    streamId = req.streamId,
+                    messageId = req.messageId,
+                    status = "ACCEPTED",
+                    targetPeerId = req.requesterId
+                )
+                val ackJson = ack.toJson()
+
+                // Chủ động gửi ACK qua kênh Relay nếu đang mở
+                activeRelayConnection?.let { conn ->
+                    if (conn.isOpen()) {
+                        conn.sendText(ackJson)
+                    }
+                }
 
                 val lastProcessed = processedFileRequests[req.streamId] ?: 0L
                 val now = System.currentTimeMillis()
                 if (now - lastProcessed < 5000L) {
                     SyncLog.d("TeamShareSync", "Bỏ qua FILE_REQUEST trùng lặp trong 5s cho streamId=${req.streamId}")
-                    return null
+                    return ackJson
                 }
                 processedFileRequests[req.streamId] = now
 
@@ -566,6 +793,243 @@ class PeerSyncManager(
                 } else {
                     SyncLog.w("TeamShareSync", "Bản ghi tài liệu ${req.docId} không tồn tại hoặc localUri null")
                 }
+                ackJson
+            }
+
+            MemberRevokedMessage.ACTION -> {
+                val revMsg = MemberRevokedMessage.fromJson(jsonStr) ?: return null
+                if (revMsg.teamId != currentTeamId) return null
+                SyncLog.w("TeamShareSync", "Nhận bản tin MEMBER_REVOKED: Thành viên ${revMsg.revokedMemberId} đã bị tước quyền")
+
+                // 1. Lưu bản ghi Signed CRL
+                val record = RevocationEntity(
+                    recordId = revMsg.recordId,
+                    teamId = revMsg.teamId,
+                    revokedMemberId = revMsg.revokedMemberId,
+                    revokedFingerprint = revMsg.revokedFingerprint,
+                    revocationType = "MEMBER_KICK",
+                    revokedAt = revMsg.revokedAt,
+                    reason = revMsg.reason,
+                    ownerSignature = revMsg.signature
+                )
+                teamRepository.recordRevocation(record)
+
+                // 2. Cập nhật trạng thái thành viên bị thu hồi
+                teamRepository.revokeMember(revMsg.teamId, revMsg.revokedMemberId)
+
+                // 3. Hủy bỏ ngay lập tức các phiên truyền file với peer này
+                onSessionAbortRequested?.invoke(revMsg.revokedMemberId, revMsg.teamId)
+
+                // 4. Ghi nhật ký kiểm toán
+                auditRepository?.logEvent(
+                    AuditLog(
+                        teamId = revMsg.teamId,
+                        actorId = revMsg.revokedMemberId,
+                        eventType = AuditEventType.MEMBER_REVOKED,
+                        severity = AuditSeverity.WARNING,
+                        details = "Nhận thông báo thu hồi quyền thành viên ${revMsg.revokedMemberId} có chữ ký số hợp lệ của Owner"
+                    )
+                )
+                null
+            }
+
+            TeamDisbandedMessage.ACTION -> {
+                val disMsg = TeamDisbandedMessage.fromJson(jsonStr) ?: return null
+                if (disMsg.teamId != currentTeamId) return null
+                SyncLog.w("TeamShareSync", "Nhận bản tin TEAM_DISBANDED: Nhóm $currentTeamId đã bị giải tán")
+
+                val record = RevocationEntity(
+                    recordId = UUID.randomUUID().toString(),
+                    teamId = disMsg.teamId,
+                    revokedMemberId = "ALL",
+                    revokedFingerprint = "",
+                    revocationType = "TEAM_DISBAND",
+                    revokedAt = disMsg.disbandedAt,
+                    reason = "DISBANDED_BY_OWNER",
+                    ownerSignature = disMsg.signature
+                )
+                teamRepository.recordRevocation(record)
+                teamRepository.disbandTeam(disMsg.teamId)
+                onSessionAbortRequested?.invoke(null, disMsg.teamId)
+
+                auditRepository?.logEvent(
+                    AuditLog(
+                        teamId = disMsg.teamId,
+                        actorId = "OWNER",
+                        eventType = AuditEventType.TEAM_DISBANDED,
+                        severity = AuditSeverity.WARNING,
+                        details = "Nhận thông báo giải tán nhóm từ Trưởng nhóm. Nhóm chuyển sang trạng thái chỉ đọc."
+                    )
+                )
+                null
+            }
+
+            RevocationSyncQueryMessage.ACTION -> {
+                val q = RevocationSyncQueryMessage.fromJson(jsonStr) ?: return null
+                if (q.teamId != currentTeamId) return null
+                val list = teamRepository.getAllRevocationsList(currentTeamId)
+                val dtos = list.map {
+                    RevocationSyncDto(
+                        recordId = it.recordId,
+                        teamId = it.teamId,
+                        revokedMemberId = it.revokedMemberId,
+                        revokedFingerprint = it.revokedFingerprint,
+                        revocationType = it.revocationType,
+                        revokedAt = it.revokedAt,
+                        reason = it.reason,
+                        ownerSignature = it.ownerSignature
+                    )
+                }
+                RevocationSyncResponseMessage(teamId = currentTeamId, revocations = dtos).toJson()
+            }
+
+            RevocationSyncResponseMessage.ACTION -> {
+                val resp = RevocationSyncResponseMessage.fromJson(jsonStr) ?: return null
+                if (resp.teamId != currentTeamId) return null
+                resp.revocations.forEach { r ->
+                    val entity = RevocationEntity(
+                        recordId = r.recordId,
+                        teamId = r.teamId,
+                        revokedMemberId = r.revokedMemberId,
+                        revokedFingerprint = r.revokedFingerprint,
+                        revocationType = r.revocationType,
+                        revokedAt = r.revokedAt,
+                        reason = r.reason,
+                        ownerSignature = r.ownerSignature
+                    )
+                    teamRepository.recordRevocation(entity)
+                    if (r.revocationType == "MEMBER_KICK") {
+                        teamRepository.revokeMember(r.teamId, r.revokedMemberId)
+                        onSessionAbortRequested?.invoke(r.revokedMemberId, r.teamId)
+                    } else if (r.revocationType == "TEAM_DISBAND") {
+                        teamRepository.disbandTeam(r.teamId)
+                        onSessionAbortRequested?.invoke(null, r.teamId)
+                    }
+                }
+                null
+            }
+
+            FolderAnnounceMessage.ACTION -> {
+                val fMsg = FolderAnnounceMessage.fromJson(jsonStr) ?: return null
+                if (fMsg.teamId != currentTeamId) return null
+                SyncLog.d("TeamShareSync", "Nhận bản tin FOLDER_ANNOUNCE: ${fMsg.folderName} (${fMsg.folderId})")
+                val folder = TeamFolder(
+                    folderId = fMsg.folderId,
+                    teamId = fMsg.teamId,
+                    parentFolderId = fMsg.parentFolderId,
+                    folderName = fMsg.folderName,
+                    createdBy = fMsg.createdBy,
+                    createdAt = fMsg.createdAt,
+                    isDeleted = false
+                )
+                folderRepository?.createFolder(folder)
+                null
+            }
+
+            FolderDeleteMessage.ACTION -> {
+                val delMsg = FolderDeleteMessage.fromJson(jsonStr) ?: return null
+                if (delMsg.teamId != currentTeamId) return null
+                SyncLog.d("TeamShareSync", "Nhận bản tin FOLDER_DELETE: ${delMsg.folderId}")
+                folderRepository?.softDeleteFolder(delMsg.folderId)
+                null
+            }
+
+            FolderSyncQueryMessage.ACTION -> {
+                val qMsg = FolderSyncQueryMessage.fromJson(jsonStr) ?: return null
+                if (qMsg.teamId != currentTeamId) return null
+                val folders = folderRepository?.getFoldersByTeam(currentTeamId)?.firstOrNull() ?: emptyList()
+                val dtos = folders.map {
+                    FolderSyncDto(
+                        folderId = it.folderId,
+                        teamId = it.teamId,
+                        parentFolderId = it.parentFolderId,
+                        folderName = it.folderName,
+                        createdBy = it.createdBy,
+                        createdAt = it.createdAt,
+                        isDeleted = it.isDeleted
+                    )
+                }
+                FolderSyncResponseMessage(teamId = currentTeamId, folders = dtos).toJson()
+            }
+
+            FolderSyncResponseMessage.ACTION -> {
+                val resp = FolderSyncResponseMessage.fromJson(jsonStr) ?: return null
+                if (resp.teamId != currentTeamId) return null
+                val folders = resp.folders.map {
+                    TeamFolder(
+                        folderId = it.folderId,
+                        teamId = it.teamId,
+                        parentFolderId = it.parentFolderId,
+                        folderName = it.folderName,
+                        createdBy = it.createdBy,
+                        createdAt = it.createdAt,
+                        isDeleted = it.isDeleted
+                    )
+                }
+                folderRepository?.saveFolders(folders)
+                null
+            }
+
+            AuditLogAnnounceMessage.ACTION -> {
+                val aMsg = AuditLogAnnounceMessage.fromJson(jsonStr) ?: return null
+                if (aMsg.teamId != currentTeamId) return null
+                val dto = aMsg.log
+                val eventType = try { AuditEventType.valueOf(dto.eventType) } catch (_: Exception) { AuditEventType.TRANSFER_STARTED }
+                val severity = try { AuditSeverity.valueOf(dto.severity) } catch (_: Exception) { AuditSeverity.INFO }
+                val log = AuditLog(
+                    logId = dto.logId,
+                    teamId = dto.teamId,
+                    actorId = dto.actorId,
+                    timestamp = dto.timestamp,
+                    eventType = eventType,
+                    severity = severity,
+                    details = dto.description,
+                    actorName = dto.actorName,
+                    signature = dto.signature
+                )
+                auditRepository?.logEvent(log)
+                null
+            }
+
+            AuditLogSyncQueryMessage.ACTION -> {
+                val q = AuditLogSyncQueryMessage.fromJson(jsonStr) ?: return null
+                if (q.teamId != currentTeamId) return null
+                val logs = auditRepository?.getLogsSince(currentTeamId, q.sinceTimestamp) ?: emptyList()
+                val dtos = logs.map {
+                    AuditLogSyncDto(
+                        logId = it.logId,
+                        teamId = it.teamId ?: currentTeamId,
+                        eventType = it.eventType.name,
+                        severity = it.severity.name,
+                        actorId = it.actorId,
+                        actorName = it.actorName,
+                        description = it.details,
+                        timestamp = it.timestamp,
+                        signature = it.signature
+                    )
+                }
+                AuditLogSyncResponseMessage(teamId = currentTeamId, logs = dtos).toJson()
+            }
+
+            AuditLogSyncResponseMessage.ACTION -> {
+                val resp = AuditLogSyncResponseMessage.fromJson(jsonStr) ?: return null
+                if (resp.teamId != currentTeamId) return null
+                val logs = resp.logs.map {
+                    val eventType = try { AuditEventType.valueOf(it.eventType) } catch (_: Exception) { AuditEventType.TRANSFER_STARTED }
+                    val severity = try { AuditSeverity.valueOf(it.severity) } catch (_: Exception) { AuditSeverity.INFO }
+                    AuditLog(
+                        logId = it.logId,
+                        teamId = it.teamId,
+                        actorId = it.actorId,
+                        timestamp = it.timestamp,
+                        eventType = eventType,
+                        severity = severity,
+                        details = it.description,
+                        actorName = it.actorName,
+                        signature = it.signature
+                    )
+                }
+                auditRepository?.saveLogs(logs)
                 null
             }
 
@@ -656,6 +1120,7 @@ class PeerSyncManager(
                 docId = d.docId,
                 teamId = teamId,
                 publisherId = d.publisherId,
+                folderId = d.folderId,
                 fileName = d.fileName,
                 fileSize = d.fileSize,
                 mimeType = d.mimeType,
@@ -741,6 +1206,7 @@ class PeerSyncManager(
                     docId = d.docId,
                     teamId = teamId,
                     publisherId = d.publisherId,
+                    folderId = d.folderId,
                     fileName = d.fileName,
                     fileSize = d.fileSize,
                     mimeType = d.mimeType,
@@ -775,7 +1241,8 @@ class PeerSyncManager(
             expectedSha256 = document.expectedSha256,
             requireBiometric = document.requireBiometric,
             publisherHost = myIp,
-            publisherPort = currentListeningPort
+            publisherPort = currentListeningPort,
+            folderId = document.folderId
         )
 
         val jsonStr = message.toJson()
@@ -823,6 +1290,154 @@ class PeerSyncManager(
     }
 
     /**
+     * Thăm dò tính khả dụng của tệp nguồn (Pre-flight Probe) trước khi mở phiên truyền tải.
+     */
+    suspend fun probeFileAvailability(
+        teamId: String,
+        docId: String,
+        targetPeerId: String,
+        requesterId: String,
+        timeoutMs: Long = 3000L
+    ): Result<FileProbeResponseMessage> = withContext(ioDispatcher) {
+        val probeStreamId = "probe_${UUID.randomUUID().toString().take(8)}"
+        val deferred = CompletableDeferred<FileProbeResponseMessage>()
+        pendingProbes[probeStreamId] = deferred
+
+        val probeMsg = FileProbeRequestMessage(
+            teamId = teamId,
+            docId = docId,
+            streamId = probeStreamId,
+            requesterId = requesterId,
+            targetPeerId = targetPeerId
+        ).toJson()
+
+        // 1. Gửi qua LAN nếu biết peer
+        knownPeers[targetPeerId]?.let { (host, port) ->
+            launch(ioDispatcher) {
+                try {
+                    Socket().use { socket ->
+                        socket.connect(InetSocketAddress(host, port), 1500)
+                        val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), Charsets.UTF_8))
+                        writer.write(probeMsg)
+                        writer.newLine()
+                        writer.flush()
+                        val reader = BufferedReader(InputStreamReader(socket.getInputStream(), Charsets.UTF_8))
+                        val line = reader.readLine()
+                        if (line != null) {
+                            FileProbeResponseMessage.fromJson(line)?.let { deferred.complete(it) }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        // 2. Gửi qua Relay Sync Room
+        activeRelayConnection?.let { conn ->
+            if (conn.isOpen()) {
+                conn.sendText(probeMsg)
+            }
+        }
+
+        try {
+            val result = withTimeout(timeoutMs) { deferred.await() }
+            Result.success(result)
+        } catch (e: TimeoutCancellationException) {
+            Result.failure(java.io.IOException("Quá thời gian chờ phản hồi thăm dò tệp từ người chia sẻ"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        } finally {
+            pendingProbes.remove(probeStreamId)
+        }
+    }
+
+    /**
+     * Gửi yêu cầu tải tệp (FILE_REQUEST) có xác nhận 2 pha (ACK) và cơ chế thử lại (Retry Backoff).
+     */
+    suspend fun requestFileDownloadWithAck(
+        teamId: String,
+        docId: String,
+        targetPeerId: String,
+        streamId: String,
+        requesterId: String,
+        requesterName: String,
+        maxRetries: Int = 3,
+        preferredChannel: String = "RELAY",
+        requesterHost: String? = null,
+        requesterPort: Int = 0
+    ): Result<Unit> = withContext(ioDispatcher) {
+        val messageId = UUID.randomUUID().toString()
+        val message = FileRequestMessage(
+            teamId = teamId,
+            docId = docId,
+            requesterId = requesterId,
+            requesterName = requesterName,
+            streamId = streamId,
+            preferredChannel = preferredChannel,
+            targetPeerId = targetPeerId,
+            messageId = messageId,
+            requesterHost = requesterHost,
+            requesterPort = requesterPort
+        )
+        val jsonStr = message.toJson()
+
+        var attempt = 0
+        val delays = listOf(1500L, 2500L, 4000L)
+        while (attempt < maxRetries) {
+            val deferred = CompletableDeferred<FileRequestAckMessage>()
+            pendingAcks[streamId] = deferred
+
+            // 1. Gửi qua LAN
+            knownPeers[targetPeerId]?.let { (host, port) ->
+                launch(ioDispatcher) {
+                    try {
+                        Socket().use { socket ->
+                            socket.connect(InetSocketAddress(host, port), 2000)
+                            val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), Charsets.UTF_8))
+                            writer.write(jsonStr)
+                            writer.newLine()
+                            writer.flush()
+
+                            val reader = BufferedReader(InputStreamReader(socket.getInputStream(), Charsets.UTF_8))
+                            val line = reader.readLine()
+                            if (line != null) {
+                                FileRequestAckMessage.fromJson(line)?.let { ack ->
+                                    if (ack.status == "ACCEPTED") {
+                                        deferred.complete(ack)
+                                    }
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+
+            // 2. Gửi qua Relay
+            activeRelayConnection?.let { conn ->
+                if (conn.isOpen()) {
+                    conn.sendText(jsonStr)
+                }
+            }
+
+            try {
+                val waitTime = delays.getOrElse(attempt) { 3000L }
+                val ack = withTimeout(waitTime) { deferred.await() }
+                if (ack.status == "ACCEPTED") {
+                    SyncLog.d("TeamShareSync", "Đã nhận FILE_REQUEST_ACK thành công cho streamId=$streamId")
+                    return@withContext Result.success(Unit)
+                } else {
+                    return@withContext Result.failure(java.io.IOException("Người chia sẻ từ chối yêu cầu truyền tệp"))
+                }
+            } catch (e: TimeoutCancellationException) {
+                attempt++
+                SyncLog.w("TeamShareSync", "Chưa nhận được ACK cho streamId=$streamId (lần thử $attempt/$maxRetries), thử lại...")
+            } finally {
+                pendingAcks.remove(streamId)
+            }
+        }
+        Result.failure(java.io.IOException("Không nhận được phản hồi xác nhận từ người chia sẻ tệp sau $maxRetries lần thử"))
+    }
+
+    /**
      * Gửi yêu cầu tải tệp (FILE_REQUEST) tới người công bố qua Relay Room và LAN.
      */
     suspend fun requestFileDownload(
@@ -831,14 +1446,20 @@ class PeerSyncManager(
         streamId: String,
         requesterId: String,
         requesterName: String,
-        relayUrl: String? = null
+        relayUrl: String? = null,
+        preferredChannel: String = "RELAY",
+        requesterHost: String? = null,
+        requesterPort: Int = 0
     ) = withContext(ioDispatcher) {
         val message = FileRequestMessage(
             teamId = teamId,
             docId = docId,
             requesterId = requesterId,
             requesterName = requesterName,
-            streamId = streamId
+            streamId = streamId,
+            preferredChannel = preferredChannel,
+            requesterHost = requesterHost,
+            requesterPort = requesterPort
         )
         val jsonStr = message.toJson()
         SyncLog.d("TeamShareSync", "Phát FILE_REQUEST cho docId=$docId (streamId=$streamId) từ $requesterName...")
@@ -880,6 +1501,210 @@ class PeerSyncManager(
                 } catch (e: Exception) {
                     SyncLog.w("TeamShareSync", "Lỗi gửi FILE_REQUEST qua Relay tạm: ${e.message}")
                 }
+            }
+        }
+    }
+
+    /**
+     * Phát tán bản tin thu hồi quyền thành viên (MEMBER_REVOKED) tới toàn bộ peer qua Relay & LAN.
+     */
+    suspend fun broadcastMemberRevoked(revocation: RevocationEntity) = withContext(ioDispatcher) {
+        val msg = MemberRevokedMessage(
+            teamId = revocation.teamId,
+            recordId = revocation.recordId,
+            revokedMemberId = revocation.revokedMemberId,
+            revokedFingerprint = revocation.revokedFingerprint,
+            revokedAt = revocation.revokedAt,
+            reason = revocation.reason,
+            signature = revocation.ownerSignature
+        ).toJson()
+
+        knownPeers.values.forEach { (host, port) ->
+            launch(ioDispatcher) {
+                try {
+                    Socket().use { socket ->
+                        socket.connect(InetSocketAddress(host, port), 2000)
+                        val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), Charsets.UTF_8))
+                        writer.write(msg)
+                        writer.newLine()
+                        writer.flush()
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        activeRelayConnection?.let { conn ->
+            if (conn.isOpen()) {
+                conn.sendText(msg)
+            }
+        }
+    }
+
+    /**
+     * Phát tán bản tin giải tán nhóm (TEAM_DISBANDED) tới toàn bộ peer qua Relay & LAN.
+     */
+    suspend fun broadcastTeamDisbanded(teamId: String, signature: String) = withContext(ioDispatcher) {
+        val msg = TeamDisbandedMessage(
+            teamId = teamId,
+            signature = signature
+        ).toJson()
+
+        knownPeers.values.forEach { (host, port) ->
+            launch(ioDispatcher) {
+                try {
+                    Socket().use { socket ->
+                        socket.connect(InetSocketAddress(host, port), 2000)
+                        val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), Charsets.UTF_8))
+                        writer.write(msg)
+                        writer.newLine()
+                        writer.flush()
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        activeRelayConnection?.let { conn ->
+            if (conn.isOpen()) {
+                conn.sendText(msg)
+            }
+        }
+    }
+
+    /**
+     * Gửi truy vấn đồng bộ danh sách thu hồi CRL (REVOCATION_SYNC_QUERY) khi online lại.
+     */
+    suspend fun queryRevocations(teamId: String) = withContext(ioDispatcher) {
+        val msg = RevocationSyncQueryMessage(
+            teamId = teamId,
+            requesterId = myMemberId ?: ""
+        ).toJson()
+        activeRelayConnection?.let { conn ->
+            if (conn.isOpen()) {
+                conn.sendText(msg)
+            }
+        }
+    }
+
+    /**
+     * Phát sóng thông báo tạo thư mục ảo mới (FOLDER_ANNOUNCE) tới các peer.
+     */
+    suspend fun broadcastFolderAnnounce(folder: TeamFolder) = withContext(ioDispatcher) {
+        val msg = FolderAnnounceMessage(
+            folderId = folder.folderId,
+            teamId = folder.teamId,
+            parentFolderId = folder.parentFolderId,
+            folderName = folder.folderName,
+            createdBy = folder.createdBy,
+            createdAt = folder.createdAt
+        ).toJson()
+
+        knownPeers.values.forEach { (host, port) ->
+            launch(ioDispatcher) {
+                try {
+                    Socket().use { socket ->
+                        socket.connect(InetSocketAddress(host, port), 2000)
+                        val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), Charsets.UTF_8))
+                        writer.write(msg)
+                        writer.newLine()
+                        writer.flush()
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        activeRelayConnection?.let { conn ->
+            if (conn.isOpen()) {
+                conn.sendText(msg)
+            }
+        }
+    }
+
+    /**
+     * Phát sóng thông báo xóa thư mục ảo (FOLDER_DELETE) tới các peer.
+     */
+    suspend fun broadcastFolderDelete(teamId: String, folderId: String) = withContext(ioDispatcher) {
+        val msg = FolderDeleteMessage(folderId = folderId, teamId = teamId).toJson()
+
+        knownPeers.values.forEach { (host, port) ->
+            launch(ioDispatcher) {
+                try {
+                    Socket().use { socket ->
+                        socket.connect(InetSocketAddress(host, port), 2000)
+                        val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), Charsets.UTF_8))
+                        writer.write(msg)
+                        writer.newLine()
+                        writer.flush()
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        activeRelayConnection?.let { conn ->
+            if (conn.isOpen()) {
+                conn.sendText(msg)
+            }
+        }
+    }
+
+    /**
+     * Gửi truy vấn đồng bộ danh sách thư mục ảo (FOLDER_SYNC_QUERY).
+     */
+    suspend fun queryFolders(teamId: String) = withContext(ioDispatcher) {
+        val msg = FolderSyncQueryMessage(teamId = teamId).toJson()
+        activeRelayConnection?.let { conn ->
+            if (conn.isOpen()) {
+                conn.sendText(msg)
+            }
+        }
+    }
+
+    /**
+     * Phát sóng thông báo sự kiện kiểm toán an ninh mới (AUDIT_LOG_ANNOUNCE) tới toàn bộ peer.
+     */
+    suspend fun broadcastAuditLog(log: AuditLog) = withContext(ioDispatcher) {
+        val teamId = log.teamId ?: return@withContext
+        val dto = AuditLogSyncDto(
+            logId = log.logId,
+            teamId = teamId,
+            eventType = log.eventType.name,
+            severity = log.severity.name,
+            actorId = log.actorId,
+            actorName = log.actorName,
+            description = log.details,
+            timestamp = log.timestamp,
+            signature = log.signature
+        )
+        val msg = AuditLogAnnounceMessage(teamId = teamId, log = dto).toJson()
+
+        knownPeers.values.forEach { (host, port) ->
+            launch(ioDispatcher) {
+                try {
+                    Socket().use { socket ->
+                        socket.connect(InetSocketAddress(host, port), 2000)
+                        val writer = BufferedWriter(OutputStreamWriter(socket.getOutputStream(), Charsets.UTF_8))
+                        writer.write(msg)
+                        writer.newLine()
+                        writer.flush()
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        activeRelayConnection?.let { conn ->
+            if (conn.isOpen()) {
+                conn.sendText(msg)
+            }
+        }
+    }
+
+    /**
+     * Truy vấn đồng bộ log kiểm toán tăng dần (Incremental Gossip Sync - AUDIT_LOG_SYNC_QUERY).
+     */
+    suspend fun queryAuditLogs(teamId: String, sinceTimestamp: Long) = withContext(ioDispatcher) {
+        val msg = AuditLogSyncQueryMessage(teamId = teamId, sinceTimestamp = sinceTimestamp).toJson()
+        activeRelayConnection?.let { conn ->
+            if (conn.isOpen()) {
+                conn.sendText(msg)
             }
         }
     }

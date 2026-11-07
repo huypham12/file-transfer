@@ -21,6 +21,7 @@ func NewSafeConn(conn *websocket.Conn) *SafeConn {
 func (sc *SafeConn) WriteMessage(messageType int, data []byte) error {
 	sc.writeMu.Lock()
 	defer sc.writeMu.Unlock()
+	_ = sc.Conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
 	return sc.Conn.WriteMessage(messageType, data)
 }
 
@@ -43,6 +44,8 @@ type ChannelBridge struct {
 	receiverReady chan struct{}
 	senderOnce    sync.Once
 	receiverOnce  sync.Once
+	done          chan struct{}
+	doneOnce      sync.Once
 	CreatedAt     time.Time
 	mu            sync.Mutex
 	closeOnce     sync.Once
@@ -54,10 +57,11 @@ type ChannelBridge struct {
 func NewChannelBridge(streamId string, onClosed func(streamId string)) *ChannelBridge {
 	return &ChannelBridge{
 		StreamId:      streamId,
-		fromSender:    make(chan StreamPayload, 40),
-		fromReceiver:  make(chan StreamPayload, 40),
+		fromSender:    make(chan StreamPayload, 80),
+		fromReceiver:  make(chan StreamPayload, 80),
 		senderReady:   make(chan struct{}),
 		receiverReady: make(chan struct{}),
+		done:          make(chan struct{}),
 		CreatedAt:     time.Now(),
 		onClosed:      onClosed,
 	}
@@ -143,6 +147,8 @@ func (b *ChannelBridge) readLoop(conn *SafeConn, out chan<- StreamPayload, role 
 		}
 
 		select {
+		case <-b.done:
+			return
 		case out <- StreamPayload{MsgType: msgType, Data: data}:
 		case <-time.After(30 * time.Second):
 			log.Printf("[Bridge %s] Bộ đệm RAM chuyển tiếp từ %s đầy quá 30s. Hủy phiên.", b.StreamId, role)
@@ -155,6 +161,8 @@ func (b *ChannelBridge) readLoop(conn *SafeConn, out chan<- StreamPayload, role 
 func (b *ChannelBridge) StartForwarding() {
 	// Chờ cả 2 bên Sender và Receiver gắn kết nối trong tối đa 60 giây
 	select {
+	case <-b.done:
+		return
 	case <-b.senderReady:
 	case <-time.After(60 * time.Second):
 		log.Printf("[Bridge %s] Quá thời gian chờ Sender ghép cặp (60s). Hủy cầu nối.", b.StreamId)
@@ -163,6 +171,8 @@ func (b *ChannelBridge) StartForwarding() {
 	}
 
 	select {
+	case <-b.done:
+		return
 	case <-b.receiverReady:
 	case <-time.After(60 * time.Second):
 		log.Printf("[Bridge %s] Quá thời gian chờ Receiver ghép cặp (60s). Hủy cầu nối.", b.StreamId)
@@ -178,17 +188,25 @@ func (b *ChannelBridge) StartForwarding() {
 	// Goroutine 1: Chuyển tiếp từ Sender sang Receiver (Data Chunks, Handshake, Manifest)
 	go func() {
 		defer wg.Done()
-		for msg := range b.fromSender {
-			b.mu.Lock()
-			rc := b.ReceiverConn
-			b.mu.Unlock()
-			if rc == nil {
+		for {
+			select {
+			case <-b.done:
 				return
-			}
-			if err := rc.WriteMessage(msg.MsgType, msg.Data); err != nil {
-				log.Printf("[Bridge %s] Lỗi gửi dữ liệu Sender -> Receiver: %v", b.StreamId, err)
-				b.Close()
-				return
+			case msg, ok := <-b.fromSender:
+				if !ok {
+					return
+				}
+				b.mu.Lock()
+				rc := b.ReceiverConn
+				b.mu.Unlock()
+				if rc == nil {
+					return
+				}
+				if err := rc.WriteMessage(msg.MsgType, msg.Data); err != nil {
+					log.Printf("[Bridge %s] Lỗi gửi dữ liệu Sender -> Receiver: %v", b.StreamId, err)
+					b.Close()
+					return
+				}
 			}
 		}
 	}()
@@ -196,17 +214,25 @@ func (b *ChannelBridge) StartForwarding() {
 	// Goroutine 2: Chuyển tiếp từ Receiver sang Sender (Chunk ACKs, Manifest Response, Verify Result)
 	go func() {
 		defer wg.Done()
-		for msg := range b.fromReceiver {
-			b.mu.Lock()
-			sc := b.SenderConn
-			b.mu.Unlock()
-			if sc == nil {
+		for {
+			select {
+			case <-b.done:
 				return
-			}
-			if err := sc.WriteMessage(msg.MsgType, msg.Data); err != nil {
-				log.Printf("[Bridge %s] Lỗi gửi dữ liệu Receiver -> Sender: %v", b.StreamId, err)
-				b.Close()
-				return
+			case msg, ok := <-b.fromReceiver:
+				if !ok {
+					return
+				}
+				b.mu.Lock()
+				sc := b.SenderConn
+				b.mu.Unlock()
+				if sc == nil {
+					return
+				}
+				if err := sc.WriteMessage(msg.MsgType, msg.Data); err != nil {
+					log.Printf("[Bridge %s] Lỗi gửi dữ liệu Receiver -> Sender: %v", b.StreamId, err)
+					b.Close()
+					return
+				}
 			}
 		}
 	}()
@@ -223,6 +249,10 @@ func (b *ChannelBridge) Close() {
 		sc := b.SenderConn
 		rc := b.ReceiverConn
 		b.mu.Unlock()
+
+		b.doneOnce.Do(func() {
+			close(b.done)
+		})
 
 		if sc != nil {
 			_ = sc.Close()

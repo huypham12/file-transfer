@@ -6,7 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
-import com.example.file_tranfer.MainActivity
+import com.teamshare.app.presentation.MainActivity
 import com.teamshare.app.core.platform.share.ShareIntentParser
 import com.teamshare.app.core.security.sanitizer.FilenameSanitizer
 import com.teamshare.app.core.storage.saf.SafStorageGateway

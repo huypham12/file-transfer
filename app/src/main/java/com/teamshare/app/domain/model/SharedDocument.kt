@@ -16,7 +16,8 @@ data class SharedDocument(
     val downloadStatus: DownloadStatus = DownloadStatus.NOT_DOWNLOADED,
     val createdAt: Long = System.currentTimeMillis(),
     val publisherHost: String? = null,
-    val publisherPort: Int = 0
+    val publisherPort: Int = 0,
+    val folderId: String? = null
 ) {
     val isDownloaded: Boolean get() = downloadStatus == DownloadStatus.COMPLETED
     val isDownloading: Boolean get() = downloadStatus == DownloadStatus.DOWNLOADING

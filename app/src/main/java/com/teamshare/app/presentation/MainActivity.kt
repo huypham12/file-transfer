@@ -1,4 +1,4 @@
-package com.example.file_tranfer
+package com.teamshare.app.presentation
 
 import android.content.Intent
 import android.net.Uri
@@ -71,3 +71,4 @@ class MainActivity : FragmentActivity() {
         }
     }
 }
+

@@ -35,7 +35,7 @@
         android:theme="@style/Theme.Filetranfer">
 
         <activity
-            android:name=".MainActivity"
+            android:name="com.teamshare.app.presentation.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.Filetranfer">

@@ -158,7 +158,7 @@ class NotificationManagerHelper(
     }
 
     private fun createContentIntent(ctx: Context): PendingIntent {
-        val intent = Intent(ctx, com.example.file_tranfer.MainActivity::class.java).apply {
+        val intent = Intent(ctx, com.teamshare.app.presentation.MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         return PendingIntent.getActivity(

@@ -211,6 +211,12 @@ class LanTransferIntegrationTest {
             override suspend fun revokeMember(teamId: String, memberId: String): Result<Unit> = Result.success(Unit)
             override fun getMembersByTeam(teamId: String): Flow<List<TeamMember>> = flowOf(emptyList())
             override suspend fun isMemberActive(teamId: String, memberId: String): Boolean = false // Bị thu hồi!
+            override suspend fun recordRevocation(revocation: com.teamshare.app.data.local.db.entity.RevocationEntity): Result<Unit> = Result.success(Unit)
+            override suspend fun recordRevocations(revocations: List<com.teamshare.app.data.local.db.entity.RevocationEntity>): Result<Unit> = Result.success(Unit)
+            override fun getRevocationsByTeam(teamId: String): Flow<List<com.teamshare.app.data.local.db.entity.RevocationEntity>> = flowOf(emptyList())
+            override suspend fun isMemberRevoked(teamId: String, memberId: String): Boolean = true
+            override suspend fun isTeamDisbanded(teamId: String): Boolean = false
+            override suspend fun getAllRevocationsList(teamId: String): List<com.teamshare.app.data.local.db.entity.RevocationEntity> = emptyList()
         }
 
         val port = TlsSocketFactory.findAvailablePort()

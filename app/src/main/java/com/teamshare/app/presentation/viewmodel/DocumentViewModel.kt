@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.teamshare.app.core.network.sync.PeerSyncManager
 import com.teamshare.app.domain.model.MemberRole
+import com.teamshare.app.domain.model.TeamFolder
+import com.teamshare.app.domain.repository.IFolderRepository
 import com.teamshare.app.domain.usecase.document.DeleteDocumentUseCase
 import com.teamshare.app.domain.usecase.document.GetDocumentCatalogUseCase
 import com.teamshare.app.domain.usecase.document.OpenSecureDocumentUseCase
@@ -33,13 +35,16 @@ class DocumentViewModel(
     private val authenticateBiometricUseCase: AuthenticateBiometricUseCase? = null,
     private val handleSendIntentUseCase: HandleSendIntentUseCase? = null,
     private val peerSyncManager: PeerSyncManager? = null,
-    private val customScope: CoroutineScope? = null
+    private val customScope: CoroutineScope? = null,
+    private val folderRepository: IFolderRepository? = null
 ) : ViewModel() {
 
     private val scope: CoroutineScope get() = customScope ?: viewModelScope
 
     private val _catalogUiState = MutableStateFlow(DocumentCatalogUiState())
     val catalogUiState: StateFlow<DocumentCatalogUiState> = _catalogUiState.asStateFlow()
+
+    val peerPresence = peerSyncManager?.peerPresenceFlow ?: MutableStateFlow(emptyMap())
 
     private val _pendingSharedUris = MutableStateFlow<List<Uri>>(emptyList())
     val pendingSharedUris: StateFlow<List<Uri>> = _pendingSharedUris.asStateFlow()
@@ -103,18 +108,28 @@ class DocumentViewModel(
     }
 
     /**
-     * Tải và liên tục quan sát danh mục tài liệu của nhóm (UC-08 - FR-DOC-02).
+     * Tải và liên tục quan sát danh mục tài liệu và thư mục ảo của nhóm (UC-08 - FR-DOC-02).
      */
     fun loadDocuments(teamId: String) {
         catalogObserveJob?.cancel()
         catalogObserveJob = scope.launch {
             _catalogUiState.update { it.copy(isLoading = true, errorMessage = null) }
 
-            // Chủ động gửi CATALOG_QUERY để kéo danh mục tài liệu mới nhất từ Relay / LAN
+            // Chủ động gửi CATALOG_QUERY & FOLDER_SYNC_QUERY để kéo dữ liệu mới nhất từ Relay / LAN
             launch {
                 try {
                     peerSyncManager?.queryCatalog(teamId)
+                    peerSyncManager?.queryFolders(teamId)
                 } catch (_: Exception) {}
+            }
+
+            // Quan sát thư mục ảo trong nhóm
+            launch {
+                folderRepository?.getFoldersByTeam(teamId)?.collect { allFolders ->
+                    _catalogUiState.update { current ->
+                        current.copy(folders = allFolders)
+                    }
+                }
             }
 
             getDocumentCatalogUseCase(teamId).collect { docs ->
@@ -122,6 +137,76 @@ class DocumentViewModel(
                     it.copy(documents = docs, isLoading = false, errorMessage = null)
                 }
             }
+        }
+    }
+
+    /**
+     * Điều hướng tới thư mục cụ thể hoặc quay về gốc (root) nếu null.
+     */
+    fun navigateToFolder(folder: TeamFolder?) {
+        _catalogUiState.update { current ->
+            if (folder == null) {
+                current.copy(currentFolderId = null, folderPath = emptyList())
+            } else {
+                val newPath = current.folderPath.takeWhile { it.folderId != folder.folderId } + folder
+                current.copy(currentFolderId = folder.folderId, folderPath = newPath)
+            }
+        }
+    }
+
+    /**
+     * Điều hướng lên một cấp thư mục cha (Navigate Up).
+     */
+    fun navigateUp() {
+        _catalogUiState.update { current ->
+            val path = current.folderPath
+            if (path.isEmpty()) {
+                current.copy(currentFolderId = null, folderPath = emptyList())
+            } else {
+                val newPath = path.dropLast(1)
+                val parentId = newPath.lastOrNull()?.folderId
+                current.copy(currentFolderId = parentId, folderPath = newPath)
+            }
+        }
+    }
+
+    /**
+     * Tạo thư mục ảo mới trong Không gian Nhóm và phát sóng thông báo P2P.
+     */
+    fun createFolder(teamId: String, folderName: String, createdBy: String, onSuccess: (() -> Unit)? = null) {
+        val trimmedName = folderName.trim()
+        if (trimmedName.isBlank()) {
+            _catalogUiState.update { it.copy(errorMessage = "Tên thư mục không được để trống") }
+            return
+        }
+        scope.launch {
+            val folder = TeamFolder(
+                folderId = java.util.UUID.randomUUID().toString(),
+                teamId = teamId,
+                parentFolderId = _catalogUiState.value.currentFolderId,
+                folderName = trimmedName,
+                createdBy = createdBy,
+                createdAt = System.currentTimeMillis()
+            )
+            folderRepository?.createFolder(folder)
+            peerSyncManager?.broadcastFolderAnnounce(folder)
+            _catalogUiState.update { it.copy(actionMessage = "Đã tạo thư mục: $trimmedName") }
+            onSuccess?.invoke()
+        }
+    }
+
+    /**
+     * Xóa mềm thư mục ảo và phát sóng thông báo P2P.
+     */
+    fun deleteFolder(teamId: String, folderId: String, onSuccess: (() -> Unit)? = null) {
+        scope.launch {
+            folderRepository?.softDeleteFolder(folderId)
+            peerSyncManager?.broadcastFolderDelete(teamId, folderId)
+            if (_catalogUiState.value.currentFolderId == folderId) {
+                navigateUp()
+            }
+            _catalogUiState.update { it.copy(actionMessage = "Đã xóa thư mục") }
+            onSuccess?.invoke()
         }
     }
 
@@ -141,6 +226,7 @@ class DocumentViewModel(
     ) {
         scope.launch {
             _catalogUiState.update { it.copy(isPublishing = true, errorMessage = null, actionMessage = null) }
+            val currentFolder = _catalogUiState.value.currentFolderId
             publishDocumentUseCase(
                 teamId = teamId,
                 publisherId = publisherId,
@@ -149,7 +235,8 @@ class DocumentViewModel(
                 overrideName = overrideName,
                 overrideSize = overrideSize,
                 overrideMime = overrideMime,
-                customInputStream = customInputStream
+                customInputStream = customInputStream,
+                folderId = currentFolder
             ).collect { result ->
                 result.fold(
                     onSuccess = { doc ->

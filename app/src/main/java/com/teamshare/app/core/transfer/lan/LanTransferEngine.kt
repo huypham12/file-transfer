@@ -254,7 +254,8 @@ class LanTransferEngine(
 
             val checkpointTracker = CheckpointTracker(
                 sessionId = manifest.docId,
-                sessionDao = sessionDao
+                sessionDao = sessionDao,
+                flushThreshold = CheckpointTracker.LAN_FLUSH_THRESHOLD
             ).apply { initOffset(startOffset) }
 
             val raf = RandomAccessFile(tempTargetFile, "rw")
@@ -410,6 +411,7 @@ class LanTransferEngine(
         role: String,
         credentialData: String,
         useTls: Boolean = false,
+        expectedSha256: String? = null,
         callback: TransferProgressCallback? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         require(file.exists() && file.isFile) { "Tệp nguồn không tồn tại: ${file.absolutePath}" }
@@ -450,10 +452,14 @@ class LanTransferEngine(
             val authFrame = serializer.buildHandshakeAuthFrame(streamId, authPayload)
             serializer.serializeTo(authFrame, outputStream)
 
-            // Giai đoạn 2: Tính băm và gửi TRANSFER_MANIFEST (0x02)
+            // Giai đoạn 2: Lấy mã băm (tái sử dụng nếu đã có sẵn, tránh quét lại SSD) và gửi TRANSFER_MANIFEST (0x02)
             currentState = TransferEngineState.VERIFYING
             callback?.onStateChanged(currentState)
-            val calculatedSha256 = Sha256StreamCalculator.calculateFileSha256(file)
+            val calculatedSha256 = if (!expectedSha256.isNullOrBlank()) {
+                expectedSha256
+            } else {
+                Sha256StreamCalculator.calculateFileSha256(file)
+            }
 
             val manifestPayload = TransferManifestPayload(
                 docId = docId,
@@ -536,41 +542,40 @@ class LanTransferEngine(
 
                     // Thu hồi buffer 64KB từ hồ (áp dụng Backpressure)
                     val buffer = bufferPool.acquire()
-                    var dataToSend: ByteArray? = null
-                    try {
+                    val dataToSend = try {
                         val byteBuffer = ByteBuffer.wrap(buffer)
                         val bytesRead = fileChannel.read(byteBuffer)
                         if (bytesRead > 0) {
-                            dataToSend = buffer.copyOfRange(0, bytesRead)
+                            buffer.copyOfRange(0, bytesRead)
                         } else {
-                            break
+                            null
                         }
                     } finally {
                         // Luôn giải phóng và zeroize buffer về hồ dù read() thành công hay ném ngoại lệ
                         bufferPool.release(buffer)
                     }
 
-                    if (dataToSend != null) {
-                        val chunkPayload = DataChunkPayload(
-                            chunkSeq = chunkSeq++,
-                            chunkOffset = currentOffset,
-                            chunkData = dataToSend
-                        )
-                        val chunkFrame = serializer.buildDataChunkFrame(streamId, chunkPayload)
-                        serializer.serializeTo(chunkFrame, outputStream)
+                    if (dataToSend == null) break
 
-                        val bytesCount = dataToSend.size
-                        currentOffset += bytesCount
-                        bytesSinceLastSpeed += bytesCount
+                    val chunkPayload = DataChunkPayload(
+                        chunkSeq = chunkSeq++,
+                        chunkOffset = currentOffset,
+                        chunkData = dataToSend
+                    )
+                    val chunkFrame = serializer.buildDataChunkFrame(streamId, chunkPayload)
+                    serializer.serializeTo(chunkFrame, outputStream)
 
-                        val now = System.currentTimeMillis()
-                        val delta = now - lastSpeedTimestamp
-                        if (delta >= 500) {
-                            val speed = (bytesSinceLastSpeed * 1000L) / maxOf(delta, 1L)
-                            callback?.onProgress(currentOffset, totalFileSize, speed)
-                            lastSpeedTimestamp = now
-                            bytesSinceLastSpeed = 0L
-                        }
+                    val bytesCount = dataToSend.size
+                    currentOffset += bytesCount
+                    bytesSinceLastSpeed += bytesCount
+
+                    val now = System.currentTimeMillis()
+                    val delta = now - lastSpeedTimestamp
+                    if (delta >= 500) {
+                        val speed = (bytesSinceLastSpeed * 1000L) / maxOf(delta, 1L)
+                        callback?.onProgress(currentOffset, totalFileSize, speed)
+                        lastSpeedTimestamp = now
+                        bytesSinceLastSpeed = 0L
                     }
                 }
 

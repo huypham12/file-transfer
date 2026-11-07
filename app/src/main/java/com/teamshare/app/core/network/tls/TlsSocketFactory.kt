@@ -70,17 +70,22 @@ class TlsSocketFactory(
         }
         val bindPort = if (port == 0) findAvailablePort() else port
 
-        return if (useTls && sslContext != null) {
-            val serverSocket = sslContext.serverSocketFactory.createServerSocket(bindPort, backlog) as SSLServerSocket
+        val serverSocket = if (useTls && sslContext != null) {
+            val sslServerSocket = sslContext.serverSocketFactory.createServerSocket(bindPort, backlog) as SSLServerSocket
             // Cấu hình giao thức TLS 1.3 nếu runtime hỗ trợ
-            val supportedProtocols = serverSocket.supportedProtocols.toList()
+            val supportedProtocols = sslServerSocket.supportedProtocols.toList()
             if (supportedProtocols.contains("TLSv1.3")) {
-                serverSocket.enabledProtocols = arrayOf("TLSv1.3")
+                sslServerSocket.enabledProtocols = arrayOf("TLSv1.3")
             }
-            serverSocket
+            sslServerSocket
         } else {
             ServerSocketFactory.getDefault().createServerSocket(bindPort, backlog)
         }
+        try {
+            serverSocket.reuseAddress = true
+            serverSocket.receiveBufferSize = 512 * 1024
+        } catch (_: Exception) {}
+        return serverSocket
     }
 
     /**
@@ -107,6 +112,10 @@ class TlsSocketFactory(
         }
         socket.soTimeout = timeoutMs
         socket.tcpNoDelay = true // Tắt thuật toán Nagle để giảm độ trễ đóng gói frame
+        try {
+            socket.sendBufferSize = 512 * 1024
+            socket.receiveBufferSize = 512 * 1024
+        } catch (_: Exception) {}
         return socket
     }
 }

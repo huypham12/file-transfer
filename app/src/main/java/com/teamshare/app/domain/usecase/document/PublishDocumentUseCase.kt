@@ -37,7 +37,8 @@ class PublishDocumentUseCase(
         overrideName: String? = null,
         overrideSize: Long? = null,
         overrideMime: String? = null,
-        customInputStream: InputStream? = null
+        customInputStream: InputStream? = null,
+        folderId: String? = null
     ): Flow<Result<SharedDocument>> = flow {
         if (teamId.isBlank() || publisherId.isBlank()) {
             emit(Result.failure(IllegalArgumentException("teamId và publisherId không được để trống")))
@@ -94,6 +95,7 @@ class PublishDocumentUseCase(
                     docId = docId,
                     teamId = teamId,
                     publisherId = publisherId,
+                    folderId = folderId,
                     fileName = sanitizedName,
                     fileSize = fileSize,
                     mimeType = mimeType,

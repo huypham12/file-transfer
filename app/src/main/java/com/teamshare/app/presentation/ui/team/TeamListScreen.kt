@@ -154,8 +154,8 @@ fun TeamListScreen(
                 CreateTeamDialog(
                     isLoading = uiState.isLoading,
                     onDismiss = { showCreateDialog = false },
-                    onConfirm = { name, desc ->
-                        viewModel.createTeam(name, desc)
+                    onConfirm = { name, desc, ownerName ->
+                        viewModel.createTeam(name, desc, ownerName)
                         showCreateDialog = false
                     }
                 )

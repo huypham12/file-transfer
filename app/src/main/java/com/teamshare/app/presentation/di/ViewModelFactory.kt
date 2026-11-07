@@ -18,6 +18,7 @@ import com.teamshare.app.core.transfer.relay.RelayClientEngine
 import com.teamshare.app.data.local.db.AppDatabase
 import com.teamshare.app.data.repository.AuditRepositoryImpl
 import com.teamshare.app.data.repository.DocumentRepositoryImpl
+import com.teamshare.app.data.repository.FolderRepositoryImpl
 import com.teamshare.app.data.repository.TeamRepositoryImpl
 import com.teamshare.app.data.repository.TransferRepositoryImpl
 import com.teamshare.app.domain.model.SessionStatus
@@ -55,8 +56,9 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
     private val keyManager by lazy { AndroidKeystoreKeyManager(context) }
     private val database by lazy { AppDatabase.getInstance(context, keyManager) }
 
-    private val teamRepo by lazy { TeamRepositoryImpl(database.teamDao(), database.memberDao(), keyManager) }
+    private val teamRepo by lazy { TeamRepositoryImpl(database.teamDao(), database.memberDao(), keyManager, database.revocationDao()) }
     private val docRepo by lazy { DocumentRepositoryImpl(database.documentDao()) }
+    private val folderRepo by lazy { FolderRepositoryImpl(database.folderDao()) }
     private val transferRepo by lazy { TransferRepositoryImpl(database.transferSessionDao()) }
     private val auditRepo by lazy { AuditRepositoryImpl(database.auditDao()) }
 
@@ -89,25 +91,30 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
             documentRepository = docRepo,
             auditRepository = auditRepo,
             keyManager = keyManager,
-            context = context
+            context = context,
+            folderRepository = folderRepo
         ).apply {
             onFileRequestedListener = { req, doc, file ->
+                val useLan = req.preferredChannel == "DIRECT_LAN" && !req.requesterHost.isNullOrBlank() && req.requesterPort > 0
+                val channel = if (useLan) TransferChannel.DIRECT_LAN else TransferChannel.ZERO_KNOWLEDGE_RELAY
                 val outSession = TransferSession(
                     sessionId = req.streamId,
                     docId = doc.docId,
                     peerMemberId = req.requesterId,
                     direction = TransferDirection.OUTGOING,
-                    channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+                    channel = channel,
                     status = SessionStatus.TRANSFERRING,
                     totalBytes = doc.fileSize,
                     bytesTransferred = 0L
                 )
-                val relayStreamUrl = NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/stream")
+                val relayStreamUrl = if (useLan) null else NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/stream")
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
                         transferCoordinator.startTransfer(
                             session = outSession,
                             file = file,
+                            peerIp = if (useLan) req.requesterHost else null,
+                            port = if (useLan) req.requesterPort else 0,
                             streamId = req.streamId,
                             relayUrl = relayStreamUrl,
                             documentName = doc.fileName,
@@ -116,7 +123,18 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
                         ).collect { progress ->
                             // Ghi nhận tiến độ truyền gửi
                         }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        android.util.Log.e("TransferCoordinator", "Lỗi truyền gửi Sender cho streamId=${req.streamId}: ${e.message}", e)
+                    }
+                }
+            }
+            onSessionAbortRequested = { memberId, teamId ->
+                CoroutineScope(Dispatchers.IO).launch {
+                    if (memberId != null) {
+                        transferCoordinator.cancelSessionForMember(memberId)
+                    } else if (teamId != null) {
+                        transferCoordinator.cancelSessionsForTeam(teamId)
+                    }
                 }
             }
         }
@@ -126,7 +144,7 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
         TeamViewModel(
             teamRepository = teamRepo,
             createTeamUseCase = CreateTeamUseCase(teamRepo, keyManager, auditRepo),
-            disbandTeamUseCase = DisbandTeamUseCase(teamRepo, keyManager, auditRepo, transferCoordinator),
+            disbandTeamUseCase = DisbandTeamUseCase(teamRepo, keyManager, auditRepo, transferCoordinator, peerSyncManager),
             generateQrInviteUseCase = GenerateQrInviteUseCase(teamRepo, keyManager, auditRepo),
             joinTeamViaQrUseCase = JoinTeamViaQrUseCase(
                 teamRepository = teamRepo,
@@ -136,7 +154,7 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
                 documentRepository = docRepo
             ),
             getTeamMembersUseCase = GetTeamMembersUseCase(teamRepo),
-            revokeMemberUseCase = RevokeMemberUseCase(teamRepo, transferCoordinator, auditRepo),
+            revokeMemberUseCase = RevokeMemberUseCase(teamRepo, transferCoordinator, auditRepo, keyManager, peerSyncManager),
             keyManager = keyManager,
             peerSyncManager = peerSyncManager
         )
@@ -155,7 +173,8 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
             deleteDocumentUseCase = DeleteDocumentUseCase(docRepo, dirManager, auditRepo, teamRepo),
             authenticateBiometricUseCase = biometricUseCase,
             handleSendIntentUseCase = handleSendIntentUseCase,
-            peerSyncManager = peerSyncManager
+            peerSyncManager = peerSyncManager,
+            folderRepository = folderRepo
         )
     }
 
@@ -169,7 +188,8 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
 
     val auditViewModel by lazy {
         AuditViewModel(
-            querySecurityAuditUseCase = QuerySecurityAuditUseCase(auditRepo)
+            querySecurityAuditUseCase = QuerySecurityAuditUseCase(auditRepo),
+            peerSyncManager = peerSyncManager
         )
     }
 

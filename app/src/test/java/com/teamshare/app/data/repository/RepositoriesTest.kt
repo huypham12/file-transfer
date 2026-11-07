@@ -496,6 +496,14 @@ class RepositoriesTest {
             return newId
         }
 
+        override suspend fun insertLogs(logsToInsert: List<AuditEntity>): List<Long> {
+            return logsToInsert.map { insertLog(it) }
+        }
+
+        override suspend fun getLogsSince(teamId: String, sinceTimestamp: Long): List<AuditEntity> {
+            return logs.value.filter { it.teamId == teamId && it.timestamp > sinceTimestamp }.sortedBy { it.timestamp }
+        }
+
         override fun getLogsByTeam(teamId: String): Flow<List<AuditEntity>> {
             return logs.map { list -> list.filter { it.teamId == teamId }.sortedByDescending { it.timestamp } }
         }

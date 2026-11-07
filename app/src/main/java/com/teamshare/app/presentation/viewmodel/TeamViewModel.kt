@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.teamshare.app.core.network.sync.PeerSyncManager
 import com.teamshare.app.core.platform.network.NetworkAddressHelper
+import com.teamshare.app.core.security.crypto.Sha256StreamCalculator
 import com.teamshare.app.core.security.keystore.IKeyManager
 import com.teamshare.app.domain.model.MemberRole
 import com.teamshare.app.domain.model.QrInvitePayload
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
@@ -79,10 +81,10 @@ class TeamViewModel(
     /**
      * Tạo nhóm mới (UC-01 - FR-TEAM-01).
      */
-    fun createTeam(name: String, desc: String, onSuccess: ((String) -> Unit)? = null) {
+    fun createTeam(name: String, desc: String, ownerName: String = "", onSuccess: ((String) -> Unit)? = null) {
         scope.launch {
             _teamListUiState.update { it.copy(isLoading = true, errorMessage = null) }
-            createTeamUseCase(name, desc).collect { result ->
+            createTeamUseCase(name, desc, ownerName).collect { result ->
                 result.fold(
                     onSuccess = { team ->
                         _teamListUiState.update {
@@ -108,16 +110,20 @@ class TeamViewModel(
         workspaceObserveJob = scope.launch {
             _workspaceUiState.update { it.copy(isLoading = true, errorMessage = null, isDisbanded = false) }
 
-            // Khởi động Sync Server lắng nghe các peer trong nhóm (Direct LAN + Relay Room)
-            val relayUrl = if (NetworkAddressHelper.isEmulator()) {
-                "ws://10.0.2.2:8080/v1/sync"
-            } else {
-                peerSyncManager?.getRelayUrlForTeam(teamId)
-                    ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/sync")
-            }
-            peerSyncManager?.startSyncServer(teamId = teamId, relayUrl = relayUrl, scope = scope)
-
             val hasOwnerKey = keyManager?.hasKey(IKeyManager.MASTER_KEY_PREFIX + teamId) ?: false
+            val initialTeam = teamRepository.getTeamById(teamId).firstOrNull()
+            val initialMemberId = currentMemberId ?: (if (hasOwnerKey) initialTeam?.ownerFingerprint else null)
+
+            // Khởi động Sync Server lắng nghe các peer trong nhóm (Direct LAN + Relay Room)
+            val relayUrl = peerSyncManager?.getRelayUrlForTeam(teamId)
+                ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/sync")
+            peerSyncManager?.startSyncServer(
+                teamId = teamId,
+                relayUrl = relayUrl,
+                scope = scope,
+                memberId = initialMemberId,
+                memberName = null
+            )
 
             // Lắng nghe thông tin nhóm
             launch {
@@ -147,13 +153,25 @@ class TeamViewModel(
             launch {
                 getTeamMembersUseCase(teamId).collect { members ->
                     val team = _workspaceUiState.value.team
+                    val myPubKey = try { keyManager?.getPublicKey(IKeyManager.MEMBER_IDENTITY_KEY_ALIAS) } catch (_: Exception) { null }
+                    val myFingerprint = myPubKey?.encoded?.let { bytes: ByteArray -> Sha256StreamCalculator.calculateBytesSha256(bytes) }
                     val resolvedMemberId = currentMemberId
                         ?: (if (hasOwnerKey) team?.ownerFingerprint else null)
                         ?: _workspaceUiState.value.currentMemberId
+                        ?: (if (myFingerprint != null) members.find { it.deviceFingerprint == myFingerprint }?.memberId else null)
                         ?: members.firstOrNull { it.role != MemberRole.OWNER }?.memberId
 
                     val isOwner = hasOwnerKey || (resolvedMemberId != null &&
                             members.any { it.memberId == resolvedMemberId && it.role == MemberRole.OWNER })
+                    val myMember = members.find { it.memberId == resolvedMemberId }
+                    if (myMember != null) {
+                        peerSyncManager?.updateMemberIdentity(
+                            memberId = myMember.memberId,
+                            memberName = myMember.memberName,
+                            teamId = teamId
+                        )
+                    }
+
                     _workspaceUiState.update {
                         it.copy(
                             members = members,
@@ -188,12 +206,17 @@ class TeamViewModel(
                 ?: NetworkAddressHelper.DEFAULT_SYNC_PORT
 
             // Đảm bảo Sync Server đang lắng nghe các peer trong nhóm
-            val relayUrl = customRelayUrl ?: if (NetworkAddressHelper.isEmulator()) {
-                "ws://10.0.2.2:${NetworkAddressHelper.DEFAULT_RELAY_PORT}/v1/sync"
-            } else {
-                NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/sync")
-            }
-            peerSyncManager?.startSyncServer(teamId = teamId, preferredPort = syncPort, relayUrl = relayUrl, scope = scope)
+            val relayUrl = customRelayUrl ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/sync")
+            val myMemId = _workspaceUiState.value.currentMemberId
+            val myMemName = _workspaceUiState.value.members.find { it.memberId == myMemId }?.memberName ?: "Trưởng nhóm"
+            peerSyncManager?.startSyncServer(
+                teamId = teamId,
+                preferredPort = syncPort,
+                relayUrl = relayUrl,
+                scope = scope,
+                memberId = myMemId,
+                memberName = myMemName
+            )
 
             val resolvedHost = customHost ?: NetworkAddressHelper.getLocalIpv4Address()
             val relayForQr = if (NetworkAddressHelper.isEmulator() && NetworkAddressHelper.configuredRelayHost.isNotBlank()) {

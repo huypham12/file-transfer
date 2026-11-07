@@ -123,6 +123,21 @@ class JoinTeamViaQrUseCase(
                     }
                     teamRepository.addMember(finalMember)
 
+                    // Cập nhật thông tin Owner từ phản hồi nếu có tên thật của Owner
+                    val ownerDto = syncResponse.members.find { it.memberId == ownerFingerprint || it.role == MemberRole.OWNER }
+                    if (ownerDto != null && ownerDto.memberName.isNotBlank()) {
+                        val updatedOwner = TeamMember(
+                            memberId = ownerFingerprint,
+                            teamId = qrPayload.teamId,
+                            memberName = ownerDto.memberName,
+                            deviceFingerprint = ownerFingerprint,
+                            role = MemberRole.OWNER,
+                            credentialData = qrPayload.ownerPublicKey,
+                            isActive = true
+                        )
+                        teamRepository.addMember(updatedOwner)
+                    }
+
                     // Lưu các thành viên khác trong nhóm nhận được từ Owner
                     syncResponse.members.forEach { m ->
                         if (m.memberId != candidateMember.memberId && m.memberId != ownerFingerprint) {

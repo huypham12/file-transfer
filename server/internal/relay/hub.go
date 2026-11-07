@@ -5,6 +5,8 @@ import (
 	"sync"
 )
 
+const DefaultMaxActiveBridges = 200
+
 // Hub quản lý danh sách các ChannelBridge đang hoạt động trong bộ nhớ RAM của máy chủ.
 type Hub struct {
 	bridges sync.Map // map[string]*ChannelBridge
@@ -20,6 +22,11 @@ func (h *Hub) GetOrCreateBridge(streamId string) (*ChannelBridge, bool) {
 	val, loaded := h.bridges.Load(streamId)
 	if loaded {
 		return val.(*ChannelBridge), false
+	}
+
+	if h.CountActiveBridges() >= DefaultMaxActiveBridges {
+		log.Printf("[Hub] Từ chối tạo bridge mới: Đã chạm trần %d phiên hoạt động", DefaultMaxActiveBridges)
+		return nil, false
 	}
 
 	newBridge := NewChannelBridge(streamId, func(id string) {

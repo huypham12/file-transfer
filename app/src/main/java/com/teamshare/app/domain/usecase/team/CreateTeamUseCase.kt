@@ -26,8 +26,9 @@ class CreateTeamUseCase(
     private val keyManager: IKeyManager,
     private val auditRepository: IAuditRepository? = null
 ) {
-    operator fun invoke(name: String, desc: String): Flow<Result<Team>> = flow {
+    operator fun invoke(name: String, desc: String, ownerName: String = ""): Flow<Result<Team>> = flow {
         val trimmedName = name.trim()
+        val trimmedOwnerName = ownerName.trim().ifBlank { "Trưởng nhóm" }
         if (trimmedName.isBlank() || trimmedName.length > 50) {
             emit(Result.failure(IllegalArgumentException("Tên nhóm phải từ 1 đến 50 ký tự và không được để trống")))
             return@flow
@@ -59,7 +60,7 @@ class CreateTeamUseCase(
                 val ownerMember = TeamMember(
                     memberId = ownerFingerprint,
                     teamId = teamId,
-                    memberName = "Trưởng nhóm (Owner)",
+                    memberName = trimmedOwnerName,
                     deviceFingerprint = ownerFingerprint,
                     role = MemberRole.OWNER,
                     credentialData = ownerSignatureHex,
@@ -73,7 +74,8 @@ class CreateTeamUseCase(
                         actorId = ownerFingerprint,
                         eventType = AuditEventType.TEAM_CREATED,
                         severity = AuditSeverity.INFO,
-                        details = "Khởi tạo thành công nhóm $trimmedName với danh tính phần cứng $ownerFingerprint"
+                        details = "Khởi tạo thành công nhóm $trimmedName bởi $trimmedOwnerName",
+                        actorName = trimmedOwnerName
                     )
                 )
 
