@@ -61,7 +61,7 @@ object SafeLogger {
     }
 
     private val tokenRegex = Regex("(?i)(token|sessionToken|session_token|tok)=([^\n\r\t,;&\"' ]+)")
-    private val secretRegex = Regex("(?i)(password|passphrase|secret|private_key|privKey)=([^\n\r\t,;&\"' ]+)")
+    private val secretRegex = Regex("(?i)(password|passphrase|secret|private_key|privateKey|privKey)=([^\n\r\t,;&\"' ]+)")
     private val pemKeyRegex = Regex("-----BEGIN [A-Z0-9 _-]+PRIVATE KEY-----[\\s\\S]*?-----END [A-Z0-9 _-]+PRIVATE KEY-----")
 
     /**
