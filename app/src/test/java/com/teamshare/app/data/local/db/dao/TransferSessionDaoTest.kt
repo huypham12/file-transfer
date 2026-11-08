@@ -139,6 +139,39 @@ class TransferSessionDaoTest {
     }
 
     @Test
+    fun testUpdateApprovalMode() = runBlocking {
+        dao.insertSession(
+            TransferSessionEntity(
+                sessionId = "s_appr",
+                direction = "SENDER",
+                totalBytes = 100,
+                approvalMode = "MANUAL_APPROVAL"
+            )
+        )
+        val before = dao.getSessionById("s_appr")
+        assertEquals("MANUAL_APPROVAL", before?.approvalMode)
+
+        dao.updateApprovalMode("s_appr", "AUTO_ACCEPT")
+        val after = dao.getSessionById("s_appr")
+        assertEquals("AUTO_ACCEPT", after?.approvalMode)
+    }
+
+    @Test
+    fun testUpdatePeerInfo() = runBlocking {
+        dao.insertSession(
+            TransferSessionEntity(
+                sessionId = "s_peer",
+                direction = "SENDER",
+                totalBytes = 100
+            )
+        )
+        dao.updatePeerInfo("s_peer", "Xiaomi Redmi Turbo 4 Pro", "fp_sha256_mock")
+        val after = dao.getSessionById("s_peer")
+        assertEquals("Xiaomi Redmi Turbo 4 Pro", after?.peerDeviceModel)
+        assertEquals("fp_sha256_mock", after?.peerFingerprint)
+    }
+
+    @Test
     fun testQueryPerformanceUnder15ms() = runBlocking {
         val count = 100
         val startTime = System.currentTimeMillis()
@@ -199,6 +232,20 @@ class InMemoryTransferSessionDao : TransferSessionDao {
     override suspend fun updateCheckpoint(sessionId: String, offset: Long): Int {
         val current = sessions[sessionId] ?: return 0
         sessions[sessionId] = current.copy(confirmedOffset = offset)
+        notifyChanged()
+        return 1
+    }
+
+    override suspend fun updateApprovalMode(sessionId: String, mode: String): Int {
+        val current = sessions[sessionId] ?: return 0
+        sessions[sessionId] = current.copy(approvalMode = mode)
+        notifyChanged()
+        return 1
+    }
+
+    override suspend fun updatePeerInfo(sessionId: String, peerModel: String, peerFingerprint: String): Int {
+        val current = sessions[sessionId] ?: return 0
+        sessions[sessionId] = current.copy(peerDeviceModel = peerModel, peerFingerprint = peerFingerprint)
         notifyChanged()
         return 1
     }

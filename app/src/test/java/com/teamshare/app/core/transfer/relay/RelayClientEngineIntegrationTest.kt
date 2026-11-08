@@ -645,6 +645,8 @@ class RelayClientEngineIntegrationTest {
                 this.offset = offset
                 return 1
             }
+            override suspend fun updateApprovalMode(sessionId: String, mode: String): Int = 1
+            override suspend fun updatePeerInfo(sessionId: String, peerModel: String, peerFingerprint: String): Int = 1
             override suspend fun updateSessionStatus(sessionId: String, status: String, completedAt: Long?, errorCode: String?): Int = 1
             override suspend fun getSessionById(sessionId: String): com.teamshare.app.data.local.db.entity.TransferSessionEntity? {
                 return com.teamshare.app.data.local.db.entity.TransferSessionEntity(

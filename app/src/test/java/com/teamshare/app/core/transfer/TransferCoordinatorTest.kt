@@ -82,6 +82,18 @@ class FakeTransferRepository : ITransferRepository {
         }
     }
 
+    override suspend fun updateApprovalMode(sessionId: String, mode: com.teamshare.app.domain.model.ApprovalMode) {
+        sessions[sessionId]?.let { current ->
+            sessions[sessionId] = current.copy(approvalMode = mode)
+        }
+    }
+
+    override suspend fun updatePeerInfo(sessionId: String, peerModel: String, peerFingerprint: String) {
+        sessions[sessionId]?.let { current ->
+            sessions[sessionId] = current.copy(peerDeviceModel = peerModel, peerFingerprint = peerFingerprint)
+        }
+    }
+
     override suspend fun deleteSession(sessionId: String) {
         sessions.remove(sessionId)
     }

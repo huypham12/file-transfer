@@ -3,6 +3,7 @@ package com.teamshare.app.data.repository
 import com.teamshare.app.data.local.db.dao.TransferSessionDao
 import com.teamshare.app.data.local.db.mapper.toDomain
 import com.teamshare.app.data.local.db.mapper.toEntity
+import com.teamshare.app.domain.model.ApprovalMode
 import com.teamshare.app.domain.model.SessionStatus
 import com.teamshare.app.domain.model.TransferSession
 import com.teamshare.app.domain.repository.ITransferRepository
@@ -44,6 +45,18 @@ class TransferRepositoryImpl(
 
     override suspend fun updateCheckpoint(sessionId: String, confirmedOffset: Long): Unit = withContext(Dispatchers.IO) {
         sessionDao.updateCheckpoint(sessionId, confirmedOffset)
+    }
+
+    override suspend fun updateApprovalMode(sessionId: String, mode: ApprovalMode): Unit = withContext(Dispatchers.IO) {
+        sessionDao.updateApprovalMode(sessionId, mode.name)
+    }
+
+    override suspend fun updatePeerInfo(
+        sessionId: String,
+        peerModel: String,
+        peerFingerprint: String
+    ): Unit = withContext(Dispatchers.IO) {
+        sessionDao.updatePeerInfo(sessionId, peerModel, peerFingerprint)
     }
 
     override suspend fun updateSessionStatus(

@@ -1,5 +1,6 @@
 package com.teamshare.app.domain.repository
 
+import com.teamshare.app.domain.model.ApprovalMode
 import com.teamshare.app.domain.model.SessionStatus
 import com.teamshare.app.domain.model.TransferSession
 import kotlinx.coroutines.flow.Flow
@@ -15,6 +16,8 @@ interface ITransferRepository {
     fun getActiveSessions(): Flow<List<TransferSession>>
     fun getAllSessions(): Flow<List<TransferSession>>
     suspend fun updateCheckpoint(sessionId: String, confirmedOffset: Long)
+    suspend fun updateApprovalMode(sessionId: String, mode: ApprovalMode)
+    suspend fun updatePeerInfo(sessionId: String, peerModel: String, peerFingerprint: String)
     suspend fun updateSessionStatus(sessionId: String, status: SessionStatus, errorCode: String? = null)
     suspend fun deleteSession(sessionId: String)
 }

@@ -11,11 +11,11 @@ class IllegalStateTransitionException(
 typealias StateChangeListener = (oldState: SessionState, newState: SessionState, event: SessionEvent) -> Unit
 
 /**
- * Cỗ máy quản lý trạng thái vòng đời của phiên truyền tệp P2P TeamShare.
- * Tuân thủ SAD mục 9.1 và SDD mục 7.6.
+ * Cỗ máy quản lý trạng thái vòng đời của phiên truyền tệp 1-N Secure Drop.
+ * Tuân thủ SAD ADR-04 và SDD mục 7.6.
  * Đảm bảo tính an toàn đồng quy (Thread-Safe) khi nhiều coroutine/thread cùng tác động.
  */
-class SessionStateMachine(initialState: SessionState = SessionState.IDLE) {
+class SessionStateMachine(initialState: SessionState = SessionState.PENDING) {
 
     private val lock = Any()
     private var currentState: SessionState = initialState
@@ -27,8 +27,8 @@ class SessionStateMachine(initialState: SessionState = SessionState.IDLE) {
         get() = synchronized(lock) {
             currentState == SessionState.COMPLETED ||
             currentState == SessionState.CANCELLED ||
-            currentState == SessionState.FAILED ||
-            currentState == SessionState.CHECKSUM_FAILED
+            currentState == SessionState.CHECKSUM_FAILED ||
+            currentState == SessionState.REJECTED
         }
 
     fun addListener(listener: StateChangeListener) = synchronized(lock) {
@@ -53,7 +53,7 @@ class SessionStateMachine(initialState: SessionState = SessionState.IDLE) {
             Triple(previous, nextState, listeners.toList())
         }
 
-        // Bắn sự kiện ra ngoài khối synchronized để tránh Deadlock và an toàn đồng quy (Snapshot)
+        // Bắn sự kiện ra ngoài khối synchronized để tránh Deadlock và an toàn đồng quy
         snapshotListeners.forEach { listener ->
             listener(oldState, newState, event)
         }
@@ -64,38 +64,58 @@ class SessionStateMachine(initialState: SessionState = SessionState.IDLE) {
     private fun calculateNextState(current: SessionState, event: SessionEvent): SessionState? {
         val isTerminalState = current == SessionState.COMPLETED ||
                               current == SessionState.CANCELLED ||
-                              current == SessionState.CHECKSUM_FAILED
+                              current == SessionState.CHECKSUM_FAILED ||
+                              current == SessionState.REJECTED
 
         if (isTerminalState) return null
 
-        // Nếu đang ở FAILED, cho phép khởi động lại từ đầu (Retry qua StartHandshake) hoặc hủy hẳn (Cancel)
+        // Nếu đang ở FAILED, cho phép khởi động lại từ đầu (Retry) hoặc hủy hẳn (Cancel)
         if (current == SessionState.FAILED) {
             return when (event) {
-                is SessionEvent.StartHandshake -> SessionState.HANDSHAKING
+                is SessionEvent.CreateSession -> SessionState.PENDING
+                is SessionEvent.StartHandshake -> SessionState.CONNECTING
                 is SessionEvent.Cancel -> SessionState.CANCELLED
                 else -> null
             }
         }
 
-        // Sự kiện lỗi hoặc thu hồi quyền luôn có thể chuyển sang FAILED hoặc CANCELLED từ mọi trạng thái đang chạy
+        // Sự kiện lỗi hoặc thu hồi quyền luôn có thể chuyển sang FAILED hoặc CANCELLED
         if (event is SessionEvent.Fail) return SessionState.FAILED
         if (event is SessionEvent.RevokeMember) return SessionState.CANCELLED
         if (event is SessionEvent.Cancel) return SessionState.CANCELLED
 
         return when (current) {
             SessionState.IDLE -> when (event) {
-                is SessionEvent.StartHandshake -> SessionState.HANDSHAKING
+                is SessionEvent.CreateSession -> SessionState.PENDING
+                is SessionEvent.StartHandshake -> SessionState.CONNECTING
+                is SessionEvent.PeerConnecting -> SessionState.CONNECTING
                 else -> null
             }
 
-            SessionState.HANDSHAKING -> when (event) {
+            SessionState.PENDING -> when (event) {
+                is SessionEvent.PeerConnecting -> SessionState.CONNECTING
+                is SessionEvent.StartHandshake -> SessionState.CONNECTING
+                else -> null
+            }
+
+            SessionState.CONNECTING, SessionState.HANDSHAKING -> when (event) {
+                is SessionEvent.RequireApproval -> SessionState.APPROVING
+                is SessionEvent.ApproveConnection -> SessionState.TRANSFERRING
                 is SessionEvent.HandshakeSuccess -> SessionState.TRANSFERRING
+                is SessionEvent.StartTransfer -> SessionState.TRANSFERRING
+                is SessionEvent.RejectConnection -> SessionState.REJECTED
                 is SessionEvent.AuthenticationFailed -> SessionState.FAILED
                 else -> null
             }
 
+            SessionState.APPROVING -> when (event) {
+                is SessionEvent.ApproveConnection -> SessionState.TRANSFERRING
+                is SessionEvent.RejectConnection -> SessionState.REJECTED
+                else -> null
+            }
+
             SessionState.TRANSFERRING -> when (event) {
-                is SessionEvent.ChunkAckReceived -> SessionState.TRANSFERRING // Vẫn giữ trạng thái đang truyền
+                is SessionEvent.ChunkAckReceived -> SessionState.TRANSFERRING
                 is SessionEvent.Pause -> SessionState.PAUSED
                 is SessionEvent.AllBytesReceived -> SessionState.VERIFYING
                 else -> null
@@ -116,4 +136,3 @@ class SessionStateMachine(initialState: SessionState = SessionState.IDLE) {
         }
     }
 }
-
