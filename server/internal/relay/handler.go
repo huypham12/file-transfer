@@ -44,8 +44,8 @@ func HandleStream(hub *Hub) http.HandlerFunc {
 			return
 		}
 
-		// Đặt thời gian chờ đọc bản tin ATTACH_STREAM ban đầu (15 giây)
-		_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+		// Đặt thời gian chờ đọc bản tin ATTACH_STREAM ban đầu
+		_ = conn.SetReadDeadline(time.Now().Add(hub.Config().AttachTimeout))
 		_, msgBytes, err := conn.ReadMessage()
 		if err != nil {
 			log.Printf("[Handler] Lỗi đọc bản tin ATTACH_STREAM: %v", err)

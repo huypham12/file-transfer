@@ -1,7 +1,16 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+}
+
+val localProperties = Properties().apply {
+    val localFile = rootProject.file("local.properties")
+    if (localFile.exists()) {
+        localFile.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -16,6 +25,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        manifestPlaceholders["fileProviderAuthority"] = "${applicationId}.fileprovider"
+        buildConfigField("String", "FILE_PROVIDER_AUTHORITY", "\"${applicationId}.fileprovider\"")
     }
 
     signingConfigs {
@@ -51,13 +63,26 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             isDebuggable = true
-            buildConfigField("String", "RELAY_URL", "\"ws://10.0.2.2:8080/v1/stream\"")
+
+            val host = localProperties.getProperty("RELAY_HOST")?.trim()?.ifBlank { null } ?: "10.0.2.2"
+            val relayPort = localProperties.getProperty("RELAY_PORT")?.trim()?.toIntOrNull() ?: 8080
+            val lanPort = localProperties.getProperty("LAN_PORT")?.trim()?.toIntOrNull() ?: 8889
+
+            buildConfigField("String", "DEFAULT_RELAY_HOST", "\"$host\"")
+            buildConfigField("int", "DEFAULT_RELAY_PORT", "$relayPort")
+            buildConfigField("int", "DEFAULT_LAN_PORT", "$lanPort")
+            buildConfigField("String", "RELAY_URL", "\"ws://$host:$relayPort/v1/stream\"")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
-            buildConfigField("String", "RELAY_URL", "\"wss://relay.teamshare.internal/v1/stream\"")
+
+            buildConfigField("String", "DEFAULT_RELAY_HOST", "\"relay.teamshare.app\"")
+            buildConfigField("int", "DEFAULT_RELAY_PORT", "443")
+            buildConfigField("int", "DEFAULT_LAN_PORT", "8889")
+            buildConfigField("String", "RELAY_URL", "\"wss://relay.teamshare.app/v1/stream\"")
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

@@ -54,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -61,9 +62,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
+import com.example.file_tranfer.R
+import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.transfer.lan.TransferEngineState
 import com.teamshare.app.domain.model.TransferChannel
 import com.teamshare.app.presentation.ui.components.formatFileSize
+import com.teamshare.app.presentation.ui.mapper.UiErrorMapper
 import com.teamshare.app.presentation.ui.theme.LanBadgeColor
 import com.teamshare.app.presentation.ui.theme.RelayBadgeColor
 import com.teamshare.app.presentation.ui.theme.SecurityWarningColor
@@ -91,8 +95,8 @@ fun TransferProgressScreen(
     if (showCancelDialog) {
         AlertDialog(
             onDismissRequest = { showCancelDialog = false },
-            title = { Text("Xác nhận hủy phiên") },
-            text = { Text("Bạn có chắc chắn muốn hủy phiên truyền này không? Toàn bộ tệp tạm dở dang sẽ được tiêu hủy an toàn.") },
+            title = { Text(stringResource(R.string.dialog_cancel_title)) },
+            text = { Text(stringResource(R.string.dialog_cancel_message)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -101,12 +105,12 @@ fun TransferProgressScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Hủy phiên")
+                    Text(stringResource(R.string.btn_confirm_cancel))
                 }
             },
             dismissButton = {
                 OutlinedButton(onClick = { showCancelDialog = false }) {
-                    Text("Không")
+                    Text(stringResource(R.string.btn_keep_transfer))
                 }
             }
         )
@@ -115,12 +119,12 @@ fun TransferProgressScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Tiến trình truyền tệp P2P") },
+                title = { Text(stringResource(R.string.title_transfer_progress)) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Quay lại"
+                            contentDescription = stringResource(R.string.action_back)
                         )
                     }
                 },
@@ -360,8 +364,11 @@ fun TransferProgressScreen(
 
                     if (!uiState.errorMessage.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(8.dp))
+                        val localizedError = uiState.errorCode?.let {
+                            UiErrorMapper.getLocalizedMessageFromCode(context, it, uiState.errorMessage ?: "")
+                        } ?: uiState.errorMessage ?: ""
                         Text(
-                            text = "Lỗi: ${uiState.errorMessage}",
+                            text = localizedError,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -395,7 +402,7 @@ fun TransferProgressScreen(
                             onClick = {
                                 val activity = context as? FragmentActivity
                                 val targetFilePath = uiState.completedFilePath
-                                val file = if (!targetFilePath.isNullOrBlank()) File(targetFilePath) else File(context.filesDir, "transfers/completed/${uiState.fileName}")
+                                val file = if (!targetFilePath.isNullOrBlank()) File(targetFilePath) else File(context.filesDir, "${AppConstants.StorageDirectory.TRANSFERS}/${AppConstants.StorageDirectory.COMPLETED}/${uiState.fileName}")
 
                                 if (activity != null) {
                                     viewModel.openFileSecurely(activity, file) { success, err ->
@@ -456,7 +463,7 @@ fun TransferProgressScreen(
                         ) {
                             Icon(imageVector = Icons.Default.Cancel, contentDescription = null)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Hủy phiên")
+                            Text(stringResource(R.string.btn_confirm_cancel))
                         }
                     }
                     TransferEngineState.PAUSED -> {
@@ -466,7 +473,7 @@ fun TransferProgressScreen(
                         ) {
                             Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Tiếp tục")
+                            Text(stringResource(R.string.action_resume))
                         }
                         OutlinedButton(
                             onClick = { showCancelDialog = true },
@@ -474,7 +481,7 @@ fun TransferProgressScreen(
                         ) {
                             Icon(imageVector = Icons.Default.Cancel, contentDescription = null)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Hủy phiên")
+                            Text(stringResource(R.string.btn_confirm_cancel))
                         }
                     }
                     else -> {
@@ -482,7 +489,7 @@ fun TransferProgressScreen(
                             onClick = onBackClick,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Quay về Màn hình chính")
+                            Text(stringResource(R.string.btn_return_home))
                         }
                     }
                 }

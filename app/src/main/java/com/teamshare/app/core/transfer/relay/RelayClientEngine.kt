@@ -1,5 +1,6 @@
 package com.teamshare.app.core.transfer.relay
 
+import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.network.relay.AttachStreamRequest
 import com.teamshare.app.core.network.relay.AttachStreamResponse
 import com.teamshare.app.core.network.relay.RelayWebSocketConnection
@@ -24,6 +25,8 @@ import com.teamshare.app.core.transfer.checkpoint.CheckpointTracker
 import com.teamshare.app.core.transfer.lan.TransferEngineState
 import com.teamshare.app.core.transfer.lan.TransferProgressCallback
 import com.teamshare.app.data.local.db.dao.TransferSessionDao
+import com.teamshare.app.domain.model.DomainError
+import com.teamshare.app.domain.model.ErrorCode
 import com.teamshare.app.domain.model.TeamMembershipCredential
 import com.teamshare.app.domain.model.TransferSession
 import kotlinx.coroutines.CompletableDeferred
@@ -59,7 +62,7 @@ import java.util.concurrent.atomic.AtomicLong
 class RelayClientEngine(
     private val bufferPool: BufferPoolManager = BufferPoolManager(),
     private val sessionDao: TransferSessionDao? = null,
-    private val checkpointThresholdBytes: Long = 2 * 1024 * 1024L,
+    private val checkpointThresholdBytes: Long = AppConstants.FlowControl.CHECKPOINT_THRESHOLD_RELAY,
     private val e2eManager: E2EEncryptionManager = E2EEncryptionManager(),
     private val okHttpClient: OkHttpClient = RelayWebSocketConnection.defaultClient
 ) {
@@ -129,10 +132,10 @@ class RelayClientEngine(
         ownerPublicKey: PublicKey? = null,
         callback: TransferProgressCallback? = null,
         peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null,
-        maxRetries: Int = 3
+        maxRetries: Int = AppConstants.Retry.MAX_RELAY_RETRIES
     ): Boolean {
         var attempt = 0
-        val backoffDelays = listOf(1000L, 2000L, 4000L)
+        val backoffDelays = AppConstants.Retry.BACKOFF_DELAYS_MS
 
         while (attempt <= maxRetries && !isCancelled.get()) {
             try {
@@ -151,12 +154,12 @@ class RelayClientEngine(
                 attempt++
                 if (attempt > maxRetries) {
                     currentState = TransferEngineState.FAILED
-                    callback?.onError("0x201", "ERR_RELAY_UNAVAILABLE: Không thể kết nối tới Relay sau $maxRetries lần thử lại")
+                    callback?.onError(ErrorCode.ERR_RELAY_UNAVAILABLE, "ERR_RELAY_UNAVAILABLE: Không thể kết nối tới Relay sau $maxRetries lần thử lại")
                     callback?.onStateChanged(currentState)
                     throw e
                 }
                 val delayMs = backoffDelays.getOrElse(attempt - 1) { 4000L }
-                callback?.onError("0x201", "Mất kết nối tới Relay. Thử lại sau ${delayMs / 1000} giây (Lần $attempt/$maxRetries)...")
+                callback?.onError(ErrorCode.ERR_RELAY_UNAVAILABLE, "Mất kết nối tới Relay. Thử lại sau ${delayMs / 1000} giây (Lần $attempt/$maxRetries)...")
                 delay(delayMs)
             }
         }
@@ -264,14 +267,14 @@ class RelayClientEngine(
                     isValidPeer = true
                 }
                 if (!isValidPeer) {
-                    callback?.onError("0x101", "Chứng thư thành viên của bên nhận không hợp lệ (sai chữ ký Owner)")
+                    callback?.onError(ErrorCode.ERR_INVALID_CREDENTIAL, "Chứng thư thành viên của bên nhận không hợp lệ (sai chữ ký Owner)")
                     throw SecurityException("Bên nhận mang chứng thư giả mạo hoặc sai chữ ký số của Owner")
                 }
             } else {
                 // Kiểm tra theo sessionToken (Stage 3)
                 if (peerAuthPayload.teamId != session.sessionToken && peerValidator?.invoke(peerAuthPayload) != true) {
                     if (session.sessionToken.isNotBlank() && peerAuthPayload.teamId.isNotBlank() && peerAuthPayload.teamId != session.sessionToken) {
-                        callback?.onError("0x101", "Session token của bên nhận không khớp")
+                        callback?.onError(ErrorCode.ERR_INVALID_CREDENTIAL, "Session token của bên nhận không khớp")
                         throw SecurityException("Bên nhận mang session token không hợp lệ")
                     }
                 }
@@ -298,7 +301,7 @@ class RelayClientEngine(
             val manifestResp = ManifestResponsePayload.fromBytes(responseFrame.payload)
             if (!manifestResp.accepted) {
                 val reason = manifestResp.rejectionReason ?: "Bên nhận từ chối yêu cầu truyền tệp"
-                callback?.onError("0x102", reason)
+                callback?.onError(ErrorCode.ERR_DEVICE_REJECTED, reason)
                 throw IOException(reason)
             }
 
@@ -354,7 +357,7 @@ class RelayClientEngine(
             val totalBytes = session.totalBytes
             var chunkSeq = (startOffset / bufferPool.bufferSize).toInt()
             val startTime = System.currentTimeMillis()
-            val maxInflightBytes = 4 * 1024 * 1024L // 4MB Cửa sổ trượt (Sliding Window Flow Control)
+            val maxInflightBytes = AppConstants.FlowControl.MAX_INFLIGHT_BYTES // 4MB Cửa sổ trượt (Sliding Window Flow Control)
 
             // 6. Vòng lặp truyền khối dữ liệu
             while (currentOffset < totalBytes && !isCancelled.get()) {
@@ -435,7 +438,7 @@ class RelayClientEngine(
             } else {
                 currentState = TransferEngineState.FAILED
                 callback?.onStateChanged(currentState)
-                callback?.onError("0x301", "Sai lệch mã băm SHA-256 từ phía nhận")
+                callback?.onError(ErrorCode.ERR_CHECKSUM_MISMATCH, "Sai lệch mã băm SHA-256 từ phía nhận")
                 false
             }
 
@@ -459,10 +462,10 @@ class RelayClientEngine(
         ownerPublicKey: PublicKey? = null,
         callback: TransferProgressCallback? = null,
         peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null,
-        maxRetries: Int = 3
+        maxRetries: Int = AppConstants.Retry.MAX_RELAY_RETRIES
     ): Boolean {
         var attempt = 0
-        val backoffDelays = listOf(1000L, 2000L, 4000L)
+        val backoffDelays = AppConstants.Retry.BACKOFF_DELAYS_MS
 
         while (attempt <= maxRetries && !isCancelled.get()) {
             try {
@@ -481,12 +484,12 @@ class RelayClientEngine(
                 attempt++
                 if (attempt > maxRetries) {
                     currentState = TransferEngineState.FAILED
-                    callback?.onError("0x201", "ERR_RELAY_UNAVAILABLE: Không thể kết nối tới Relay sau $maxRetries lần thử lại")
+                    callback?.onError(ErrorCode.ERR_RELAY_UNAVAILABLE, "ERR_RELAY_UNAVAILABLE: Không thể kết nối tới Relay sau $maxRetries lần thử lại")
                     callback?.onStateChanged(currentState)
                     throw e
                 }
                 val delayMs = backoffDelays.getOrElse(attempt - 1) { 4000L }
-                callback?.onError("0x201", "Mất kết nối tới Relay. Thử lại sau ${delayMs / 1000} giây (Lần $attempt/$maxRetries)...")
+                callback?.onError(ErrorCode.ERR_RELAY_UNAVAILABLE, "Mất kết nối tới Relay. Thử lại sau ${delayMs / 1000} giây (Lần $attempt/$maxRetries)...")
                 delay(delayMs)
             }
         }
@@ -593,13 +596,13 @@ class RelayClientEngine(
                     isValidPeer = true
                 }
                 if (!isValidPeer) {
-                    callback?.onError("0x101", "Chứng thư thành viên của bên gửi không hợp lệ (sai chữ ký Owner)")
+                    callback?.onError(ErrorCode.ERR_INVALID_CREDENTIAL, "Chứng thư thành viên của bên gửi không hợp lệ (sai chữ ký Owner)")
                     throw SecurityException("Bên gửi mang chứng thư giả mạo hoặc sai chữ ký số của Owner")
                 }
             } else {
                 if (peerAuthPayload.teamId != session.sessionToken && peerValidator?.invoke(peerAuthPayload) != true) {
                     if (session.sessionToken.isNotBlank() && peerAuthPayload.teamId.isNotBlank() && peerAuthPayload.teamId != session.sessionToken) {
-                        callback?.onError("0x101", "Session token của bên gửi không khớp")
+                        callback?.onError(ErrorCode.ERR_INVALID_CREDENTIAL, "Session token của bên gửi không khớp")
                         throw SecurityException("Bên gửi mang session token không hợp lệ")
                     }
                 }
@@ -737,7 +740,7 @@ class RelayClientEngine(
                 SafeFileDeleter.wipeAndSanitizeFile(partFile)
                 currentState = TransferEngineState.FAILED
                 callback?.onStateChanged(currentState)
-                callback?.onError("0x301", "Sai lệch mã băm SHA-256 (Kỳ vọng: $targetExpectedSha, Thực tế: $actualSha256)")
+                callback?.onError(ErrorCode.ERR_CHECKSUM_MISMATCH, "Sai lệch mã băm SHA-256 (Kỳ vọng: $targetExpectedSha, Thực tế: $actualSha256)")
                 false
             }
 

@@ -1,5 +1,9 @@
 package com.teamshare.app.core.transfer.lan
 
+import com.teamshare.app.core.constant.AppConstants
+import com.teamshare.app.domain.model.DomainError
+import com.teamshare.app.domain.model.ErrorCode
+
 import com.teamshare.app.core.network.tls.TlsSocketFactory
 import com.teamshare.app.core.protocol.BinaryFrameParser
 import com.teamshare.app.core.protocol.ChunkAckPayload
@@ -67,8 +71,8 @@ class LanTransferEngine(
     private val storageAuditor: IStorageAuditor = StatFsStorageAuditor()
 ) {
     companion object {
-        const val DEFAULT_SERVER_TIMEOUT_MS = 60_000 // 60 giây chờ kết nối
-        const val DEFAULT_LAN_PORT = com.teamshare.app.core.platform.network.NetworkConfig.DEFAULT_LAN_PORT
+        const val DEFAULT_SERVER_TIMEOUT_MS = AppConstants.Timeout.SERVER_SOCKET_ACCEPT_TIMEOUT_MS
+        val DEFAULT_LAN_PORT = com.teamshare.app.core.platform.network.NetworkConfig.DEFAULT_LAN_PORT
     }
 
     private var activeServerSocket: ServerSocket? = null
@@ -148,7 +152,7 @@ class LanTransferEngine(
         } catch (e: Exception) {
             currentState = TransferEngineState.FAILED
             callback?.onStateChanged(currentState)
-            callback?.onError("SERVER_BIND_ERROR", "Không thể mở ServerSocket tại cổng $port: ${e.message}")
+            callback?.onError(ErrorCode.ERR_SERVER_BIND_ERROR, "Không thể mở ServerSocket tại cổng $port: ${e.message}")
             return@withContext Result.failure(e)
         }
 
@@ -162,12 +166,12 @@ class LanTransferEngine(
             } catch (e: java.net.SocketTimeoutException) {
                 currentState = TransferEngineState.FAILED
                 callback?.onStateChanged(currentState)
-                callback?.onError("SERVER_TIMEOUT", "Hết thời gian chờ kết nối từ máy nhận")
+                callback?.onError(ErrorCode.ERR_SERVER_TIMEOUT, DomainError.ServerTimeout.technicalMessage)
                 return@withContext Result.failure(e)
             }
 
-            val inputStream = BufferedInputStream(socket.getInputStream(), 128 * 1024)
-            val outputStream = BufferedOutputStream(socket.getOutputStream(), 128 * 1024)
+            val inputStream = BufferedInputStream(socket.getInputStream(), AppConstants.Buffer.STREAM_INPUT_BUFFER_BYTES)
+            val outputStream = BufferedOutputStream(socket.getOutputStream(), AppConstants.Buffer.STREAM_INPUT_BUFFER_BYTES)
             val streamId = 1
 
             // 1. Nhận gói 0x01 CONNECT_REQUEST từ Receiver
@@ -189,12 +193,12 @@ class LanTransferEngine(
                     streamId,
                     ConnectAcceptedPayload(
                         status = ConnectAcceptedPayload.STATUS_REJECTED,
-                        rejectionReason = "0x101: Session token không hợp lệ"
+                        rejectionReason = "${ErrorCode.ERR_INVALID_CREDENTIAL}: ${DomainError.InvalidCredential.technicalMessage}"
                     )
                 )
                 serializer.serializeTo(rejectFrame, outputStream)
                 val err = "Session token không khớp: nhận được ${connectReq.sessionToken}"
-                callback?.onError("0x101", err)
+                callback?.onError(ErrorCode.ERR_INVALID_CREDENTIAL, err)
                 throw SecurityException(err)
             }
 
@@ -212,12 +216,12 @@ class LanTransferEngine(
                         streamId,
                         ConnectAcceptedPayload(
                             status = ConnectAcceptedPayload.STATUS_REJECTED,
-                            rejectionReason = "0x102: Người gửi từ chối kết nối thiết bị"
+                            rejectionReason = "${ErrorCode.ERR_DEVICE_REJECTED}: ${DomainError.DeviceRejected.technicalMessage}"
                         )
                     )
                     serializer.serializeTo(rejectFrame, outputStream)
                     val err = "Người gửi từ chối kết nối từ thiết bị ${peerProfile.model}"
-                    callback?.onError("0x102", err)
+                    callback?.onError(ErrorCode.ERR_DEVICE_REJECTED, err)
                     throw SecurityException(err)
                 }
             }
@@ -270,7 +274,7 @@ class LanTransferEngine(
             callback?.onStateChanged(currentState)
 
             val pipedOut = if (isFolder) PipedOutputStream() else null
-            val pipedIn = if (isFolder) PipedInputStream(pipedOut, 256 * 1024) else null
+            val pipedIn = if (isFolder) PipedInputStream(pipedOut, AppConstants.Buffer.STREAM_PIPE_BYTES) else null
             val folderPackJob = if (isFolder) {
                 launch(Dispatchers.IO) {
                     try {
@@ -374,7 +378,7 @@ class LanTransferEngine(
 
                     val now = System.currentTimeMillis()
                     val delta = now - lastSpeedTimestamp
-                    if (delta >= 500) {
+                    if (delta >= AppConstants.Timeout.PROGRESS_THROTTLE_INTERVAL_MS) {
                         val speed = (bytesSinceLastSpeed * 1000L) / maxOf(delta, 1L)
                         callback?.onProgress(currentOffset, totalFileSize, speed)
                         lastSpeedTimestamp = now
@@ -402,7 +406,7 @@ class LanTransferEngine(
                     currentState = TransferEngineState.FAILED
                     callback?.onStateChanged(currentState)
                     val err = "Máy nhận thông báo thất bại: mã băm thực tế ${verifyResult.actualSha256}"
-                    callback?.onError("0x301", err)
+                    callback?.onError(ErrorCode.ERR_CHECKSUM_MISMATCH, err)
                     Result.failure(SecurityException(err))
                 }
             } finally {
@@ -494,8 +498,8 @@ class LanTransferEngine(
 
             val acceptedPayload = ConnectAcceptedPayload.fromBytes(acceptedFrame.payload)
             if (!acceptedPayload.isApproved) {
-                val reason = acceptedPayload.rejectionReason ?: "0x102: Kết nối bị từ chối bởi máy gửi"
-                callback?.onError("0x102", reason)
+                val reason = acceptedPayload.rejectionReason ?: "${ErrorCode.ERR_DEVICE_REJECTED}: ${DomainError.DeviceRejected.technicalMessage}"
+                callback?.onError(ErrorCode.ERR_DEVICE_REJECTED, reason)
                 throw SecurityException(reason)
             }
 
@@ -508,13 +512,13 @@ class LanTransferEngine(
                 val errFrame = serializer.buildErrorAlertFrame(
                     streamId = streamId,
                     payload = ErrorAlertPayload(
-                        errorCode = "0x302",
-                        errorMessage = "ERR_INSUFFICIENT_STORAGE: Thiết bị nhận không đủ bộ nhớ trống"
+                        errorCode = ErrorCode.ERR_INSUFFICIENT_STORAGE,
+                        errorMessage = "ERR_INSUFFICIENT_STORAGE: ${DomainError.InsufficientStorage.technicalMessage}"
                     )
                 )
                 try { serializer.serializeTo(errFrame, outputStream) } catch (_: Exception) {}
-                val err = "0x302: Thiết bị không đủ bộ nhớ trống (cần ${manifestItem.fileSize} bytes kèm 50MB an toàn)"
-                callback?.onError("0x302", err)
+                val err = "${ErrorCode.ERR_INSUFFICIENT_STORAGE}: Thiết bị không đủ bộ nhớ trống (cần ${manifestItem.fileSize} bytes kèm 50MB an toàn)"
+                callback?.onError(ErrorCode.ERR_INSUFFICIENT_STORAGE, err)
                 throw IOException(err)
             }
 
@@ -664,7 +668,7 @@ class LanTransferEngine(
                     currentState = TransferEngineState.FAILED
                     callback?.onStateChanged(currentState)
                     val err = "Sai lệch mã băm SHA-256: kỳ vọng ${manifestItem.sha256}, thực tế $calculatedSha256"
-                    callback?.onError("0x301", err)
+                    callback?.onError(ErrorCode.ERR_CHECKSUM_MISMATCH, err)
                     Result.failure(SecurityException(err))
                 }
             } finally {
@@ -718,7 +722,7 @@ class LanTransferEngine(
         } catch (e: Exception) {
             currentState = TransferEngineState.FAILED
             callback?.onStateChanged(currentState)
-            callback?.onError("SERVER_BIND_ERROR", "Không thể mở cổng ServerSocket: ${e.message}")
+            callback?.onError(ErrorCode.ERR_SERVER_BIND_ERROR, "Không thể mở cổng ServerSocket: ${e.message}")
             return@withContext Result.failure(e)
         }
 
@@ -734,11 +738,11 @@ class LanTransferEngine(
             } catch (e: java.net.SocketTimeoutException) {
                 currentState = TransferEngineState.FAILED
                 callback?.onStateChanged(currentState)
-                callback?.onError("SERVER_TIMEOUT", "Quá thời gian chờ kết nối từ máy gửi ($serverTimeoutMs ms)")
+                callback?.onError(ErrorCode.ERR_SERVER_TIMEOUT, "Quá thời gian chờ kết nối từ máy gửi ($serverTimeoutMs ms)")
                 return@withContext Result.failure(e)
             }
-            val inputStream = BufferedInputStream(socket.getInputStream(), 128 * 1024)
-            val outputStream = BufferedOutputStream(socket.getOutputStream(), 128 * 1024)
+            val inputStream = BufferedInputStream(socket.getInputStream(), AppConstants.Buffer.STREAM_INPUT_BUFFER_BYTES)
+            val outputStream = BufferedOutputStream(socket.getOutputStream(), AppConstants.Buffer.STREAM_INPUT_BUFFER_BYTES)
 
             currentState = TransferEngineState.HANDSHAKING
             callback?.onStateChanged(currentState)
@@ -760,7 +764,7 @@ class LanTransferEngine(
             if (!sessionToken.isNullOrBlank()) {
                 if (receivedToken != sessionToken && receivedTeamId != sessionToken) {
                     val err = "Session token không khớp: nhận $receivedToken, dự kiến $sessionToken"
-                    callback?.onError("0x101", err)
+                    callback?.onError(ErrorCode.ERR_INVALID_CREDENTIAL, err)
                     throw SecurityException(err)
                 }
             } else if (expectedTeamId != null && receivedTeamId != expectedTeamId) {

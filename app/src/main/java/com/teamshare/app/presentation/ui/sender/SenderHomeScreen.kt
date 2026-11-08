@@ -46,9 +46,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.file_tranfer.R
 import com.teamshare.app.domain.model.ApprovalMode
 import com.teamshare.app.presentation.ui.components.ErrorBanner
 import com.teamshare.app.presentation.ui.components.formatFileSize
@@ -90,12 +92,12 @@ fun SenderHomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Phát chia sẻ tệp (1-N)") },
+                title = { Text(stringResource(R.string.title_sender_home)) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Quay lại"
+                            contentDescription = stringResource(R.string.action_back)
                         )
                     }
                 },
@@ -104,7 +106,7 @@ fun SenderHomeScreen(
                         IconButton(onClick = { viewModel.clearSelectedFiles() }) {
                             Icon(
                                 imageVector = Icons.Default.DeleteSweep,
-                                contentDescription = "Dọn sạch danh sách"
+                                contentDescription = stringResource(R.string.action_clear_all)
                             )
                         }
                     }
@@ -131,7 +133,7 @@ fun SenderHomeScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Tổng số: ${uiState.selectedFiles.size} tệp",
+                                text = stringResource(R.string.sender_total_files, uiState.selectedFiles.size),
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Medium
                             )
@@ -161,12 +163,12 @@ fun SenderHomeScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.QrCode,
-                            contentDescription = "Tạo QR",
+                            contentDescription = stringResource(R.string.sender_btn_start_sharing),
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Bắt đầu phát (Tạo mã QR)",
+                            text = stringResource(R.string.sender_btn_start_sharing),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -176,6 +178,8 @@ fun SenderHomeScreen(
         },
         modifier = modifier
     ) { paddingValues ->
+        val activeError = uiState.errorResId?.let { stringResource(it) } ?: uiState.errorMessage
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -184,10 +188,10 @@ fun SenderHomeScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Hiển thị lỗi nếu có
-            if (uiState.errorMessage != null) {
+            if (activeError != null) {
                 item {
                     ErrorBanner(
-                        message = uiState.errorMessage ?: "",
+                        message = activeError,
                         onDismiss = { viewModel.clearError() }
                     )
                 }
@@ -208,11 +212,11 @@ fun SenderHomeScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.UploadFile,
-                            contentDescription = "Chọn tệp",
+                            contentDescription = stringResource(R.string.btn_select_file),
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Chọn tệp")
+                        Text(stringResource(R.string.btn_select_file))
                     }
 
                     OutlinedButton(
@@ -224,11 +228,11 @@ fun SenderHomeScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.CreateNewFolder,
-                            contentDescription = "Chọn thư mục",
+                            contentDescription = stringResource(R.string.btn_select_folder),
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Chọn thư mục")
+                        Text(stringResource(R.string.btn_select_folder))
                     }
                 }
             }
@@ -244,7 +248,7 @@ fun SenderHomeScreen(
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Text(
-                            text = "Chế độ phê duyệt kết nối",
+                            text = stringResource(R.string.sender_approval_mode_title),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -269,12 +273,12 @@ fun SenderHomeScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(
-                                    text = "Phê duyệt từng máy (Thủ công)",
+                                    text = stringResource(R.string.sender_approval_manual_title),
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = "Hiển thị tên model máy nhận (vd: Xiaomi) để bạn duyệt",
+                                    text = stringResource(R.string.sender_approval_manual_desc),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -299,12 +303,12 @@ fun SenderHomeScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(
-                                    text = "Tự động cho phép (Nhanh)",
+                                    text = stringResource(R.string.sender_approval_auto_title),
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = "Mọi thiết bị quét mã QR hợp lệ đều được tải ngay lập tức",
+                                    text = stringResource(R.string.sender_approval_auto_desc),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -317,7 +321,7 @@ fun SenderHomeScreen(
             // Tiêu đề danh sách tệp
             item {
                 Text(
-                    text = "Danh sách tệp phát (${uiState.selectedFiles.size})",
+                    text = stringResource(R.string.sender_file_list_title, uiState.selectedFiles.size),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -341,18 +345,18 @@ fun SenderHomeScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.InsertDriveFile,
-                                contentDescription = "Trống",
+                                contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                                 modifier = Modifier.size(48.dp)
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Chưa có tệp nào được chọn",
+                                text = stringResource(R.string.sender_empty_files_title),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "Nhấn 'Chọn tệp' hoặc 'Chọn thư mục' ở trên",
+                                text = stringResource(R.string.sender_empty_files_subtitle),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
@@ -392,7 +396,7 @@ private fun SelectedFileItem(
         ) {
             Icon(
                 imageVector = getFileIcon(file.name),
-                contentDescription = "File Type",
+                contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(28.dp)
             )
@@ -414,7 +418,7 @@ private fun SelectedFileItem(
             IconButton(onClick = onRemove) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = "Xóa tệp",
+                    contentDescription = stringResource(R.string.action_delete_file),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp)
                 )

@@ -1,6 +1,6 @@
 package com.teamshare.app.domain.model
 
-import com.teamshare.app.core.platform.network.NetworkConfig
+import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.platform.share.ShareCodeHelper
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
@@ -28,7 +28,7 @@ data class SessionQrPayload(
     val sessionId: String,
     val sessionToken: String,
     val senderIp: String,
-    val senderPort: Int = NetworkConfig.DEFAULT_LAN_PORT,
+    val senderPort: Int = AppConstants.Network.DEFAULT_LAN_PORT,
     val channel: TransferChannel = TransferChannel.DIRECT_LAN,
     val transferType: TransferType = TransferType.SINGLE_FILE,
     val totalBytes: Long = 0L,
@@ -40,7 +40,7 @@ data class SessionQrPayload(
     val signature: String = ""
 ) {
     companion object {
-        const val DEFAULT_TTL_MS = NetworkConfig.DEFAULT_QR_TTL_MS
+        const val DEFAULT_TTL_MS = AppConstants.Timeout.QR_TTL_MS
         const val URI_SCHEME_PREFIX = "teamshare://drop?payload="
 
         /**
@@ -80,7 +80,7 @@ data class SessionQrPayload(
                 .takeIf { it.isNotBlank() } ?: json.optString("sessionToken", "")
             val ip = json.optString("ip", "")
                 .takeIf { it.isNotBlank() } ?: json.optString("senderIp", "")
-            val port = if (json.has("port")) json.optInt("port", NetworkConfig.DEFAULT_LAN_PORT) else json.optInt("senderPort", NetworkConfig.DEFAULT_LAN_PORT)
+            val port = if (json.has("port")) json.optInt("port", AppConstants.Network.DEFAULT_LAN_PORT) else json.optInt("senderPort", AppConstants.Network.DEFAULT_LAN_PORT)
 
             if (sessionId.isBlank() || token.isBlank()) {
                 throw IllegalArgumentException("Mã QR thiếu trường bắt buộc: sid/sessionId hoặc tok/sessionToken")

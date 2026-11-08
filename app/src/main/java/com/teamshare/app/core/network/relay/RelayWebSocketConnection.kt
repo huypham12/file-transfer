@@ -1,5 +1,6 @@
 package com.teamshare.app.core.network.relay
 
+import com.teamshare.app.core.constant.AppConstants
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withTimeout
@@ -153,10 +154,10 @@ class RelayWebSocketConnection(
     companion object {
         val defaultClient: OkHttpClient by lazy {
             OkHttpClient.Builder()
-                .pingInterval(15, TimeUnit.SECONDS)
-                .readTimeout(60, TimeUnit.SECONDS)
-                .writeTimeout(60, TimeUnit.SECONDS)
-                .connectTimeout(15, TimeUnit.SECONDS)
+                .pingInterval(AppConstants.Timeout.OKHTTP_PING_INTERVAL_SEC, TimeUnit.SECONDS)
+                .readTimeout(AppConstants.Timeout.OKHTTP_TIMEOUT_SEC, TimeUnit.SECONDS)
+                .writeTimeout(AppConstants.Timeout.OKHTTP_TIMEOUT_SEC, TimeUnit.SECONDS)
+                .connectTimeout(AppConstants.Timeout.SOCKET_CONNECT_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
                 .build()
         }
     }

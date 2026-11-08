@@ -54,11 +54,15 @@ type ChannelBridge struct {
 }
 
 // NewChannelBridge khởi tạo một cầu nối chuyển tiếp mới cho streamId.
-func NewChannelBridge(streamId string, onClosed func(streamId string)) *ChannelBridge {
+func NewChannelBridge(streamId string, config *ServerConfig, onClosed func(streamId string)) *ChannelBridge {
+	queueSize := 80
+	if config != nil && config.ChannelQueueSize > 0 {
+		queueSize = config.ChannelQueueSize
+	}
 	return &ChannelBridge{
 		StreamId:      streamId,
-		fromSender:    make(chan StreamPayload, 80),
-		fromReceiver:  make(chan StreamPayload, 80),
+		fromSender:    make(chan StreamPayload, queueSize),
+		fromReceiver:  make(chan StreamPayload, queueSize),
 		senderReady:   make(chan struct{}),
 		receiverReady: make(chan struct{}),
 		done:          make(chan struct{}),

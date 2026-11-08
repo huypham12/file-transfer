@@ -5,6 +5,10 @@
     <string name="notification_channel_transfer_desc">Hiển thị tiến độ truyền tải tệp tin P2P và Relay thời gian thực</string>
     <string name="notification_channel_events_name">Thông báo hoàn tất &amp; Sự kiện</string>
     <string name="notification_channel_events_desc">Thông báo sự kiện hoàn tất hoặc lỗi truyền tệp</string>
+    <string name="notification_completed_title">Truyền tệp hoàn tất: %1$s</string>
+    <string name="notification_completed_content">Đã nhận %1$s • SHA-256: %2$s…</string>
+    <string name="notification_error_title">Lỗi truyền tệp: %1$s</string>
+    <string name="notification_error_content">[%1$s] %2$s</string>
     <string name="action_pause">Tạm dừng</string>
     <string name="action_resume">Tiếp tục</string>
     <string name="action_cancel">Hủy</string>
@@ -56,4 +60,138 @@
     <string name="security_dialog_e2ee">Mã hóa Đầu cuối (E2EE)</string>
     <string name="security_dialog_fingerprint">Vân tay Thiết bị</string>
     <string name="security_dialog_btn_close">Đóng</string>
+
+    <!-- ========================================================================= -->
+    <!-- BẢNG MÃ LỖI CHUẨN HÓA (DOMAIN ERROR LOCALIZED MESSAGES)                   -->
+    <!-- ========================================================================= -->
+    <string name="err_0x101_invalid_credential">Phiên chia sẻ hoặc token xác thực không hợp lệ.</string>
+    <string name="err_0x102_device_rejected">Người gửi đã từ chối yêu cầu kết nối thiết bị.</string>
+    <string name="err_0x103_session_expired">Mã chia sẻ đã hết hạn hiệu lực (5 phút). Vui lòng tạo mã mới.</string>
+    <string name="err_0x104_invalid_role">Quyền hạn thiết bị không hợp lệ cho thao tác này.</string>
+    <string name="err_0x201_relay_unavailable">Không thể kết nối tới máy chủ Relay trung chuyển.</string>
+    <string name="err_0x202_server_timeout">Quá thời gian chờ phản hồi từ thiết bị đối tác.</string>
+    <string name="err_0x203_bind_error">Không thể mở cổng mạng để lắng nghe kết nối.</string>
+    <string name="err_0x301_checksum_mismatch">Lỗi kiểm tra toàn vẹn: Tệp tải về bị sai lệch mã băm SHA-256.</string>
+    <string name="err_0x302_insufficient_storage">Thiết bị không đủ bộ nhớ trống để tải tệp an toàn.</string>
+    <string name="err_0x401_biometric_failed">Xác thực sinh trắc học không thành công hoặc bị hủy.</string>
+    <string name="err_unknown">Đã xảy ra lỗi không xác định: %1$s</string>
+
+    <!-- ========================================================================= -->
+    <!-- NÚT BẤM & HÀNH ĐỘNG GIAO DIỆN (UI BUTTONS & ACTIONS)                      -->
+    <!-- ========================================================================= -->
+    <string name="btn_select_file">Chọn tệp</string>
+    <string name="btn_select_folder">Chọn thư mục</string>
+    <string name="btn_accept">Chấp nhận</string>
+    <string name="btn_reject">Từ chối</string>
+    <string name="btn_close">Đóng</string>
+    <string name="btn_grant_camera">Cấp quyền Camera</string>
+    <string name="btn_manual_code">Nhập mã nhận tệp (Không cần Camera)</string>
+    <string name="btn_confirm_cancel">Hủy phiên</string>
+    <string name="btn_keep_transfer">Không</string>
+    <string name="btn_return_home">Quay về Màn hình chính</string>
+    <string name="btn_paste_clipboard">Dán từ bộ nhớ tạm (Clipboard)</string>
+
+    <!-- ========================================================================= -->
+    <!-- TIÊU ĐỀ MÀN HÌNH & THÔNG BÁO (SCREEN TITLES & PROMPTS)                    -->
+    <!-- ========================================================================= -->
+    <string name="title_sender_home">Phát chia sẻ tệp (1-N)</string>
+    <string name="title_receiver_home">Chuẩn bị nhận tệp</string>
+    <string name="title_qr_display">Mã QR phiên phát 1-N</string>
+    <string name="title_transfer_progress">Tiến trình truyền tệp P2P</string>
+    <string name="title_audit_log">Nhật ký kiểm toán an ninh</string>
+    <string name="dialog_cancel_title">Xác nhận hủy phiên</string>
+    <string name="dialog_cancel_message">Bạn có chắc chắn muốn hủy phiên truyền này không? Toàn bộ tệp tạm dở dang sẽ được tiêu hủy an toàn.</string>
+    <string name="msg_select_file_required">Vui lòng chọn ít nhất một tệp hoặc thư mục để chia sẻ.</string>
+    <string name="msg_qr_expired">Mã QR đã hết hạn hiệu lực (5 phút). Vui lòng tạo phiên mới.</string>
+    <string name="msg_storage_insufficient">Thiết bị không đủ bộ nhớ trống để tải tệp.</string>
+    <string name="msg_connecting">Đang kết nối...</string>
+    <string name="msg_biometric_prompt_title">Xác thực vân tay để mở tệp</string>
+    <string name="placeholder_search_events">Tìm kiếm sự kiện, tên tệp, thiết bị...</string>
+    <string name="label_share_code">Mã chia sẻ (teamshare://...)</string>
+    <string name="placeholder_share_code">Dán toàn bộ tin nhắn hoặc mã nhận được</string>
+    <string name="tag_lan_p2p">[LAN P2P]</string>
+    <string name="tag_internet_e2ee">[Internet E2EE]</string>
+    <string name="status_paused_format">Đang tạm dừng: %1$s / %2$s (%3$d%%)</string>
+    <string name="status_progress_format">%1$s • %2$s / %3$s (%4$d%%)</string>
+
+    <!-- ========================================================================= -->
+    <!-- PHÁT CHIA SẺ & MÃ QR (SENDER & QR DISPLAY)                                -->
+    <!-- ========================================================================= -->
+    <string name="sender_btn_start_sharing">Bắt đầu phát (Tạo mã QR)</string>
+    <string name="sender_total_files">Tổng số: %1$d tệp</string>
+    <string name="sender_approval_mode_title">Chế độ phê duyệt kết nối</string>
+    <string name="sender_approval_manual_title">Phê duyệt từng máy (Thủ công)</string>
+    <string name="sender_approval_manual_desc">Hiển thị tên model máy nhận (vd: Xiaomi) để bạn duyệt</string>
+    <string name="sender_approval_auto_title">Tự động cho phép (Nhanh)</string>
+    <string name="sender_approval_auto_desc">Mọi thiết bị quét mã QR hợp lệ đều được tải ngay lập tức</string>
+    <string name="sender_file_list_title">Danh sách tệp phát (%1$d)</string>
+    <string name="sender_empty_files_title">Chưa có tệp nào được chọn</string>
+    <string name="sender_empty_files_subtitle">Nhấn \'Chọn tệp\' hoặc \'Chọn thư mục\' ở trên</string>
+    <string name="sender_stop_sharing">Dừng phát tệp (Đóng phiên)</string>
+    <string name="sender_qr_rendering">Đang kết xuất mã QR…</string>
+    <string name="sender_ttl_countdown">Hiệu lực còn lại: %1$02d:%2$02d</string>
+    <string name="sender_connected_devices_title">Thiết bị đã kết nối (%1$d)</string>
+    <string name="sender_no_connected_devices">Chưa có thiết bị nào kết nối</string>
+    <string name="sender_share_code_copied">Đã sao chép mã chia sẻ vào bộ nhớ tạm</string>
+    <string name="sender_share_sheet_title">Chia sẻ mã tải tệp TeamShare</string>
+    <string name="btn_share_message">Chia sẻ tin nhắn</string>
+    <string name="btn_copy_code">Sao chép mã</string>
+
+    <!-- ========================================================================= -->
+    <!-- NHẬN TỆP & MÁY QUÉT (RECEIVER & SCANNER)                                  -->
+    <!-- ========================================================================= -->
+    <string name="btn_accept_download">Chấp nhận tải về</string>
+    <string name="receiver_batch_files">Gói dữ liệu (%1$d tệp)</string>
+    <string name="receiver_folder_share">Thư mục chia sẻ</string>
+    <string name="receiver_single_file">Tệp chia sẻ</string>
+    <string name="label_file_size">Kích thước: %1$s</string>
+    <string name="storage_sufficient_title">Bộ nhớ đĩa khả dụng an toàn</string>
+    <string name="storage_insufficient_title">Cảnh báo không đủ bộ nhớ trống!</string>
+    <string name="storage_free_info">Bộ nhớ trống: %1$s (Yêu cầu: %2$s + 50MB đệm)</string>
+    <string name="title_channel_details">Chi tiết kênh kết nối</string>
+    <string name="label_channel_type">Kênh truyền:</string>
+    <string name="channel_wifi_lan">Wi-Fi LAN (TLS 1.3 Direct)</string>
+    <string name="label_host">Máy chủ phát (Host):</string>
+    <string name="label_session_token">Mã phiên (Session Token):</string>
+    <string name="scanner_title">Quét mã QR để nhận tệp</string>
+    <string name="scanner_hint">Hướng Camera về phía mã QR trên máy người gửi</string>
+    <string name="scanner_camera_permission_required">Cần cấp quyền Camera để quét mã QR</string>
+    <string name="scanner_manual_code_btn">Nhập mã nhận tệp (Không cần Camera)</string>
+
+    <!-- ========================================================================= -->
+    <!-- TIẾN TRÌNH TRUYỀN TẢI (TRANSFER PROGRESS SCREEN)                          -->
+    <!-- ========================================================================= -->
+    <string name="transfer_speed_format">%1$s/s</string>
+    <string name="transfer_eta_format">Còn lại khoảng: %1$s</string>
+    <string name="transfer_sas_verified">Mã xác thực SAS: %1$s</string>
+    <string name="transfer_completed_success">Truyền tải thành công!</string>
+    <string name="transfer_failed_title">Truyền tải thất bại</string>
+    <string name="transfer_status_idle">Sẵn sàng</string>
+    <string name="transfer_status_negotiating">Đang thiết lập kênh bảo mật…</string>
+    <string name="transfer_status_transferring">Đang truyền dữ liệu…</string>
+    <string name="transfer_status_paused">Đang tạm dừng</string>
+    <string name="transfer_status_completed">Hoàn tất</string>
+    <string name="transfer_status_failed">Đã hủy hoặc xảy ra lỗi</string>
+
+    <!-- ========================================================================= -->
+    <!-- HỘP THOẠI & THÀNH PHẦN KHÁC (DIALOGS & COMPONENTS)                        -->
+    <!-- ========================================================================= -->
+    <string name="enter_code_title">Nhập mã chia sẻ tệp</string>
+    <string name="enter_code_subtitle">Dán toàn bộ tin nhắn chia sẻ hoặc mã bí mật nhận được từ người gửi</string>
+    <string name="enter_code_invalid">Mã chia sẻ không đúng định dạng hoặc đã hết hạn</string>
+    <string name="enter_code_detected_info">Đã nhận diện phiên chia sẻ</string>
+    <string name="manual_approval_title">Yêu cầu kết nối tải tệp</string>
+    <string name="manual_approval_unknown_device">Thiết bị Android không xác định</string>
+    <string name="manual_approval_identifier">Mã nhận diện: %1$s…</string>
+    <string name="manual_approval_prompt">Thiết bị trên muốn kết nối để tải các tệp tin trong phiên này. Bạn có đồng ý cho phép không?</string>
+    <string name="action_clear_all">Dọn sạch danh sách</string>
+    <string name="action_delete_file">Xóa tệp</string>
+    <string name="action_back">Quay lại</string>
+    <string name="action_refresh">Làm mới</string>
+    <string name="audit_filter_all">Tất cả</string>
+    <string name="audit_filter_info">Thông tin (Info)</string>
+    <string name="audit_filter_warning">Cảnh báo (Warning)</string>
+    <string name="audit_filter_security">Cảnh báo An ninh (Alert)</string>
+    <string name="audit_empty_title">Không có nhật ký nào phù hợp</string>
+    <string name="audit_empty_desc">Thử đổi từ khóa tìm kiếm hoặc bỏ chọn bộ lọc mức độ</string>
 </resources>

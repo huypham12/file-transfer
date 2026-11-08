@@ -9,8 +9,8 @@ import android.content.Context
 object NetworkAddressHelper {
 
     const val DEFAULT_SYNC_PORT = NetworkConfig.DEFAULT_SYNC_PORT
-    const val DEFAULT_RELAY_PORT = NetworkConfig.DEFAULT_RELAY_PORT
-    const val DEFAULT_PRODUCTION_RELAY_HOST = NetworkConfig.DEFAULT_PRODUCTION_RELAY_HOST
+    val DEFAULT_RELAY_PORT = NetworkConfig.DEFAULT_RELAY_PORT
+    val DEFAULT_PRODUCTION_RELAY_HOST = NetworkConfig.DEFAULT_PRODUCTION_RELAY_HOST
 
     var configuredRelayHost: String
         get() = NetworkConfig.configuredRelayHost

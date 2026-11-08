@@ -46,10 +46,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.file_tranfer.R
+import com.teamshare.app.core.constant.AppConstants
+import com.teamshare.app.core.platform.network.NetworkConfig
 import com.teamshare.app.domain.model.TransferType
 import com.teamshare.app.presentation.ui.components.ErrorBanner
 import com.teamshare.app.presentation.ui.components.formatFileSize
@@ -76,7 +80,7 @@ fun ReceiverHomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Chuẩn bị nhận tệp") },
+                title = { Text(stringResource(R.string.title_receiver_home)) },
                 navigationIcon = {
                     IconButton(onClick = {
                         viewModel.cancelDownload()
@@ -84,7 +88,7 @@ fun ReceiverHomeScreen(
                     }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Quay lại"
+                            contentDescription = stringResource(R.string.action_back)
                         )
                     }
                 },
@@ -114,12 +118,12 @@ fun ReceiverHomeScreen(
                             .height(50.dp),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Từ chối")
+                        Text(stringResource(R.string.btn_reject))
                     }
 
                     Button(
                         onClick = {
-                            val targetDir = File(context.filesDir, "transfers/completed").apply { mkdirs() }
+                            val targetDir = File(context.filesDir, "${AppConstants.StorageDirectory.TRANSFERS}/${AppConstants.StorageDirectory.COMPLETED}").apply { mkdirs() }
                             viewModel.requestConnection(
                                 targetDir = targetDir,
                                 onConnected = {
@@ -146,16 +150,16 @@ fun ReceiverHomeScreen(
                                 strokeWidth = 2.5.dp
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Đang kết nối...")
+                            Text(stringResource(R.string.msg_connecting))
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Download,
-                                contentDescription = "Tải về",
+                                contentDescription = stringResource(R.string.btn_accept_download),
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Chấp nhận tải về",
+                                text = stringResource(R.string.btn_accept_download),
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -173,9 +177,10 @@ fun ReceiverHomeScreen(
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            if (uiState.errorMessage != null) {
+            val activeError = uiState.errorResId?.let { stringResource(it) } ?: uiState.errorMessage
+            if (activeError != null) {
                 ErrorBanner(
-                    message = uiState.errorMessage ?: "",
+                    message = activeError,
                     onDismiss = { viewModel.clearError() }
                 )
             }
@@ -213,11 +218,11 @@ fun ReceiverHomeScreen(
                     Spacer(modifier = Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         val displayName = if (payload != null && payload.itemCount > 1) {
-                            "Gói dữ liệu (${payload.itemCount} tệp)"
+                            stringResource(R.string.receiver_batch_files, payload.itemCount)
                         } else if (payload?.transferType == TransferType.FOLDER_ZIP) {
-                            "Thư mục chia sẻ"
+                            stringResource(R.string.receiver_folder_share)
                         } else {
-                            "Tệp chia sẻ"
+                            stringResource(R.string.receiver_single_file)
                         }
                         Text(
                             text = displayName,
@@ -226,7 +231,7 @@ fun ReceiverHomeScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Kích thước: ${formatFileSize(payload?.totalBytes ?: 0L)}",
+                            text = stringResource(R.string.label_file_size, formatFileSize(payload?.totalBytes ?: 0L)),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold
@@ -256,21 +261,21 @@ fun ReceiverHomeScreen(
                 ) {
                     Icon(
                         imageVector = if (isSufficient) Icons.Default.CheckCircle else Icons.Default.Warning,
-                        contentDescription = "Storage Status",
+                        contentDescription = null,
                         tint = if (isSufficient) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(32.dp)
                     )
                     Spacer(modifier = Modifier.width(14.dp))
                     Column {
                         Text(
-                            text = if (isSufficient) "Bộ nhớ đĩa khả dụng an toàn" else "Cảnh báo không đủ bộ nhớ trống!",
+                            text = if (isSufficient) stringResource(R.string.storage_sufficient_title) else stringResource(R.string.storage_insufficient_title),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = if (isSufficient) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onErrorContainer
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Bộ nhớ trống: ${formatFileSize(uiState.availableBytes)} (Yêu cầu: ${formatFileSize(payload?.totalBytes ?: 0L)} + 50MB đệm)",
+                            text = stringResource(R.string.storage_free_info, formatFileSize(uiState.availableBytes), formatFileSize(payload?.totalBytes ?: 0L)),
                             style = MaterialTheme.typography.bodySmall,
                             color = if (isSufficient) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
                         )
@@ -294,7 +299,7 @@ fun ReceiverHomeScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "Chi tiết kênh kết nối",
+                        text = stringResource(R.string.title_channel_details),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -303,9 +308,9 @@ fun ReceiverHomeScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Kênh truyền:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.label_channel_type), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            text = "Wi-Fi LAN (TLS 1.3 Direct)",
+                            text = stringResource(R.string.channel_wifi_lan),
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -315,9 +320,9 @@ fun ReceiverHomeScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Máy chủ phát (Host):", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.label_host), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            text = "${payload?.senderIp ?: "127.0.0.1"}:${payload?.senderPort ?: com.teamshare.app.core.platform.network.NetworkConfig.DEFAULT_LAN_PORT}",
+                            text = "${payload?.senderIp ?: NetworkConfig.DEFAULT_FALLBACK_IP}:${payload?.senderPort ?: NetworkConfig.DEFAULT_LAN_PORT}",
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold
@@ -328,7 +333,7 @@ fun ReceiverHomeScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Mã phiên (Session Token):", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.label_session_token), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
                             text = "${payload?.sessionToken?.take(16)}...",
                             style = MaterialTheme.typography.bodySmall,

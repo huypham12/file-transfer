@@ -1,5 +1,7 @@
 package com.teamshare.app.core.network.tls
 
+import com.teamshare.app.core.constant.AppConstants
+
 import java.io.IOException
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -84,7 +86,7 @@ class TlsSocketFactory(
         }
         try {
             serverSocket.reuseAddress = true
-            serverSocket.receiveBufferSize = 512 * 1024
+            serverSocket.receiveBufferSize = AppConstants.Buffer.SOCKET_BUFFER_BYTES
         } catch (_: Exception) {}
         return serverSocket
     }
@@ -96,7 +98,7 @@ class TlsSocketFactory(
         host: String,
         port: Int,
         useTls: Boolean = false,
-        timeoutMs: Int = 15000
+        timeoutMs: Int = AppConstants.Timeout.SOCKET_CONNECT_TIMEOUT_MS
     ): Socket {
         if (useTls) {
             checkNotNull(sslContext) { "Yêu cầu useTls = true nhưng SSLContext chưa được cấu hình cho TlsSocketFactory" }
@@ -117,8 +119,8 @@ class TlsSocketFactory(
         socket.soTimeout = timeoutMs
         socket.tcpNoDelay = true // Tắt thuật toán Nagle để giảm độ trễ đóng gói frame
         try {
-            socket.sendBufferSize = 512 * 1024
-            socket.receiveBufferSize = 512 * 1024
+            socket.sendBufferSize = AppConstants.Buffer.SOCKET_BUFFER_BYTES
+            socket.receiveBufferSize = AppConstants.Buffer.SOCKET_BUFFER_BYTES
         } catch (_: Exception) {}
         return socket
     }

@@ -57,12 +57,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.file_tranfer.R
+import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.platform.share.ShareCodeHelper
 import com.teamshare.app.domain.model.ApprovalMode
 import com.teamshare.app.presentation.ui.components.ErrorBanner
@@ -102,12 +105,12 @@ fun QrDisplayScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Mã QR phiên phát 1-N") },
+                title = { Text(stringResource(R.string.title_qr_display)) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Quay lại"
+                            contentDescription = stringResource(R.string.action_back)
                         )
                     }
                 },
@@ -138,12 +141,12 @@ fun QrDisplayScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.StopCircle,
-                            contentDescription = "Dừng chia sẻ",
+                            contentDescription = stringResource(R.string.sender_stop_sharing),
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Dừng phát tệp (Đóng phiên)",
+                            text = stringResource(R.string.sender_stop_sharing),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -162,9 +165,10 @@ fun QrDisplayScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            if (uiState.errorMessage != null) {
+            val activeError = uiState.errorResId?.let { stringResource(it) } ?: uiState.errorMessage
+            if (activeError != null) {
                 ErrorBanner(
-                    message = uiState.errorMessage ?: "",
+                    message = activeError,
                     onDismiss = { viewModel.clearError() }
                 )
             }
@@ -186,12 +190,12 @@ fun QrDisplayScreen(
                     if (qrBitmap != null) {
                         Image(
                             bitmap = qrBitmap.asImageBitmap(),
-                            contentDescription = "Mã QR chia sẻ tệp",
+                            contentDescription = stringResource(R.string.title_qr_display),
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
                         Text(
-                            text = "Đang kết xuất mã QR...",
+                            text = stringResource(R.string.sender_qr_rendering),
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.DarkGray
                         )
@@ -203,7 +207,7 @@ fun QrDisplayScreen(
             val ttl = uiState.remainingTtlSeconds
             val minutes = ttl / 60
             val seconds = ttl % 60
-            val ttlProgress = (ttl / 300f).coerceIn(0f, 1f)
+            val ttlProgress = (ttl / AppConstants.Timeout.QR_TTL_SECONDS.toFloat()).coerceIn(0f, 1f)
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -221,13 +225,13 @@ fun QrDisplayScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Default.AccessTime,
-                            contentDescription = "Đồng hồ TTL",
+                            contentDescription = null,
                             tint = if (ttl < 60) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Thời hạn hiệu lực mã QR: %02d:%02d".format(minutes, seconds),
+                            text = stringResource(R.string.sender_ttl_countdown, minutes, seconds),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = if (ttl < 60) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
@@ -305,12 +309,13 @@ fun QrDisplayScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            val copySnackMsg = stringResource(R.string.sender_share_code_copied)
                             OutlinedButton(
                                 onClick = {
                                     val fullCode = sharePayload.toQrString()
                                     clipboardManager.setText(AnnotatedString(fullCode))
                                     coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("Đã sao chép mã nhận tệp vào bộ nhớ tạm")
+                                        snackbarHostState.showSnackbar(copySnackMsg)
                                     }
                                 },
                                 modifier = Modifier.weight(1f),
@@ -318,13 +323,14 @@ fun QrDisplayScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ContentCopy,
-                                    contentDescription = "Sao chép",
+                                    contentDescription = null,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Sao chép mã", style = MaterialTheme.typography.bodySmall)
+                                Text(stringResource(R.string.btn_copy_code), style = MaterialTheme.typography.bodySmall)
                             }
 
+                            val shareSheetTitle = stringResource(R.string.sender_share_sheet_title)
                             Button(
                                 onClick = {
                                     val message = ShareCodeHelper.formatShareMessage(sharePayload)
@@ -333,7 +339,7 @@ fun QrDisplayScreen(
                                         putExtra(Intent.EXTRA_TEXT, message)
                                         type = "text/plain"
                                     }
-                                    val chooser = Intent.createChooser(sendIntent, "Chia sẻ mã nhận tệp qua...")
+                                    val chooser = Intent.createChooser(sendIntent, shareSheetTitle)
                                     context.startActivity(chooser)
                                 },
                                 modifier = Modifier.weight(1f),
@@ -341,11 +347,11 @@ fun QrDisplayScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Share,
-                                    contentDescription = "Chia sẻ",
+                                    contentDescription = null,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Gửi mã...", style = MaterialTheme.typography.bodySmall)
+                                Text(stringResource(R.string.btn_share_message), style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -368,7 +374,7 @@ fun QrDisplayScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "Thông tin phiên phát",
+                        text = stringResource(R.string.title_channel_details),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -377,7 +383,7 @@ fun QrDisplayScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Dữ liệu chia sẻ:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.label_file_size, ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
                             text = "${uiState.selectedFiles.size} tệp (${formatFileSize(uiState.totalBytes)})",
                             style = MaterialTheme.typography.bodySmall,
@@ -389,9 +395,9 @@ fun QrDisplayScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Chế độ phê duyệt:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.sender_approval_mode_title), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            text = if (uiState.approvalMode == ApprovalMode.MANUAL_APPROVAL) "Phê duyệt thủ công" else "Tự động cho phép",
+                            text = if (uiState.approvalMode == ApprovalMode.MANUAL_APPROVAL) stringResource(R.string.sender_approval_manual_title) else stringResource(R.string.sender_approval_auto_title),
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -403,7 +409,7 @@ fun QrDisplayScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Địa chỉ LAN:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.label_host), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(
                                 text = "${payload.senderIp}:${payload.senderPort}",
                                 style = MaterialTheme.typography.bodySmall,
@@ -436,12 +442,12 @@ fun QrDisplayScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Thiết bị đã kết nối",
+                            text = stringResource(R.string.sender_connected_devices_title, uiState.connectedDevices.size),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "${uiState.connectedDevices.size} thiết bị",
+                            text = "${uiState.connectedDevices.size}",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold
@@ -450,7 +456,7 @@ fun QrDisplayScreen(
 
                     if (uiState.connectedDevices.isEmpty()) {
                         Text(
-                            text = "Chưa có thiết bị nào quét mã. Hãy hướng camera máy nhận vào mã QR ở trên.",
+                            text = stringResource(R.string.sender_no_connected_devices),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 8.dp)

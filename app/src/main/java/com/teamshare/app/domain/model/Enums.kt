@@ -141,13 +141,18 @@ object FrameType {
  */
 object ErrorCode {
     const val ERR_INVALID_CREDENTIAL = "0x101"
-    const val ERR_MEMBER_REVOKED = "0x102"
-    const val ERR_INVITATION_EXPIRED = "0x103"
+    const val ERR_DEVICE_REJECTED = "0x102"
+    const val ERR_MEMBER_REVOKED = "0x102" // Alias tương thích ngược
+    const val ERR_SESSION_EXPIRED = "0x103"
+    const val ERR_INVITATION_EXPIRED = "0x103" // Alias tương thích ngược
     const val ERR_INVALID_ROLE = "0x104"
     const val ERR_RELAY_UNAVAILABLE = "0x201"
+    const val ERR_SERVER_TIMEOUT = "0x202"
+    const val ERR_SERVER_BIND_ERROR = "0x203"
     const val ERR_CHECKSUM_MISMATCH = "0x301"
     const val ERR_INSUFFICIENT_STORAGE = "0x302"
     const val ERR_BIOMETRIC_FAILED = "0x401"
+    const val ERR_SYSTEM_EXCEPTION = "0x500"
 }
 
 /**

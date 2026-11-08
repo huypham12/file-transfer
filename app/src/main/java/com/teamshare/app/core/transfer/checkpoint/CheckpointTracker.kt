@@ -1,5 +1,6 @@
 package com.teamshare.app.core.transfer.checkpoint
 
+import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.data.local.db.dao.TransferSessionDao
 import java.nio.channels.FileChannel
 
@@ -17,8 +18,8 @@ class CheckpointTracker(
     val flushThreshold: Long = FLUSH_THRESHOLD
 ) {
     companion object {
-        const val FLUSH_THRESHOLD: Long = 2 * 1024 * 1024L // 2MB chu kỳ fsync và xác nhận ACK mặc định
-        const val LAN_FLUSH_THRESHOLD: Long = 8 * 1024 * 1024L // 8MB chu kỳ fsync tối ưu cho LAN tốc độ cao
+        const val FLUSH_THRESHOLD: Long = AppConstants.FlowControl.CHECKPOINT_THRESHOLD_RELAY
+        const val LAN_FLUSH_THRESHOLD: Long = AppConstants.FlowControl.CHECKPOINT_THRESHOLD_LAN
     }
 
     private var currentOffset: Long = 0L

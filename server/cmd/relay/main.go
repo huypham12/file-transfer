@@ -8,25 +8,22 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"teamshare/relay/internal/relay"
 )
 
 func main() {
+	cfg := relay.DefaultConfig()
+
 	var addr string
 	flag.StringVar(&addr, "addr", "", "Địa chỉ và cổng lắng nghe (vd: :8080 hoặc 0.0.0.0:8080)")
 	flag.Parse()
 
 	if addr == "" {
-		port := os.Getenv("PORT")
-		if port == "" {
-			port = "8080"
-		}
-		addr = ":" + port
+		addr = ":" + cfg.Port
 	}
 
-	hub := relay.NewHub()
+	hub := relay.NewHub(cfg)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/stream", relay.HandleStream(hub))
@@ -35,9 +32,9 @@ func main() {
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      mux,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  cfg.ReadTimeout,
+		WriteTimeout: cfg.WriteTimeout,
+		IdleTimeout:  cfg.IdleTimeout,
 	}
 
 	stopChan := make(chan os.Signal, 1)
@@ -60,7 +57,7 @@ func main() {
 	<-stopChan
 	log.Println("[TeamShare Relay] Nhan tin hieu dung, dang tat may chu an toan (Graceful Shutdown)...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.GracefulStopTimeout)
 	defer cancel()
 
 	hub.CloseAll()

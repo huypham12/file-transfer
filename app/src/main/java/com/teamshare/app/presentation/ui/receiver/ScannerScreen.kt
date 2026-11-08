@@ -59,12 +59,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.example.file_tranfer.R
 import com.teamshare.app.core.platform.share.ShareCodeHelper
 import com.teamshare.app.presentation.ui.components.EnterCodeBottomSheet
 import com.teamshare.app.presentation.ui.components.ErrorBanner
@@ -292,7 +294,7 @@ fun ScannerScreen(
                     color = Color.Black.copy(alpha = 0.6f)
                 ) {
                     Text(
-                        text = "Hướng camera vào mã QR trên máy Người gửi",
+                        text = stringResource(R.string.scanner_hint),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -312,7 +314,7 @@ fun ScannerScreen(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Không thể quét mã? Nhập mã thủ công",
+                        text = stringResource(R.string.scanner_manual_code_btn),
                         color = Color.White.copy(alpha = 0.9f),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold
@@ -322,9 +324,10 @@ fun ScannerScreen(
                 Spacer(modifier = Modifier.weight(1.2f))
 
                 // Báo lỗi quét nếu có
-                if (uiState.errorMessage != null) {
+                val activeError = uiState.errorResId?.let { stringResource(it) } ?: uiState.errorMessage
+                if (activeError != null) {
                     ErrorBanner(
-                        message = uiState.errorMessage ?: "",
+                        message = activeError,
                         onDismiss = { viewModel.clearError() }
                     )
                 }
@@ -346,14 +349,14 @@ fun ScannerScreen(
                 )
                 Spacer(modifier = Modifier.height(20.dp))
                 Text(
-                    text = "Cần quyền truy cập Camera",
+                    text = stringResource(R.string.scanner_camera_permission_required),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Để quét mã QR ngoài băng (OOB) và kết nối với máy người gửi, TeamShare cần bạn cấp quyền Camera.",
+                    text = stringResource(R.string.scanner_hint),
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                     color = Color.LightGray
@@ -363,7 +366,7 @@ fun ScannerScreen(
                     onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Cấp quyền Camera")
+                    Text(stringResource(R.string.btn_grant_camera))
                 }
 
                 // Lựa chọn thay thế khi không muốn cấp quyền Camera
@@ -378,7 +381,7 @@ fun ScannerScreen(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Nhập mã nhận tệp (Không cần Camera)")
+                    Text(stringResource(R.string.scanner_manual_code_btn))
                 }
             }
         }

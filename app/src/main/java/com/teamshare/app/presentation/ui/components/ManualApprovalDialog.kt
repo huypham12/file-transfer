@@ -22,11 +22,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.file_tranfer.R
 import com.teamshare.app.domain.model.DeviceProfile
 
 /**
@@ -45,14 +47,14 @@ fun ManualApprovalDialog(
         icon = {
             Icon(
                 imageVector = Icons.Default.Security,
-                contentDescription = "Bảo mật",
+                contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(36.dp)
             )
         },
         title = {
             Text(
-                text = "Yêu cầu kết nối tải tệp",
+                text = stringResource(R.string.manual_approval_title),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
@@ -80,12 +82,13 @@ fun ManualApprovalDialog(
                     ) {
                         Icon(
                             imageVector = Icons.Default.PhoneAndroid,
-                            contentDescription = "Thiết bị đối tác",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(32.dp)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
-                        val deviceDisplayName = "${device.manufacturer} ${device.model}".trim().ifBlank { "Thiết bị Android không xác định" }
+                        val defaultDeviceName = stringResource(R.string.manual_approval_unknown_device)
+                        val deviceDisplayName = "${device.manufacturer} ${device.model}".trim().ifBlank { defaultDeviceName }
                         Text(
                             text = deviceDisplayName,
                             style = MaterialTheme.typography.titleMedium,
@@ -96,7 +99,7 @@ fun ManualApprovalDialog(
                         if (device.fingerprint.isNotBlank()) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Mã nhận diện: ${device.fingerprint.take(12)}...",
+                                text = stringResource(R.string.manual_approval_identifier, device.fingerprint.take(12)),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontFamily = FontFamily.Monospace,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
@@ -107,7 +110,7 @@ fun ManualApprovalDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "Thiết bị trên muốn kết nối để tải các tệp tin trong phiên này. Bạn có đồng ý cho phép không?",
+                    text = stringResource(R.string.manual_approval_prompt),
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurface
@@ -121,7 +124,7 @@ fun ManualApprovalDialog(
                     containerColor = MaterialTheme.colorScheme.primary
                 )
             ) {
-                Text("Chấp nhận")
+                Text(stringResource(R.string.btn_accept))
             }
         },
         dismissButton = {
@@ -131,7 +134,7 @@ fun ManualApprovalDialog(
                     contentColor = MaterialTheme.colorScheme.error
                 )
             ) {
-                Text("Từ chối")
+                Text(stringResource(R.string.btn_reject))
             }
         },
         modifier = modifier

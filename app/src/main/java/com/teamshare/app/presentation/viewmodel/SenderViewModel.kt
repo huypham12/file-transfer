@@ -2,12 +2,15 @@ package com.teamshare.app.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.file_tranfer.R
+import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.platform.network.NetworkAddressHelper
 import com.teamshare.app.core.platform.network.NetworkConfig
 import com.teamshare.app.core.transfer.lan.LanTransferEngine
 import com.teamshare.app.core.transfer.relay.RelayClientEngine
 import com.teamshare.app.domain.model.ApprovalMode
 import com.teamshare.app.domain.model.DeviceProfile
+import com.teamshare.app.domain.model.DomainError
 import com.teamshare.app.domain.model.SessionStatus
 import com.teamshare.app.domain.model.TransferChannel
 import com.teamshare.app.domain.model.TransferDirection
@@ -16,6 +19,7 @@ import com.teamshare.app.domain.model.TransferType
 import com.teamshare.app.domain.usecase.transfer.CancelTransferSessionUseCase
 import com.teamshare.app.domain.usecase.transfer.CreateSenderSessionUseCase
 import com.teamshare.app.domain.usecase.transfer.ManageApprovalModeUseCase
+import com.teamshare.app.presentation.ui.mapper.UiErrorMapper
 import com.teamshare.app.presentation.ui.qr.QrCodeBitmapGenerator
 import java.io.File
 import java.io.RandomAccessFile
@@ -63,7 +67,8 @@ class SenderViewModel(
             it.copy(
                 selectedFiles = files,
                 totalBytes = totalBytes,
-                errorMessage = null
+                errorMessage = null,
+                errorResId = null
             )
         }
     }
@@ -153,7 +158,12 @@ class SenderViewModel(
     ): Job {
         val files = _uiState.value.selectedFiles
         if (files.isEmpty()) {
-            _uiState.update { it.copy(errorMessage = "Vui lòng chọn ít nhất một tệp hoặc thư mục để chia sẻ") }
+            _uiState.update {
+                it.copy(
+                    errorResId = R.string.msg_select_file_required,
+                    errorMessage = "Vui lòng chọn ít nhất một tệp hoặc thư mục để chia sẻ"
+                )
+            }
             return Job().apply { complete() }
         }
 
@@ -165,12 +175,13 @@ class SenderViewModel(
             }
 
             // Tự động lấy IP Wi-Fi thực tế của thiết bị (hoặc IP Wi-Fi host máy tính nếu là máy ảo)
-            val resolvedIp = if (!senderIp.isNullOrBlank() && senderIp != "127.0.0.1") {
+            val fallbackIp = NetworkConfig.DEFAULT_FALLBACK_IP
+            val resolvedIp = if (!senderIp.isNullOrBlank() && senderIp != fallbackIp) {
                 senderIp
             } else if (isEmulator && NetworkConfig.detectedHostLanIp.isNotBlank()) {
                 NetworkConfig.detectedHostLanIp
             } else {
-                NetworkAddressHelper.getLocalIpv4Address() ?: "127.0.0.1"
+                NetworkAddressHelper.getLocalIpv4Address() ?: fallbackIp
             }
 
             val relayQrUrl = NetworkConfig.resolveRelayUrlForQr()
@@ -202,8 +213,9 @@ class SenderViewModel(
                         sessionId = sessionData.session.sessionId,
                         qrPayload = sessionData.qrPayload,
                         qrBitmap = qrBitmap,
-                        remainingTtlSeconds = 300L,
-                        errorMessage = null
+                        remainingTtlSeconds = AppConstants.Timeout.QR_TTL_SECONDS,
+                        errorMessage = null,
+                        errorResId = null
                     )
                 }
 
@@ -230,10 +242,13 @@ class SenderViewModel(
                 startTtlTimer()
                 onSessionCreated?.invoke(sessionData.session.sessionId)
             }.onFailure { error ->
+                val domainErr = DomainError.fromThrowable(error)
+                val resId = UiErrorMapper.mapToStringRes(domainErr)
                 _uiState.update {
                     it.copy(
                         isSharing = false,
-                        errorMessage = error.message ?: "Không thể khởi tạo phiên chia sẻ"
+                        errorResId = resId,
+                        errorMessage = if (domainErr is DomainError.GeneralException) domainErr.details else null
                     )
                 }
             }
@@ -277,7 +292,7 @@ class SenderViewModel(
                 onDeviceApproval = { peerProfile ->
                     handleDeviceApproval(peerProfile)
                 },
-                serverTimeoutMs = 300_000 // 5 phút TTL
+                serverTimeoutMs = AppConstants.Timeout.SERVER_SOCKET_ACCEPT_TIMEOUT_MS
             )
         }
     }
@@ -376,7 +391,7 @@ class SenderViewModel(
     private fun startTtlTimer() {
         ttlTimerJob?.cancel()
         ttlTimerJob = scope.launch {
-            var timeLeft = 300L
+            var timeLeft = AppConstants.Timeout.QR_TTL_SECONDS
             while (timeLeft > 0 && _uiState.value.isSharing) {
                 delay(1000L)
                 timeLeft--
@@ -384,7 +399,10 @@ class SenderViewModel(
             }
             if (timeLeft <= 0) {
                 _uiState.update {
-                    it.copy(errorMessage = "Mã QR đã hết hạn hiệu lực (5 phút). Vui lòng tạo phiên mới.")
+                    it.copy(
+                        errorResId = R.string.msg_qr_expired,
+                        errorMessage = null
+                    )
                 }
             }
         }
@@ -461,7 +479,7 @@ class SenderViewModel(
     }
 
     fun clearError() {
-        _uiState.update { it.copy(errorMessage = null) }
+        _uiState.update { it.copy(errorMessage = null, errorResId = null) }
     }
 
     private fun calculateTotalBytes(file: File): Long {

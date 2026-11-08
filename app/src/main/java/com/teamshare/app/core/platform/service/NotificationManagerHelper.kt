@@ -8,6 +8,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import com.example.file_tranfer.R
+import com.teamshare.app.core.constant.AppConstants
 import java.util.Locale
 
 /**
@@ -21,22 +23,19 @@ class NotificationManagerHelper(
     private val notificationManager: NotificationManager? = context?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
 ) {
     companion object {
-        const val CHANNEL_TRANSFER_ID = "teamshare_transfer_status"
-        const val CHANNEL_TRANSFER_NAME = "Tiến trình truyền tệp"
+        const val CHANNEL_TRANSFER_ID = AppConstants.NotificationChannel.TRANSFER_ID
+        const val CHANNEL_COMPLETED_ID = AppConstants.NotificationChannel.EVENTS_ID
 
-        const val CHANNEL_COMPLETED_ID = "teamshare_transfer_events"
-        const val CHANNEL_COMPLETED_NAME = "Thông báo hoàn tất & Sự kiện"
-
-        const val NOTIFICATION_ID_TRANSFER = 1001
-        const val NOTIFICATION_ID_COMPLETED = 1002
+        const val NOTIFICATION_ID_TRANSFER = AppConstants.NotificationChannel.ID_TRANSFER
+        const val NOTIFICATION_ID_COMPLETED = AppConstants.NotificationChannel.ID_COMPLETED
 
         const val EXTRA_SESSION_ID = "extra_session_id"
 
-        const val ACTION_PAUSE = "com.teamshare.app.ACTION_PAUSE"
-        const val ACTION_RESUME = "com.teamshare.app.ACTION_RESUME"
-        const val ACTION_CANCEL = "com.teamshare.app.ACTION_CANCEL"
+        const val ACTION_PAUSE = AppConstants.ServiceAction.PAUSE
+        const val ACTION_RESUME = AppConstants.ServiceAction.RESUME
+        const val ACTION_CANCEL = AppConstants.ServiceAction.CANCEL
 
-        const val THROTTLE_INTERVAL_MS = 500L
+        const val THROTTLE_INTERVAL_MS = AppConstants.Timeout.PROGRESS_THROTTLE_INTERVAL_MS
     }
 
     private var lastNotifyTimestamp = 0L
@@ -50,12 +49,17 @@ class NotificationManagerHelper(
      */
     fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val transferName = context?.getString(R.string.notification_channel_transfer_name) ?: "Tiến trình truyền tệp"
+            val transferDesc = context?.getString(R.string.notification_channel_transfer_desc) ?: "Hiển thị tiến độ truyền tải tệp tin P2P và Relay thời gian thực"
+            val eventsName = context?.getString(R.string.notification_channel_events_name) ?: "Thông báo hoàn tất & Sự kiện"
+            val eventsDesc = context?.getString(R.string.notification_channel_events_desc) ?: "Thông báo sự kiện hoàn tất hoặc lỗi truyền tệp"
+
             val transferChannel = NotificationChannel(
                 CHANNEL_TRANSFER_ID,
-                CHANNEL_TRANSFER_NAME,
+                transferName,
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Hiển thị tiến độ truyền tải tệp tin P2P và Relay thời gian thực"
+                description = transferDesc
                 setShowBadge(false)
                 enableVibration(false)
                 enableLights(false)
@@ -63,10 +67,10 @@ class NotificationManagerHelper(
 
             val completedChannel = NotificationChannel(
                 CHANNEL_COMPLETED_ID,
-                CHANNEL_COMPLETED_NAME,
+                eventsName,
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Thông báo sự kiện hoàn tất hoặc lỗi truyền tệp"
+                description = eventsDesc
                 setShowBadge(true)
                 enableVibration(true)
             }
@@ -100,20 +104,20 @@ class NotificationManagerHelper(
         isLan: Boolean,
         sessionId: String = ""
     ): Notification {
+        val ctx = context ?: throw IllegalStateException("Context is required to build Notification")
         val percent = if (totalBytes > 0) ((bytesTransferred * 100) / totalBytes).toInt().coerceIn(0, 100) else 0
-        val channelTag = if (isLan) "[LAN P2P]" else "[Internet E2EE]"
+        val channelTag = if (isLan) ctx.getString(R.string.tag_lan_p2p) else ctx.getString(R.string.tag_internet_e2ee)
         val speedStr = formatSpeed(speedBytesPerSec)
         val transferredStr = formatBytes(bytesTransferred)
         val totalStr = formatBytes(totalBytes)
 
         val title = "$channelTag $docName"
         val content = if (isPaused) {
-            "Đang tạm dừng: $transferredStr / $totalStr ($percent%)"
+            ctx.getString(R.string.status_paused_format, transferredStr, totalStr, percent)
         } else {
-            "$speedStr • $transferredStr / $totalStr ($percent%)"
+            ctx.getString(R.string.status_progress_format, speedStr, transferredStr, totalStr, percent)
         }
 
-        val ctx = context ?: throw IllegalStateException("Context is required to build Notification")
         val builder = NotificationCompat.Builder(ctx, CHANNEL_TRANSFER_ID)
             .setContentTitle(title)
             .setContentText(content)
@@ -138,7 +142,11 @@ class NotificationManagerHelper(
                 Intent(ctx, TransferForegroundService::class.java).setAction(ACTION_RESUME),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            builder.addAction(android.R.drawable.ic_media_play, "Tiếp tục", resumeIntent)
+            builder.addAction(
+                android.R.drawable.ic_media_play,
+                ctx.getString(R.string.action_resume),
+                resumeIntent
+            )
         } else {
             val pauseIntent = PendingIntent.getService(
                 ctx,
@@ -146,7 +154,11 @@ class NotificationManagerHelper(
                 Intent(ctx, TransferForegroundService::class.java).setAction(ACTION_PAUSE),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            builder.addAction(android.R.drawable.ic_media_pause, "Tạm dừng", pauseIntent)
+            builder.addAction(
+                android.R.drawable.ic_media_pause,
+                ctx.getString(R.string.action_pause),
+                pauseIntent
+            )
         }
 
         val cancelIntent = PendingIntent.getService(
@@ -155,7 +167,11 @@ class NotificationManagerHelper(
             Intent(ctx, TransferForegroundService::class.java).setAction(ACTION_CANCEL),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "Hủy", cancelIntent)
+        builder.addAction(
+            android.R.drawable.ic_menu_close_clear_cancel,
+            ctx.getString(R.string.action_cancel),
+            cancelIntent
+        )
 
         return builder.build()
     }
@@ -186,8 +202,8 @@ class NotificationManagerHelper(
         val ctx = context ?: throw IllegalStateException("Context is required to build Notification")
         val shortHash = if (finalSha256.length >= 8) finalSha256.substring(0, 8) else finalSha256
         return NotificationCompat.Builder(ctx, CHANNEL_COMPLETED_ID)
-            .setContentTitle("Truyền tệp hoàn tất: $docName")
-            .setContentText("Đã nhận ${formatBytes(totalBytes)} • SHA-256: $shortHash...")
+            .setContentTitle(ctx.getString(R.string.notification_completed_title, docName))
+            .setContentText(ctx.getString(R.string.notification_completed_content, formatBytes(totalBytes), shortHash))
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentIntent(createContentIntent(ctx))
             .setAutoCancel(true)
@@ -205,8 +221,8 @@ class NotificationManagerHelper(
     ): Notification {
         val ctx = context ?: throw IllegalStateException("Context is required to build Notification")
         return NotificationCompat.Builder(ctx, CHANNEL_COMPLETED_ID)
-            .setContentTitle("Lỗi truyền tệp: $docName")
-            .setContentText("[$errorCode] $errorMessage")
+            .setContentTitle(ctx.getString(R.string.notification_error_title, docName))
+            .setContentText(ctx.getString(R.string.notification_error_content, errorCode, errorMessage))
             .setSmallIcon(android.R.drawable.stat_notify_error)
             .setContentIntent(createContentIntent(ctx))
             .setAutoCancel(true)

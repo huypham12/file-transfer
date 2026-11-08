@@ -1,7 +1,9 @@
 package com.teamshare.app.core.transfer
 
+import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.platform.network.INetworkMonitor
 import com.teamshare.app.core.platform.network.NetworkAddressHelper
+import com.teamshare.app.core.platform.network.NetworkConfig
 import com.teamshare.app.core.platform.network.NetworkType
 import com.teamshare.app.core.platform.service.ITransferServiceController
 import com.teamshare.app.core.platform.service.TransferServiceController
@@ -18,6 +20,8 @@ import com.teamshare.app.core.transfer.relay.RelayClientEngine
 import com.teamshare.app.domain.model.AuditLog
 import com.teamshare.app.domain.model.AuditEventType
 import com.teamshare.app.domain.model.AuditSeverity
+import com.teamshare.app.domain.model.DomainError
+import com.teamshare.app.domain.model.ErrorCode
 import com.teamshare.app.domain.model.MemberRole
 import com.teamshare.app.domain.model.SessionStatus
 import com.teamshare.app.domain.model.TeamMembershipCredential
@@ -70,7 +74,7 @@ class TransferCoordinator(
     private val activeSessions = ConcurrentHashMap<String, TransferSession>()
     private val activeJobs = ConcurrentHashMap<String, Job>()
     private val isPausedMap = ConcurrentHashMap<String, AtomicBoolean>()
-    private val outgoingTransferSemaphore = kotlinx.coroutines.sync.Semaphore(permits = 3)
+    private val outgoingTransferSemaphore = kotlinx.coroutines.sync.Semaphore(permits = AppConstants.FlowControl.MAX_CONCURRENT_OUTGOING_TRANSFERS)
 
     private fun parseHexOrBytes(hexOrStr: String): ByteArray {
         return try {
@@ -107,7 +111,7 @@ class TransferCoordinator(
         if (port > 0) {
             val isReachable = try {
                 java.net.Socket().use { socket ->
-                    socket.connect(java.net.InetSocketAddress(peerIp, port), 1500)
+                    socket.connect(java.net.InetSocketAddress(peerIp, port), AppConstants.Timeout.LAN_FAST_PROBE_MS.toInt())
                     true
                 }
             } catch (_: Exception) {
@@ -174,7 +178,7 @@ class TransferCoordinator(
                 // Điều tiết tần suất ghi Checkpoint CSDL (ít nhất 2MB hoặc hoàn tất)
                 val previous = lastCheckpointBytes.get()
                 val delta = bytesTransferred - previous
-                if (delta >= 2 * 1024 * 1024L || (totalBytes > 0L && bytesTransferred >= totalBytes)) {
+                if (delta >= AppConstants.FlowControl.CHECKPOINT_THRESHOLD_RELAY || (totalBytes > 0L && bytesTransferred >= totalBytes)) {
                     if (lastCheckpointBytes.compareAndSet(previous, bytesTransferred)) {
                         CoroutineScope(ioDispatcher).launch {
                             transferRepository.updateCheckpoint(session.sessionId, bytesTransferred)
@@ -354,7 +358,7 @@ class TransferCoordinator(
                         }
                     } else {
                         val actualRelayUrl = relayUrl
-                            ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/stream")
+                            ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = NetworkConfig.RELAY_STREAM_ENDPOINT)
 
                         if (session.direction == TransferDirection.OUTGOING) {
                             requireNotNull(file) { "File nguồn không được null cho phiên gửi Relay" }
@@ -400,7 +404,7 @@ class TransferCoordinator(
                     executeBlock()
                 }
             } catch (e: Exception) {
-                callback.onError("TRANSFER_EXCEPTION", e.message ?: "Lỗi truyền tải không xác định")
+                callback.onError(ErrorCode.ERR_SYSTEM_EXCEPTION, e.message ?: DomainError.GeneralException("").technicalMessage)
             }
         }
 

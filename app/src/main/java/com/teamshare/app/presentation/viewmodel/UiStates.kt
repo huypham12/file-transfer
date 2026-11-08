@@ -1,6 +1,7 @@
 package com.teamshare.app.presentation.viewmodel
 
 import android.graphics.Bitmap
+import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.transfer.lan.TransferEngineState
 import com.teamshare.app.domain.model.ApprovalMode
 import com.teamshare.app.domain.model.AuditLog
@@ -22,10 +23,11 @@ data class SenderSessionUiState(
     val sessionId: String = "",
     val qrBitmap: Bitmap? = null,
     val qrPayload: SessionQrPayload? = null,
-    val remainingTtlSeconds: Long = 300L,
+    val remainingTtlSeconds: Long = AppConstants.Timeout.QR_TTL_SECONDS,
     val pendingApprovalDevice: DeviceProfile? = null,
     val connectedDevices: List<DeviceProfile> = emptyList(),
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val errorResId: Int? = null
 )
 
 /**
@@ -51,7 +53,8 @@ data class ReceiverUiState(
     val shortfallBytes: Long = 0L,
     val connectionState: ReceiverConnectionState = ReceiverConnectionState.IDLE,
     val pendingSessionId: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val errorResId: Int? = null
 )
 
 /**

@@ -14,12 +14,14 @@ class FileProviderGatewayTest {
 
     @Test
     fun testDefaultAuthorityConstant() {
-        assertEquals("com.teamshare.fileprovider", FileProviderGateway.DEFAULT_AUTHORITY)
+        assertNotNull(FileProviderGateway.DEFAULT_AUTHORITY)
+        assertTrue(FileProviderGateway.DEFAULT_AUTHORITY.endsWith(".fileprovider"))
     }
 
     @Test
     fun testGetShareableUriWithCustomProvider() {
         val gateway = FileProviderGateway(
+            authority = "com.teamshare.fileprovider",
             uriProvider = { file, auth -> FakeUri("content", "$auth/${file.name}") }
         )
         val file = File("sample_report.pdf")

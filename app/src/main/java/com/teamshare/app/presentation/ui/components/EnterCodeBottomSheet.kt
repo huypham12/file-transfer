@@ -44,10 +44,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.file_tranfer.R
 import com.teamshare.app.core.platform.share.ShareCodeHelper
 import com.teamshare.app.domain.model.SessionQrPayload
 import com.teamshare.app.domain.model.TransferChannel
@@ -124,12 +126,12 @@ fun EnterCodeBottomSheet(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
-                        text = "Nhập mã nhận tệp",
+                        text = stringResource(R.string.enter_code_title),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Dán mã chia sẻ nhận từ Zalo, Telegram, v.v.",
+                        text = stringResource(R.string.enter_code_subtitle),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -140,15 +142,15 @@ fun EnterCodeBottomSheet(
             OutlinedTextField(
                 value = inputText,
                 onValueChange = { inputText = it },
-                label = { Text("Mã chia sẻ (teamshare://...)") },
-                placeholder = { Text("Dán toàn bộ tin nhắn hoặc mã nhận được") },
+                label = { Text(stringResource(R.string.label_share_code)) },
+                placeholder = { Text(stringResource(R.string.placeholder_share_code)) },
                 maxLines = 4,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 trailingIcon = {
                     if (inputText.isNotBlank()) {
                         IconButton(onClick = { inputText = "" }) {
-                            Icon(imageVector = Icons.Default.Clear, contentDescription = "Xóa nội dung")
+                            Icon(imageVector = Icons.Default.Clear, contentDescription = stringResource(R.string.action_clear_all))
                         }
                     } else {
                         IconButton(onClick = {
@@ -159,7 +161,7 @@ fun EnterCodeBottomSheet(
                         }) {
                             Icon(
                                 imageVector = Icons.Default.ContentPaste,
-                                contentDescription = "Dán từ bộ nhớ tạm",
+                                contentDescription = stringResource(R.string.btn_paste_clipboard),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -181,7 +183,7 @@ fun EnterCodeBottomSheet(
                 ) {
                     Icon(imageVector = Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Dán từ bộ nhớ tạm (Clipboard)")
+                    Text(stringResource(R.string.btn_paste_clipboard))
                 }
             }
 
@@ -297,7 +299,7 @@ fun EnterCodeBottomSheet(
                         .height(48.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("Đóng")
+                    Text(stringResource(R.string.btn_close))
                 }
 
                 Button(
@@ -316,7 +318,7 @@ fun EnterCodeBottomSheet(
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
-                        text = "Tiếp nhận tệp",
+                        text = stringResource(R.string.btn_accept_download),
                         fontWeight = FontWeight.Bold
                     )
                 }

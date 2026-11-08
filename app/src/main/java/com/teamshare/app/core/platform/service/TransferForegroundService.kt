@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
+import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.transfer.lan.TransferEngineState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,18 +29,18 @@ import kotlinx.coroutines.launch
 class TransferForegroundService : Service() {
 
     companion object {
-        const val ACTION_START_TRANSFER = "com.teamshare.app.service.START_TRANSFER"
-        const val ACTION_PAUSE_TRANSFER = "com.teamshare.app.service.PAUSE_TRANSFER"
-        const val ACTION_RESUME_TRANSFER = "com.teamshare.app.service.RESUME_TRANSFER"
-        const val ACTION_CANCEL_TRANSFER = "com.teamshare.app.service.CANCEL_TRANSFER"
-        const val ACTION_STOP_SERVICE = "com.teamshare.app.service.STOP_SERVICE"
+        const val ACTION_START_TRANSFER = AppConstants.ServiceAction.START
+        const val ACTION_PAUSE_TRANSFER = AppConstants.ServiceAction.PAUSE
+        const val ACTION_RESUME_TRANSFER = AppConstants.ServiceAction.RESUME
+        const val ACTION_CANCEL_TRANSFER = AppConstants.ServiceAction.CANCEL
+        const val ACTION_STOP_SERVICE = AppConstants.ServiceAction.STOP
 
         const val EXTRA_SESSION_ID = "extra_session_id"
         const val EXTRA_DOC_NAME = "extra_doc_name"
         const val EXTRA_TOTAL_BYTES = "extra_total_bytes"
         const val EXTRA_IS_LAN = "extra_is_lan"
 
-        const val MAX_WAKELOCK_TIMEOUT_MS = 2 * 60 * 60 * 1000L // Tối đa 2 giờ
+        const val MAX_WAKELOCK_TIMEOUT_MS = AppConstants.Timeout.MAX_WAKELOCK_TIMEOUT_MS
 
         /**
          * Hàm tiện ích khởi chạy dịch vụ truyền tệp từ UI hoặc UseCase.

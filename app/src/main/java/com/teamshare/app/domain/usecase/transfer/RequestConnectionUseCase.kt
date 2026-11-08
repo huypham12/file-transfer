@@ -1,5 +1,6 @@
 package com.teamshare.app.domain.usecase.transfer
 
+import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.platform.network.NetworkConfig
 import com.teamshare.app.core.transfer.lan.LanTransferEngine
 import com.teamshare.app.core.transfer.relay.RelayClientEngine
@@ -8,6 +9,8 @@ import com.teamshare.app.domain.model.AuditEventType
 import com.teamshare.app.domain.model.AuditLog
 import com.teamshare.app.domain.model.AuditSeverity
 import com.teamshare.app.domain.model.DeviceProfile
+import com.teamshare.app.domain.model.DomainError
+import com.teamshare.app.domain.model.ErrorCode
 import com.teamshare.app.domain.model.SessionQrPayload
 import com.teamshare.app.domain.model.SessionStatus
 import com.teamshare.app.domain.model.TransferChannel
@@ -54,7 +57,7 @@ class RequestConnectionUseCase(
         // 1. Kiểm tra dung lượng bộ nhớ đĩa trống (StatFs) trước khi kết nối (FR-RCV-02)
         val hasSpace = checkReceiverStorageUseCase(payload.totalBytes, targetDirectory)
         if (!hasSpace) {
-            val err = "0x302: Thiết bị không đủ bộ nhớ trống để nhận ${payload.totalBytes} bytes (+ 50MB an toàn)"
+            val err = "${ErrorCode.ERR_INSUFFICIENT_STORAGE}: Thiết bị không đủ bộ nhớ trống để nhận ${payload.totalBytes} bytes (+ ${AppConstants.FlowControl.DISK_SAFETY_MARGIN_BYTES / (1024 * 1024)}MB an toàn)"
             return Result.failure(IOException(err))
         }
 
@@ -143,7 +146,7 @@ class RequestConnectionUseCase(
         }
 
         // Xử lý các lỗi khác không thể fallback (vd: người gửi bấm từ chối 0x102)
-        val isRejected = exception?.message?.contains("0x102") == true
+        val isRejected = exception?.message?.contains(ErrorCode.ERR_DEVICE_REJECTED) == true || exception?.message?.contains("0x102") == true
         val status = if (isRejected) SessionStatus.CANCELLED else SessionStatus.FAILED
         transferRepository.updateSessionStatus(payload.sessionId, status, errorCode = exception?.message)
 

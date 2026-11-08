@@ -17,7 +17,7 @@ open class FileProviderGateway(
 ) {
 
     companion object {
-        const val DEFAULT_AUTHORITY = "com.teamshare.fileprovider"
+        val DEFAULT_AUTHORITY: String = com.example.file_tranfer.BuildConfig.FILE_PROVIDER_AUTHORITY
     }
 
     /**

@@ -46,11 +46,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.file_tranfer.R
 import com.teamshare.app.domain.model.AuditLog
 import com.teamshare.app.domain.model.AuditSeverity
 import com.teamshare.app.presentation.ui.theme.SecurityWarningColor
@@ -79,12 +81,12 @@ fun AuditLogScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Nhật ký kiểm toán an ninh") },
+                title = { Text(stringResource(R.string.title_audit_log)) },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Quay lại"
+                            contentDescription = stringResource(R.string.action_back)
                         )
                     }
                 },
@@ -92,7 +94,7 @@ fun AuditLogScreen(
                     IconButton(onClick = { viewModel.loadLogs() }) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
-                            contentDescription = "Làm mới"
+                            contentDescription = stringResource(R.string.action_refresh)
                         )
                     }
                 },
@@ -114,9 +116,9 @@ fun AuditLogScreen(
             OutlinedTextField(
                 value = uiState.searchQuery,
                 onValueChange = { viewModel.search(it) },
-                placeholder = { Text("Tìm kiếm sự kiện, tên tệp, thiết bị...") },
+                placeholder = { Text(stringResource(R.string.placeholder_search_events)) },
                 leadingIcon = {
-                    Icon(imageVector = Icons.Default.Search, contentDescription = "Tìm kiếm")
+                    Icon(imageVector = Icons.Default.Search, contentDescription = null)
                 },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
@@ -124,7 +126,12 @@ fun AuditLogScreen(
             )
 
             // Bộ lọc mức độ nghiêm trọng (Severity Filter Chips)
-            val severities = listOf("ALL" to "Tất cả", "INFO" to "Thông tin", "WARNING" to "Cảnh báo", "SECURITY_ALERT" to "Cảnh báo an ninh")
+            val severities = listOf(
+                "ALL" to stringResource(R.string.audit_filter_all),
+                "INFO" to stringResource(R.string.audit_filter_info),
+                "WARNING" to stringResource(R.string.audit_filter_warning),
+                "SECURITY_ALERT" to stringResource(R.string.audit_filter_security)
+            )
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -160,13 +167,13 @@ fun AuditLogScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
                             imageVector = Icons.Default.Security,
-                            contentDescription = "Empty",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                             modifier = Modifier.size(56.dp)
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "Không tìm thấy sự kiện kiểm toán nào",
+                            text = stringResource(R.string.audit_empty_title),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

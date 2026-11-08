@@ -71,7 +71,7 @@
         <!-- Android FileProvider phục vụ chia sẻ đọc tệp an toàn (Scoped Storage) -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="com.teamshare.fileprovider"
+            android:authorities="${fileProviderAuthority}"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

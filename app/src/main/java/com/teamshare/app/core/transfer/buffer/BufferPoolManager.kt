@@ -1,5 +1,6 @@
 package com.teamshare.app.core.transfer.buffer
 
+import com.teamshare.app.core.constant.AppConstants
 import kotlinx.coroutines.sync.Semaphore
 import java.util.Arrays
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -15,8 +16,8 @@ class BufferPoolManager(
     val maxBuffers: Int = DEFAULT_MAX_BUFFERS
 ) {
     companion object {
-        const val DEFAULT_BUFFER_SIZE = 64 * 1024 // 64 KB
-        const val DEFAULT_MAX_BUFFERS = 64        // 64 blocks = 4 MB
+        const val DEFAULT_BUFFER_SIZE = AppConstants.Buffer.CHUNK_SIZE_BYTES
+        const val DEFAULT_MAX_BUFFERS = AppConstants.Buffer.MAX_POOL_CAPACITY
     }
 
     private val pool = ConcurrentLinkedQueue<ByteArray>()

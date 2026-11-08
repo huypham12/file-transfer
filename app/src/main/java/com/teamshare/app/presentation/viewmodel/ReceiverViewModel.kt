@@ -2,14 +2,17 @@ package com.teamshare.app.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.file_tranfer.R
 import com.teamshare.app.core.transfer.lan.LanTransferEngine
 import com.teamshare.app.core.transfer.relay.RelayClientEngine
 import com.teamshare.app.domain.model.DeviceProfile
+import com.teamshare.app.domain.model.DomainError
 import com.teamshare.app.domain.model.SessionQrPayload
 import com.teamshare.app.domain.usecase.device.GetDeviceIdentityUseCase
 import com.teamshare.app.domain.usecase.transfer.CheckReceiverStorageUseCase
 import com.teamshare.app.domain.usecase.transfer.RequestConnectionUseCase
 import com.teamshare.app.domain.usecase.transfer.ScanQrTokenUseCase
+import com.teamshare.app.presentation.ui.mapper.UiErrorMapper
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -67,22 +70,27 @@ class ReceiverViewModel(
                             isStorageSufficient = storageResult.isSufficient,
                             shortfallBytes = storageResult.shortfallBytes,
                             pendingSessionId = payload.sessionId,
-                            errorMessage = null
+                            errorMessage = null,
+                            errorResId = null
                         )
                     }
 
                     onValidQr?.invoke(payload)
                 }.onFailure { error ->
+                    val domainErr = DomainError.fromThrowable(error)
                     _uiState.update {
                         it.copy(
-                            errorMessage = error.message ?: "Mã QR không hợp lệ"
+                            errorResId = UiErrorMapper.mapToStringRes(domainErr),
+                            errorMessage = error.message ?: domainErr.message
                         )
                     }
                 }
             } catch (e: Throwable) {
+                val domainErr = DomainError.fromThrowable(e)
                 _uiState.update {
                     it.copy(
-                        errorMessage = e.message ?: "Lỗi xử lý mã chia sẻ"
+                        errorResId = UiErrorMapper.mapToStringRes(domainErr),
+                        errorMessage = e.message ?: domainErr.message
                     )
                 }
             }
@@ -96,7 +104,7 @@ class ReceiverViewModel(
         return try {
             val payload = SessionQrPayload.parse(codeText)
             if (payload.isExpired) {
-                Result.failure(SecurityException("0x103: Mã chia sẻ đã hết hạn hiệu lực (5 phút)"))
+                Result.failure(DomainError.SessionExpired)
             } else {
                 Result.success(payload)
             }
@@ -113,7 +121,7 @@ class ReceiverViewModel(
         targetDir: File? = null,
         onValidCode: ((SessionQrPayload) -> Unit)? = null
     ): Job {
-        _uiState.update { it.copy(isScanning = true, errorMessage = null) }
+        _uiState.update { it.copy(isScanning = true, errorMessage = null, errorResId = null) }
         return onQrCodeScanned(
             qrRawText = codeText,
             targetDir = targetDir,
@@ -129,6 +137,7 @@ class ReceiverViewModel(
             it.copy(
                 isScanning = true,
                 errorMessage = null,
+                errorResId = null,
                 connectionState = ReceiverConnectionState.IDLE
             )
         }
@@ -143,7 +152,12 @@ class ReceiverViewModel(
     ) {
         val payload = _uiState.value.qrPayload ?: return
         if (!_uiState.value.isStorageSufficient) {
-            _uiState.update { it.copy(errorMessage = "Thiết bị không đủ bộ nhớ trống để tải tệp") }
+            _uiState.update {
+                it.copy(
+                    errorResId = R.string.msg_storage_insufficient,
+                    errorMessage = "[0x302] Thiết bị không đủ bộ nhớ trống để tải tệp"
+                )
+            }
             return
         }
 
@@ -175,10 +189,12 @@ class ReceiverViewModel(
                 _uiState.update { it.copy(connectionState = ReceiverConnectionState.APPROVED) }
                 onConnected?.invoke(downloadedFile)
             }.onFailure { error ->
+                val domainErr = DomainError.fromThrowable(error)
                 _uiState.update {
                     it.copy(
                         connectionState = ReceiverConnectionState.FAILED,
-                        errorMessage = error.message ?: "Kết nối tải tệp thất bại"
+                        errorResId = UiErrorMapper.mapToStringRes(domainErr),
+                        errorMessage = if (domainErr is DomainError.GeneralException) domainErr.details else null
                     )
                 }
             }
@@ -194,12 +210,13 @@ class ReceiverViewModel(
                 isScanning = true,
                 qrPayload = null,
                 connectionState = ReceiverConnectionState.IDLE,
-                errorMessage = null
+                errorMessage = null,
+                errorResId = null
             )
         }
     }
 
     fun clearError() {
-        _uiState.update { it.copy(errorMessage = null) }
+        _uiState.update { it.copy(errorMessage = null, errorResId = null) }
     }
 }

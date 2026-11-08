@@ -2,6 +2,8 @@ package com.teamshare.app.core.platform.network
 
 import android.content.Context
 import android.os.Build
+import com.example.file_tranfer.BuildConfig
+import com.teamshare.app.core.constant.AppConstants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -12,22 +14,23 @@ import java.net.URL
 
 /**
  * Trung tâm Quản lý Cấu hình Mạng Toàn diện (Network Configuration Center).
- * Gom toàn bộ các hằng số, cổng giao thức, thời gian chờ và cơ chế tự động nhận diện IP/Relay về một nơi duy nhất.
+ * Nạp trực tiếp từ BuildConfig (tương đương .env) và AppConstants thay vì hardcode.
  */
 object NetworkConfig {
 
     // =========================================================================
-    // 1. CỔNG KẾT NỐI GIAO THỨC MẶC ĐỊNH
+    // 1. CỔNG KẾT NỐI GIAO THỨC MẶC ĐỊNH (Từ BuildConfig / AppConstants)
     // =========================================================================
-    const val DEFAULT_LAN_PORT = 8889
-    const val DEFAULT_RELAY_PORT = 8080
-    const val DEFAULT_SYNC_PORT = 8988
+    val DEFAULT_LAN_PORT: Int = BuildConfig.DEFAULT_LAN_PORT
+    val DEFAULT_RELAY_PORT: Int = BuildConfig.DEFAULT_RELAY_PORT
+    const val DEFAULT_SYNC_PORT = AppConstants.Network.DEFAULT_SYNC_PORT
 
     // =========================================================================
     // 2. MÁY CHỦ VÀ ĐỊA CHỈ MẠNG MẶC ĐỊNH
     // =========================================================================
-    const val EMULATOR_LOOPBACK_HOST = "10.0.2.2"
-    const val DEFAULT_PRODUCTION_RELAY_HOST = "relay.teamshare.app"
+    const val EMULATOR_LOOPBACK_HOST = AppConstants.Network.DEFAULT_LOOPBACK_HOST
+    const val DEFAULT_FALLBACK_IP = AppConstants.Network.DEFAULT_FALLBACK_IP
+    val DEFAULT_PRODUCTION_RELAY_HOST: String = BuildConfig.DEFAULT_RELAY_HOST
 
     // =========================================================================
     // 3. ENDPOINTS MÁY CHỦ ZERO-KNOWLEDGE RELAY
@@ -39,19 +42,19 @@ object NetworkConfig {
     // 4. THỜI GIAN CHỜ VÀ HIỆU LỰC (TIMEOUTS)
     // =========================================================================
     /** Thời gian chờ thử nghiệm LAN siêu tốc (2.5 giây) trước khi tự động chuyển tiếp sang Relay */
-    const val LAN_FAST_PROBE_TIMEOUT_MS = 2500
+    val LAN_FAST_PROBE_TIMEOUT_MS: Int = AppConstants.Timeout.LAN_FAST_PROBE_MS.toInt()
 
     /** Thời gian chờ socket kết nối chuẩn (15 giây) */
-    const val DEFAULT_CONNECT_TIMEOUT_MS = 15000
+    val DEFAULT_CONNECT_TIMEOUT_MS: Int = AppConstants.Timeout.SOCKET_CONNECT_TIMEOUT_MS
 
     /** Thời hạn hiệu lực mã QR mặc định (5 phút) */
-    const val DEFAULT_QR_TTL_MS = 300_000L
+    val DEFAULT_QR_TTL_MS: Long = AppConstants.Timeout.QR_TTL_MS
 
     // =========================================================================
     // 5. LƯU TRỮ VÀ BIẾN ĐỘNG
     // =========================================================================
-    private const val PREFS_NAME = "teamshare_network_config"
-    private const val KEY_RELAY_HOST = "relay_host"
+    private const val PREFS_NAME = AppConstants.Preferences.NETWORK_CONFIG
+    private const val KEY_RELAY_HOST = AppConstants.Preferences.KEY_RELAY_HOST
 
     /** Địa chỉ IP/Domain Relay Server do người dùng thiết lập hoặc đã lưu */
     @Volatile
