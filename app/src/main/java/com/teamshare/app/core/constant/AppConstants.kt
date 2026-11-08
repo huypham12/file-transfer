@@ -49,8 +49,8 @@ object AppConstants {
     }
 
     object Timeout {
-        /** Thời gian tối đa thăm dò kết nối LAN (2.5 giây) trước khi tự động chuyển tiếp sang Relay */
-        const val LAN_FAST_PROBE_MS = 2500L
+        /** Thời gian tối đa thăm dò kết nối LAN (6 giây) trước khi tự động chuyển tiếp sang Relay */
+        const val LAN_FAST_PROBE_MS = 6000L
 
         /** Thời gian chờ kết nối Socket tiêu chuẩn (15 giây) */
         const val SOCKET_CONNECT_TIMEOUT_MS = 15000

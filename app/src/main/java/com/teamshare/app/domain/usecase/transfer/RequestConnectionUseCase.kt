@@ -2,6 +2,7 @@ package com.teamshare.app.domain.usecase.transfer
 
 import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.platform.network.NetworkConfig
+import com.teamshare.app.core.transfer.lan.TransferProgressCallback
 import com.teamshare.app.core.transfer.lan.LanTransferEngine
 import com.teamshare.app.core.transfer.relay.RelayClientEngine
 import com.teamshare.app.core.transfer.zip.SafeStreamExtractor
@@ -50,7 +51,8 @@ class RequestConnectionUseCase(
         myProfile: DeviceProfile,
         targetDirectory: File,
         lanEngine: LanTransferEngine,
-        relayEngineOverride: RelayClientEngine? = null
+        relayEngineOverride: RelayClientEngine? = null,
+        callback: TransferProgressCallback? = null
     ): Result<File> {
         val effectiveRelay = relayEngineOverride ?: relayEngine
 
@@ -91,7 +93,7 @@ class RequestConnectionUseCase(
 
         // 3. Nếu mã QR chỉ định kênh ZERO_KNOWLEDGE_RELAY, kết nối thẳng qua Relay
         if (payload.channel == TransferChannel.ZERO_KNOWLEDGE_RELAY && effectiveRelay != null) {
-            return receiveViaRelay(payload, session, myProfile, targetDirectory, effectiveRelay)
+            return receiveViaRelay(payload, session, myProfile, targetDirectory, effectiveRelay, callback)
         }
 
         // 4. Nếu mã QR là DIRECT_LAN, thử kết nối LAN Socket TCP (thời gian chờ nhanh LAN_FAST_PROBE_TIMEOUT_MS)
@@ -104,7 +106,8 @@ class RequestConnectionUseCase(
             deviceModel = myProfile.model,
             deviceManufacturer = myProfile.manufacturer,
             deviceFingerprint = myProfile.fingerprint,
-            timeoutMs = NetworkConfig.LAN_FAST_PROBE_TIMEOUT_MS
+            timeoutMs = NetworkConfig.LAN_FAST_PROBE_TIMEOUT_MS,
+            callback = callback
         )
 
         if (transferResult.isSuccess) {
@@ -142,7 +145,7 @@ class RequestConnectionUseCase(
                     details = "Kết nối LAN tới ${payload.senderIp}:${payload.senderPort} không phản hồi. Tự động chuyển tiếp qua Zero-Knowledge Relay Server..."
                 )
             )
-            return receiveViaRelay(payload, session, myProfile, targetDirectory, effectiveRelay)
+            return receiveViaRelay(payload, session, myProfile, targetDirectory, effectiveRelay, callback)
         }
 
         // Xử lý các lỗi khác không thể fallback (vd: người gửi bấm từ chối 0x102)
@@ -175,7 +178,8 @@ class RequestConnectionUseCase(
         session: TransferSession,
         myProfile: DeviceProfile,
         targetDirectory: File,
-        relayEngine: RelayClientEngine
+        relayEngine: RelayClientEngine,
+        callback: TransferProgressCallback? = null
     ): Result<File> {
         val targetRelayUrl = NetworkConfig.resolveRelayUrlForReceiver(payload.relayUrl)
 
@@ -206,7 +210,8 @@ class RequestConnectionUseCase(
                 relayWsUrl = targetRelayUrl,
                 session = relaySession,
                 targetFile = targetFile,
-                expectedSha256 = ""
+                expectedSha256 = "",
+                callback = callback
             )
 
             if (success && targetFile.exists()) {

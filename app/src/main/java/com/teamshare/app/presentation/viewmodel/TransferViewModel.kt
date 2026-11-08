@@ -16,6 +16,7 @@ import com.teamshare.app.domain.usecase.platform.OpenFileSecurelyUseCase
 import com.teamshare.app.domain.usecase.transfer.ControlSessionUseCase
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +24,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.teamshare.app.core.transfer.lan.TransferProgressCallback
 
 /**
  * ViewModel điều khiển phiên truyền tải tệp P2P (LAN / Relay).
@@ -87,6 +90,139 @@ class TransferViewModel(
 
     fun setCompletedFilePath(path: String) {
         _uiState.update { it.copy(completedFilePath = path) }
+    }
+
+    /**
+     * Khởi tạo trạng thái phiên nhận tệp từ thông tin mã QR trước khi bắt đầu tải.
+     */
+    fun initTransferSession(
+        sessionId: String,
+        fileName: String,
+        totalBytes: Long,
+        peerDeviceModel: String,
+        channel: TransferChannel
+    ) {
+        sessionStartTime = System.currentTimeMillis()
+        lastEmitTime = 0L
+        _uiState.update {
+            it.copy(
+                sessionId = sessionId,
+                fileName = fileName,
+                peerDeviceModel = peerDeviceModel,
+                totalBytes = totalBytes,
+                transferredBytes = 0L,
+                progressPercent = 0f,
+                speedBytesPerSec = 0L,
+                channel = channel,
+                state = TransferEngineState.CONNECTING,
+                errorMessage = null,
+                errorCode = null
+            )
+        }
+    }
+
+    /**
+     * Tạo TransferProgressCallback liên kết trực tiếp với động cơ truyền tải mạng LAN/Relay
+     * để cập nhật thanh tiến trình theo thời gian thực (điều tiết 100ms NFR-PERF-03).
+     */
+    fun createTransferCallback(
+        sessionId: String,
+        fileName: String = ""
+    ): TransferProgressCallback {
+        sessionStartTime = System.currentTimeMillis()
+        lastEmitTime = 0L
+
+        return object : TransferProgressCallback {
+            override fun onProgress(bytesTransferred: Long, totalBytes: Long, speedBytesPerSec: Long) {
+                val now = System.currentTimeMillis()
+                if ((now - lastEmitTime) >= THROTTLE_INTERVAL_MS || (totalBytes > 0L && bytesTransferred >= totalBytes)) {
+                    lastEmitTime = now
+                    val elapsedSec = (now - sessionStartTime) / 1000.0
+                    val speed = if (speedBytesPerSec > 0L) {
+                        speedBytesPerSec
+                    } else if (elapsedSec > 0 && bytesTransferred > 0) {
+                        (bytesTransferred / elapsedSec).toLong()
+                    } else {
+                        0L
+                    }
+
+                    val safeTotal = if (totalBytes > 0L) totalBytes else _uiState.value.totalBytes
+                    val remainingBytes = (safeTotal - bytesTransferred).coerceAtLeast(0L)
+                    val eta = if (speed > 0L) remainingBytes / speed else 0L
+                    val progressPercent = if (safeTotal > 0L) {
+                        (bytesTransferred.toFloat() / safeTotal.toFloat()).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+
+                    _uiState.update { current ->
+                        current.copy(
+                            sessionId = sessionId,
+                            fileName = fileName.ifBlank { current.fileName },
+                            transferredBytes = bytesTransferred,
+                            totalBytes = safeTotal,
+                            progressPercent = progressPercent,
+                            speedBytesPerSec = speed,
+                            state = TransferEngineState.TRANSFERRING,
+                            etaSeconds = eta
+                        )
+                    }
+                }
+            }
+
+            override fun onStateChanged(newState: TransferEngineState) {
+                _uiState.update { current ->
+                    current.copy(
+                        sessionId = sessionId,
+                        fileName = fileName.ifBlank { current.fileName },
+                        state = newState
+                    )
+                }
+            }
+
+            override fun onSasGenerated(sasCode: String) {
+                _uiState.update { it.copy(sasCode = sasCode) }
+            }
+
+            override fun onCompleted(docId: String, finalSha256: String) {
+                _uiState.update { current ->
+                    current.copy(
+                        sessionId = sessionId,
+                        fileName = fileName.ifBlank { current.fileName },
+                        transferredBytes = current.totalBytes,
+                        progressPercent = 1f,
+                        state = TransferEngineState.COMPLETED
+                    )
+                }
+            }
+
+            override fun onError(errorCode: String, message: String) {
+                _uiState.update { current ->
+                    current.copy(
+                        sessionId = sessionId,
+                        state = TransferEngineState.FAILED,
+                        errorCode = errorCode,
+                        errorMessage = message
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Thông báo phiên tải tệp đã hoàn tất thành công và lưu đường dẫn tệp.
+     */
+    fun onTransferFinished(file: File) {
+        _uiState.update { current ->
+            current.copy(
+                state = TransferEngineState.COMPLETED,
+                fileName = file.name,
+                transferredBytes = if (current.totalBytes > 0L) current.totalBytes else file.length(),
+                totalBytes = if (current.totalBytes > 0L) current.totalBytes else file.length(),
+                progressPercent = 1f,
+                completedFilePath = file.absolutePath
+            )
+        }
     }
 
     /**
@@ -305,6 +441,84 @@ class TransferViewModel(
                 }
             } catch (e: Exception) {
                 onResult(false, e.message ?: "Xác thực sinh trắc học thất bại")
+            }
+        }
+    }
+
+    /**
+     * Mở tệp trực tiếp bằng ứng dụng mặc định qua FileProvider (không bắt buộc vân tay).
+     */
+    fun openFileDirectly(
+        activity: FragmentActivity,
+        file: File,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val useCase = openFileSecurelyUseCase
+        if (useCase == null) {
+            onResult(false, "Tính năng mở tệp chưa được cấu hình")
+            return
+        }
+
+        scope.launch {
+            try {
+                val result = useCase.execute(file = file, requireBiometric = false, activity = activity)
+                result.onSuccess { intent ->
+                    activity.startActivity(intent)
+                    onResult(true, null)
+                }.onFailure { err ->
+                    onResult(false, err.message ?: "Không thể mở tệp")
+                }
+            } catch (e: Exception) {
+                onResult(false, e.message ?: "Không thể mở tệp")
+            }
+        }
+    }
+
+    /**
+     * Xuất tệp từ Sandbox ra thư mục Tải về (Downloads/TeamShare/) của thiết bị.
+     */
+    fun exportFileToDownloads(
+        context: android.content.Context,
+        file: File,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                if (!file.exists()) {
+                    withContext(Dispatchers.Main) { onResult(false, "Tệp nguồn không tồn tại") }
+                    return@launch
+                }
+
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    val contentValues = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, file.name)
+                        put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "${android.os.Environment.DIRECTORY_DOWNLOADS}/TeamShare")
+                    }
+                    val resolver = context.contentResolver
+                    val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                    if (uri != null) {
+                        resolver.openOutputStream(uri)?.use { out ->
+                            file.inputStream().use { input -> input.copyTo(out) }
+                        }
+                        withContext(Dispatchers.Main) {
+                            onResult(true, "Đã lưu vào thư mục Downloads/TeamShare/${file.name}")
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) { onResult(false, "Không thể tạo tệp trong thư mục Downloads") }
+                    }
+                } else {
+                    val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                    val teamShareDir = File(downloadsDir, "TeamShare").apply { mkdirs() }
+                    val destFile = File(teamShareDir, file.name)
+                    file.copyTo(destFile, overwrite = true)
+                    withContext(Dispatchers.Main) {
+                        onResult(true, "Đã lưu vào ${destFile.absolutePath}")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult(false, "Lỗi khi lưu tệp: ${e.message}")
+                }
             }
         }
     }

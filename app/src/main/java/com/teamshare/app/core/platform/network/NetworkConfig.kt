@@ -167,7 +167,7 @@ object NetworkConfig {
     }
 
     /**
-     * Tự động lấy địa chỉ IPv4 nội bộ đang hoạt động (ưu tiên wlan -> eth).
+     * Tự động lấy địa chỉ IPv4 nội bộ đang hoạt động (ưu tiên Wi-Fi wlan/ap/hotspot -> eth).
      */
     fun getLocalIpv4Address(): String? {
         try {
@@ -177,6 +177,12 @@ object NetworkConfig {
             while (interfaces.hasMoreElements()) {
                 val netIf = interfaces.nextElement()
                 if (!netIf.isUp || netIf.isLoopback) continue
+
+                val ifName = netIf.name.lowercase()
+                // Bỏ qua các giao diện mạng ảo hoặc mạng di động nếu không cần thiết
+                if (ifName.contains("dummy") || ifName.contains("tun") || ifName.contains("rmnet_data")) {
+                    continue
+                }
 
                 val addresses = netIf.inetAddresses
                 while (addresses.hasMoreElements()) {
@@ -188,11 +194,31 @@ object NetworkConfig {
                 }
             }
 
+            // 1. Ưu tiên điểm phát sóng Hotspot Android (thường là 192.168.43.1 hoặc dải ap/softap/tether)
+            val hotspotCandidate = candidates.firstOrNull { 
+                it.second.startsWith("192.168.43.") || 
+                it.first.contains("ap", ignoreCase = true) || 
+                it.first.contains("softap", ignoreCase = true) ||
+                it.first.contains("tether", ignoreCase = true)
+            }
+            if (hotspotCandidate != null) return hotspotCandidate.second
+
+            // 2. Ưu tiên Wi-Fi kết nối thông thường (wlan)
             val wifiCandidate = candidates.firstOrNull { it.first.contains("wlan", ignoreCase = true) }
             if (wifiCandidate != null) return wifiCandidate.second
 
+            // 3. Ưu tiên Ethernet (eth)
             val ethCandidate = candidates.firstOrNull { it.first.contains("eth", ignoreCase = true) }
             if (ethCandidate != null) return ethCandidate.second
+
+            // 4. Lọc bỏ các mạng di động rmnet/ccmni nếu còn các mạng khác
+            val nonCellular = candidates.filterNot { 
+                it.first.contains("rmnet", ignoreCase = true) || 
+                it.first.contains("ccmni", ignoreCase = true) 
+            }
+            if (nonCellular.isNotEmpty()) {
+                return nonCellular.first().second
+            }
 
             return candidates.firstOrNull()?.second
         } catch (_: Exception) {

@@ -163,13 +163,13 @@ func (b *ChannelBridge) readLoop(conn *SafeConn, out chan<- StreamPayload, role 
 
 // StartForwarding bắt đầu vòng lặp chuyển tiếp dữ liệu nhị phân hai chiều giữa Sender và Receiver.
 func (b *ChannelBridge) StartForwarding() {
-	// Chờ cả 2 bên Sender và Receiver gắn kết nối trong tối đa 60 giây
+	// Chờ cả 2 bên Sender và Receiver gắn kết nối trong tối đa 300 giây (5 phút - tương thích với TTL mã QR)
 	select {
 	case <-b.done:
 		return
 	case <-b.senderReady:
-	case <-time.After(60 * time.Second):
-		log.Printf("[Bridge %s] Quá thời gian chờ Sender ghép cặp (60s). Hủy cầu nối.", b.StreamId)
+	case <-time.After(300 * time.Second):
+		log.Printf("[Bridge %s] Quá thời gian chờ Sender ghép cặp (300s). Hủy cầu nối.", b.StreamId)
 		b.Close()
 		return
 	}
@@ -178,8 +178,8 @@ func (b *ChannelBridge) StartForwarding() {
 	case <-b.done:
 		return
 	case <-b.receiverReady:
-	case <-time.After(60 * time.Second):
-		log.Printf("[Bridge %s] Quá thời gian chờ Receiver ghép cặp (60s). Hủy cầu nối.", b.StreamId)
+	case <-time.After(300 * time.Second):
+		log.Printf("[Bridge %s] Quá thời gian chờ Receiver ghép cặp (300s). Hủy cầu nối.", b.StreamId)
 		b.Close()
 		return
 	}

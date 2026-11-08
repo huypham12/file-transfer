@@ -59,6 +59,7 @@ import com.teamshare.app.presentation.ui.components.ErrorBanner
 import com.teamshare.app.presentation.ui.components.formatFileSize
 import com.teamshare.app.presentation.viewmodel.ReceiverConnectionState
 import com.teamshare.app.presentation.viewmodel.ReceiverViewModel
+import com.teamshare.app.presentation.viewmodel.TransferViewModel
 import java.io.File
 
 /**
@@ -69,6 +70,7 @@ import java.io.File
 @Composable
 fun ReceiverHomeScreen(
     viewModel: ReceiverViewModel,
+    transferViewModel: TransferViewModel? = null,
     onBackClick: () -> Unit,
     onStartTransfer: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -124,18 +126,43 @@ fun ReceiverHomeScreen(
                     Button(
                         onClick = {
                             val targetDir = File(context.filesDir, "${AppConstants.StorageDirectory.TRANSFERS}/${AppConstants.StorageDirectory.COMPLETED}").apply { mkdirs() }
+                            val sId = uiState.pendingSessionId ?: payload?.sessionId ?: "session_recv"
+                            val fileName = if (payload != null && payload.itemCount > 1) {
+                                "batch_${sId.take(8)}.zip"
+                            } else if (payload?.transferType == TransferType.FOLDER_ZIP) {
+                                "folder_${sId.take(8)}.zip"
+                            } else {
+                                "file_${sId.take(8)}"
+                            }
+
+                            // 1. Khởi tạo trạng thái phiên trên TransferViewModel
+                            if (transferViewModel != null && payload != null) {
+                                transferViewModel.initTransferSession(
+                                    sessionId = sId,
+                                    fileName = fileName,
+                                    totalBytes = payload.totalBytes,
+                                    peerDeviceModel = payload.senderDeviceModel,
+                                    channel = payload.channel
+                                )
+                            }
+
+                            // 2. Tạo ProgressCallback liên kết với TransferViewModel
+                            val progressCallback = transferViewModel?.createTransferCallback(
+                                sessionId = sId,
+                                fileName = fileName
+                            )
+
+                            // 3. Bắt đầu phiên tải tệp với callback tiến độ
                             viewModel.requestConnection(
                                 targetDir = targetDir,
-                                onConnected = {
-                                    val sId = uiState.pendingSessionId ?: payload?.sessionId ?: ""
-                                    onStartTransfer(sId)
+                                callback = progressCallback,
+                                onConnected = { downloadedFile ->
+                                    transferViewModel?.onTransferFinished(downloadedFile)
                                 }
                             )
-                            // Nếu đang kết nối P2P, ta chuyển sang Progress Screen
-                            val sId = uiState.pendingSessionId ?: payload?.sessionId ?: ""
-                            if (sId.isNotBlank()) {
-                                onStartTransfer(sId)
-                            }
+
+                            // 4. Chuyển hướng sang màn hình theo dõi tiến trình
+                            onStartTransfer(sId)
                         },
                         enabled = uiState.isStorageSufficient && uiState.connectionState != ReceiverConnectionState.CONNECTING,
                         modifier = Modifier

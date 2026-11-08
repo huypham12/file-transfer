@@ -97,6 +97,7 @@ fun AppNavHost(
         composable(Screen.ReceiverHome.route) {
             ReceiverHomeScreen(
                 viewModel = receiverViewModel,
+                transferViewModel = transferViewModel,
                 onBackClick = { navController.popBackStack() },
                 onStartTransfer = { sessionId ->
                     val targetRoute = if (sessionId.isNotBlank()) {

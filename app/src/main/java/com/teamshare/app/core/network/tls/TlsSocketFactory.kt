@@ -74,20 +74,27 @@ class TlsSocketFactory(
         val bindPort = if (port == 0) findAvailablePort() else port
 
         val serverSocket = if (useTls && sslContext != null) {
-            val sslServerSocket = sslContext.serverSocketFactory.createServerSocket(bindPort, backlog) as SSLServerSocket
+            val sslServerSocket = sslContext.serverSocketFactory.createServerSocket() as SSLServerSocket
+            try {
+                sslServerSocket.reuseAddress = true
+                sslServerSocket.receiveBufferSize = AppConstants.Buffer.SOCKET_BUFFER_BYTES
+            } catch (_: Exception) {}
             // Cấu hình giao thức TLS 1.3 nếu runtime hỗ trợ
             val supportedProtocols = sslServerSocket.supportedProtocols.toList()
             if (supportedProtocols.contains("TLSv1.3")) {
                 sslServerSocket.enabledProtocols = arrayOf("TLSv1.3")
             }
+            sslServerSocket.bind(java.net.InetSocketAddress(bindPort), backlog)
             sslServerSocket
         } else {
-            ServerSocketFactory.getDefault().createServerSocket(bindPort, backlog)
+            val ss = ServerSocket()
+            try {
+                ss.reuseAddress = true
+                ss.receiveBufferSize = AppConstants.Buffer.SOCKET_BUFFER_BYTES
+            } catch (_: Exception) {}
+            ss.bind(java.net.InetSocketAddress(bindPort), backlog)
+            ss
         }
-        try {
-            serverSocket.reuseAddress = true
-            serverSocket.receiveBufferSize = AppConstants.Buffer.SOCKET_BUFFER_BYTES
-        } catch (_: Exception) {}
         return serverSocket
     }
 

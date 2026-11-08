@@ -148,6 +148,7 @@ class ReceiverViewModel(
      */
     fun requestConnection(
         targetDir: File,
+        callback: com.teamshare.app.core.transfer.lan.TransferProgressCallback? = null,
         onConnected: ((File) -> Unit)? = null
     ) {
         val payload = _uiState.value.qrPayload ?: return
@@ -182,7 +183,8 @@ class ReceiverViewModel(
                 myProfile = profile,
                 targetDirectory = targetDir,
                 lanEngine = engine ?: LanTransferEngine(),
-                relayEngineOverride = relayEngine
+                relayEngineOverride = relayEngine,
+                callback = callback
             )
 
             downloadResult.onSuccess { downloadedFile ->

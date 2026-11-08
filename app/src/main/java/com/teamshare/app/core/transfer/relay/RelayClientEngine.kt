@@ -281,9 +281,10 @@ class RelayClientEngine(
             }
 
             // 4. Gửi TRANSFER_MANIFEST (0x02) sang Receiver (SDD Mục 6.2)
+            val effectiveDocId = session.docId.ifBlank { "file_${session.sessionId.take(8)}" }
             val manifestPayload = TransferManifestPayload(
-                docId = session.docId,
-                fileName = session.docId,
+                docId = effectiveDocId,
+                fileName = effectiveDocId,
                 fileSize = session.totalBytes,
                 mimeType = "application/octet-stream",
                 expectedSha256 = expectedSha256,

@@ -89,6 +89,7 @@ fun TransferProgressScreen(
     val context = LocalContext.current
     var showCancelDialog by remember { mutableStateOf(false) }
     var biometricFeedbackMessage by remember { mutableStateOf<String?>(null) }
+    var exportFeedbackMessage by remember { mutableStateOf<String?>(null) }
 
     val channelColor = if (uiState.channel == TransferChannel.DIRECT_LAN) LanBadgeColor else RelayBadgeColor
 
@@ -376,7 +377,7 @@ fun TransferProgressScreen(
                 }
             }
 
-            // Phần 4: Nút Mở tệp an toàn với Sinh trắc học (Khi đã Hoàn tất)
+            // Phần 4: Nút Mở tệp an toàn hoặc Lưu vào Downloads (Khi đã Hoàn tất)
             if (uiState.state == TransferEngineState.COMPLETED) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -389,7 +390,8 @@ fun TransferProgressScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
                             text = "Tệp tin đã được lưu an toàn trong Sandbox",
@@ -397,7 +399,9 @@ fun TransferProgressScreen(
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             textAlign = TextAlign.Center
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        
+                        // Nút 1: Xác thực vân tay mở tệp (Bảo mật cao)
                         Button(
                             onClick = {
                                 val activity = context as? FragmentActivity
@@ -415,7 +419,8 @@ fun TransferProgressScreen(
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary
                             ),
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Fingerprint,
@@ -426,12 +431,58 @@ fun TransferProgressScreen(
                             Text("Xác thực vân tay để mở tệp")
                         }
 
+                        // Nút 2: Mở tệp trực tiếp (Không bắt buộc vân tay)
+                        FilledTonalButton(
+                            onClick = {
+                                val activity = context as? FragmentActivity
+                                val targetFilePath = uiState.completedFilePath
+                                val file = if (!targetFilePath.isNullOrBlank()) File(targetFilePath) else File(context.filesDir, "${AppConstants.StorageDirectory.TRANSFERS}/${AppConstants.StorageDirectory.COMPLETED}/${uiState.fileName}")
+
+                                if (activity != null) {
+                                    viewModel.openFileDirectly(activity, file) { success, err ->
+                                        if (!success) {
+                                            biometricFeedbackMessage = err ?: "Không thể mở tệp"
+                                        }
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Mở tệp trực tiếp (Ứng dụng ngoài)")
+                        }
+
+                        // Nút 3: Lưu vào thư mục Downloads của máy
+                        OutlinedButton(
+                            onClick = {
+                                val targetFilePath = uiState.completedFilePath
+                                val file = if (!targetFilePath.isNullOrBlank()) File(targetFilePath) else File(context.filesDir, "${AppConstants.StorageDirectory.TRANSFERS}/${AppConstants.StorageDirectory.COMPLETED}/${uiState.fileName}")
+                                viewModel.exportFileToDownloads(context, file) { success, msg ->
+                                    exportFeedbackMessage = msg
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Lưu vào thư mục Tải về (Downloads)")
+                        }
+
                         if (biometricFeedbackMessage != null) {
-                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 text = biometricFeedbackMessage ?: "",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+
+                        if (exportFeedbackMessage != null) {
+                            Text(
+                                text = exportFeedbackMessage ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = LanBadgeColor,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
                             )
                         }
                     }

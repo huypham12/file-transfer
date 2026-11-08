@@ -309,24 +309,6 @@ class SenderViewModel(
         val relay = relayEngine ?: return
         relayJob?.cancel()
         relayJob = scope.launch(Dispatchers.IO) {
-            val dummySession = TransferSession(
-                sessionId = sessionId,
-                sessionToken = sessionToken,
-                direction = TransferDirection.SENDER,
-                channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
-                peerDeviceModel = "",
-                peerFingerprint = "",
-                approvalMode = _uiState.value.approvalMode,
-                transferType = if (fileToSend.isDirectory) TransferType.FOLDER_ZIP else TransferType.SINGLE_FILE,
-                manifestJson = "",
-                totalBytes = fileToSend.length(),
-                confirmedOffset = 0L,
-                tempFilePath = "",
-                expectedSha256 = "",
-                status = SessionStatus.PENDING,
-                startedAt = System.currentTimeMillis()
-            )
-
             val isFolder = fileToSend.isDirectory
             val actualFile = if (isFolder) {
                 val tempZip = File(fileToSend.parentFile ?: File("."), "${fileToSend.name}_tmp.zip")
@@ -341,6 +323,25 @@ class SenderViewModel(
             } else {
                 fileToSend
             }
+
+            val dummySession = TransferSession(
+                sessionId = sessionId,
+                sessionToken = sessionToken,
+                docId = actualFile.name,
+                direction = TransferDirection.SENDER,
+                channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+                peerDeviceModel = "",
+                peerFingerprint = "",
+                approvalMode = _uiState.value.approvalMode,
+                transferType = if (fileToSend.isDirectory) TransferType.FOLDER_ZIP else TransferType.SINGLE_FILE,
+                manifestJson = "",
+                totalBytes = actualFile.length(),
+                confirmedOffset = 0L,
+                tempFilePath = "",
+                expectedSha256 = "",
+                status = SessionStatus.PENDING,
+                startedAt = System.currentTimeMillis()
+            )
 
             var raf: RandomAccessFile? = null
             try {
