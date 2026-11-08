@@ -21,13 +21,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -46,24 +47,33 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.fragment.app.FragmentActivity
 import com.teamshare.app.core.transfer.lan.TransferEngineState
 import com.teamshare.app.domain.model.TransferChannel
+import com.teamshare.app.presentation.ui.components.formatFileSize
 import com.teamshare.app.presentation.ui.theme.LanBadgeColor
 import com.teamshare.app.presentation.ui.theme.RelayBadgeColor
 import com.teamshare.app.presentation.ui.theme.SecurityWarningColor
-import com.teamshare.app.presentation.ui.components.formatFileSize
 import com.teamshare.app.presentation.viewmodel.TransferViewModel
+import java.io.File
 
+/**
+ * Màn hình theo dõi tiến trình truyền tệp tốc độ cao P2P (FR-TRF-01, FR-TRF-02, FR-MOB-02).
+ * Tích hợp điều tiết 100ms (NFR-PERF-03) và mở tệp an toàn bằng sinh trắc học vân tay.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransferProgressScreen(
@@ -72,6 +82,35 @@ fun TransferProgressScreen(
     onBackClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    var showCancelDialog by remember { mutableStateOf(false) }
+    var biometricFeedbackMessage by remember { mutableStateOf<String?>(null) }
+
+    val channelColor = if (uiState.channel == TransferChannel.DIRECT_LAN) LanBadgeColor else RelayBadgeColor
+
+    if (showCancelDialog) {
+        AlertDialog(
+            onDismissRequest = { showCancelDialog = false },
+            title = { Text("Xác nhận hủy phiên") },
+            text = { Text("Bạn có chắc chắn muốn hủy phiên truyền này không? Toàn bộ tệp tạm dở dang sẽ được tiêu hủy an toàn.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showCancelDialog = false
+                        viewModel.cancelSession(sessionId)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Hủy phiên")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showCancelDialog = false }) {
+                    Text("Không")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -100,52 +139,43 @@ fun TransferProgressScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // Huy hiệu kênh truyền LAN hoặc Relay
-            val (channelColor, channelTitle, channelIcon) = if (uiState.channel == TransferChannel.DIRECT_LAN) {
-                Triple(LanBadgeColor, "Direct LAN (P2P Socket TLS 1.3)", Icons.Default.Lan)
-            } else {
-                Triple(RelayBadgeColor, "Zero-Knowledge Relay (E2EE Internet)", Icons.Default.Hub)
-            }
-
-            // Phần 1: Tên tệp & Kênh truyền
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            // Phần 1: Tên tệp & Đối tác phần cứng
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = uiState.fileName.ifBlank { "Tệp truyền tải" },
+                    text = uiState.fileName.ifBlank { "Tệp chia sẻ" },
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .background(channelColor.copy(alpha = 0.15f), shape = RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Icon(
-                        imageVector = channelIcon,
-                        contentDescription = null,
-                        tint = channelColor,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = channelTitle,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = channelColor
-                    )
+                if (uiState.peerDeviceModel.isNotBlank()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .background(MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhoneAndroid,
+                            contentDescription = "Đối tác",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Đối tác: ${uiState.peerDeviceModel}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
                 }
 
-                // Mã SAS (nếu là kênh Relay E2EE)
-                if (!uiState.sasCode.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(12.dp))
+                if (uiState.sasCode != null) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -297,7 +327,7 @@ fun TransferProgressScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Thời gian còn lại:",
+                                text = "Thời gian còn lại (ETA):",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -306,24 +336,6 @@ fun TransferProgressScreen(
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    } else if (uiState.state == TransferEngineState.COMPLETED && uiState.durationText.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "Tổng thời gian truyền:",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = uiState.durationText,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = LanBadgeColor
                             )
                         }
                     }
@@ -339,7 +351,7 @@ fun TransferProgressScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = if (uiState.channel == TransferChannel.DIRECT_LAN) "Direct LAN (P2P TLS)" else "Zero-Knowledge Relay (E2EE)",
+                            text = if (uiState.channel == TransferChannel.DIRECT_LAN) "Direct LAN (P2P TLS 1.3)" else "Zero-Knowledge Relay (E2EE)",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = channelColor
@@ -349,7 +361,7 @@ fun TransferProgressScreen(
                     if (!uiState.errorMessage.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Lỗi: ${formatFriendlyError(uiState.errorMessage!!)}",
+                            text = "Lỗi: ${uiState.errorMessage}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -357,7 +369,69 @@ fun TransferProgressScreen(
                 }
             }
 
-            // Phần 4: Nút điều khiển (Tạm dừng / Tiếp tục / Hủy / Quay lại)
+            // Phần 4: Nút Mở tệp an toàn với Sinh trắc học (Khi đã Hoàn tất)
+            if (uiState.state == TransferEngineState.COMPLETED) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Tệp tin đã được lưu an toàn trong Sandbox",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                val activity = context as? FragmentActivity
+                                val targetFilePath = uiState.completedFilePath
+                                val file = if (!targetFilePath.isNullOrBlank()) File(targetFilePath) else File(context.filesDir, "transfers/completed/${uiState.fileName}")
+
+                                if (activity != null) {
+                                    viewModel.openFileSecurely(activity, file) { success, err ->
+                                        if (!success) {
+                                            biometricFeedbackMessage = err ?: "Xác thực không thành công"
+                                        }
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Fingerprint,
+                                contentDescription = "Sinh trắc học",
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Xác thực vân tay để mở tệp")
+                        }
+
+                        if (biometricFeedbackMessage != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = biometricFeedbackMessage ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Phần 5: Nút điều khiển (Tạm dừng / Tiếp tục / Hủy / Quay lại)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -373,7 +447,7 @@ fun TransferProgressScreen(
                             Text("Tạm dừng")
                         }
                         Button(
-                            onClick = { viewModel.cancelSession(sessionId) },
+                            onClick = { showCancelDialog = true },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.error,
                                 contentColor = MaterialTheme.colorScheme.onError
@@ -395,7 +469,7 @@ fun TransferProgressScreen(
                             Text("Tiếp tục")
                         }
                         OutlinedButton(
-                            onClick = { viewModel.cancelSession(sessionId) },
+                            onClick = { showCancelDialog = true },
                             modifier = Modifier.weight(1f)
                         ) {
                             Icon(imageVector = Icons.Default.Cancel, contentDescription = null)
@@ -408,7 +482,7 @@ fun TransferProgressScreen(
                             onClick = onBackClick,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Quay về Không gian nhóm")
+                            Text("Quay về Màn hình chính")
                         }
                     }
                 }
@@ -442,21 +516,6 @@ fun formatTransferState(state: TransferEngineState): String {
     }
 }
 
-fun formatFriendlyError(rawError: String): String {
-    val lower = rawError.lowercase()
-    return when {
-        lower.contains("websocket") || lower.contains("closed network") || lower.contains("connection refused") ->
-            "Mất kết nối tới người chia sẻ tệp hoặc máy chủ chuyển tiếp. Hãy kiểm tra kết nối mạng của hai thiết bị."
-        lower.contains("timeout") || lower.contains("quá thời gian") ->
-            "Quá thời gian chờ phản hồi từ người chia sẻ. Hãy nhắc họ mở app TeamShare."
-        lower.contains("sha") || lower.contains("mã băm") ->
-            "Tệp tải về bị sai lệch kiểm tra toàn vẹn SHA-256."
-        lower.contains("chứng thư") || lower.contains("chữ ký") || lower.contains("credential") ->
-            "Xác thực thất bại: Người chia sẻ mang chứng thư không hợp lệ trong nhóm này."
-        else -> rawError
-    }
-}
-
 fun formatEta(seconds: Long): String {
     if (seconds <= 0L) return "Đang tính toán..."
     val mins = seconds / 60
@@ -467,4 +526,3 @@ fun formatEta(seconds: Long): String {
         String.format("%d giây", secs)
     }
 }
-

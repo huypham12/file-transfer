@@ -1,33 +1,34 @@
 package com.teamshare.app.presentation.navigation
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.teamshare.app.presentation.ui.audit.AuditLogScreen
+import com.teamshare.app.presentation.ui.home.HomeScreen
+import com.teamshare.app.presentation.ui.receiver.ReceiverHomeScreen
+import com.teamshare.app.presentation.ui.receiver.ScannerScreen
+import com.teamshare.app.presentation.ui.sender.QrDisplayScreen
+import com.teamshare.app.presentation.ui.sender.SenderHomeScreen
 import com.teamshare.app.presentation.ui.transfer.TransferProgressScreen
 import com.teamshare.app.presentation.viewmodel.AuditViewModel
+import com.teamshare.app.presentation.viewmodel.ReceiverViewModel
+import com.teamshare.app.presentation.viewmodel.SenderViewModel
 import com.teamshare.app.presentation.viewmodel.TransferViewModel
 
 /**
  * Đồ thị điều hướng trung tâm kết nối các màn hình Compose của ứng dụng chia sẻ tệp ngang hàng an toàn.
+ * Tuân thủ Stage 7 Presentation Layer Navigation Specification.
  */
 @Composable
 fun AppNavHost(
     navController: NavHostController,
+    senderViewModel: SenderViewModel,
+    receiverViewModel: ReceiverViewModel,
     transferViewModel: TransferViewModel,
     auditViewModel: AuditViewModel,
     modifier: Modifier = Modifier,
@@ -38,54 +39,94 @@ fun AppNavHost(
         startDestination = startDestination,
         modifier = modifier
     ) {
-        // Màn hình chính tạm thời (Minimal Home - sẵn sàng cho Stage 7 Compose Refactoring)
+        // 1. Màn hình Chính (Home Screen)
         composable(Screen.Home.route) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "Secure Local Drop",
-                    style = MaterialTheme.typography.headlineMedium
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Chia sẻ tệp ngang hàng an toàn qua LAN & Relay",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                Button(
-                    onClick = {
-                        val activeSessionId = transferViewModel.uiState.value.sessionId
-                        val targetRoute = if (activeSessionId.isNotBlank()) {
-                            Screen.TransferProgress.createRoute(activeSessionId)
-                        } else {
-                            Screen.TransferProgress.createRoute("demo_session")
-                        }
-                        navController.navigate(targetRoute)
-                    }
-                ) {
-                    Text("Xem tiến trình truyền tệp")
+            HomeScreen(
+                transferViewModel = transferViewModel,
+                onNavigateToSend = { navController.navigate(Screen.SenderHome.route) },
+                onNavigateToScan = { navController.navigate(Screen.Scanner.route) },
+                onNavigateToAudit = { navController.navigate(Screen.AuditLog.route) },
+                onNavigateToProgress = { sessionId ->
+                    navController.navigate(Screen.TransferProgress.createRoute(sessionId))
                 }
-            }
+            )
         }
 
-        // Màn hình chi tiết tiến trình truyền tải P2P
+        // 2. Màn hình Chọn tệp & Cấu hình Người gửi (SenderHomeScreen)
+        composable(Screen.SenderHome.route) {
+            SenderHomeScreen(
+                viewModel = senderViewModel,
+                onBackClick = { navController.popBackStack() },
+                onSessionCreated = { sessionId ->
+                    navController.navigate(Screen.QrDisplay.createRoute(sessionId))
+                }
+            )
+        }
+
+        // 3. Màn hình Mã QR phiên 1-N & Phê duyệt thiết bị (QrDisplayScreen)
+        composable(
+            route = Screen.QrDisplay.route,
+            arguments = listOf(navArgument(Screen.QrDisplay.ARG_SESSION_ID) { type = NavType.StringType })
+        ) { backStackEntry ->
+            val sessionId = backStackEntry.arguments?.getString(Screen.QrDisplay.ARG_SESSION_ID) ?: ""
+            QrDisplayScreen(
+                sessionId = sessionId,
+                viewModel = senderViewModel,
+                onBackClick = { navController.popBackStack() }
+            )
+        }
+
+        // 4. Màn hình CameraX Quét mã QR (ScannerScreen)
+        composable(Screen.Scanner.route) {
+            ScannerScreen(
+                viewModel = receiverViewModel,
+                onBackClick = { navController.popBackStack() },
+                onQrScanned = {
+                    navController.navigate(Screen.ReceiverHome.route) {
+                        popUpTo(Screen.Scanner.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        // 5. Màn hình Xem trước tệp & Đo đĩa trống Người nhận (ReceiverHomeScreen)
+        composable(Screen.ReceiverHome.route) {
+            ReceiverHomeScreen(
+                viewModel = receiverViewModel,
+                onBackClick = { navController.popBackStack() },
+                onStartTransfer = { sessionId ->
+                    val targetRoute = if (sessionId.isNotBlank()) {
+                        Screen.TransferProgress.createRoute(sessionId)
+                    } else {
+                        Screen.TransferProgress.createRoute("incoming_session")
+                    }
+                    navController.navigate(targetRoute) {
+                        popUpTo(Screen.ReceiverHome.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        // 6. Màn hình Chi tiết tiến trình truyền tải P2P (TransferProgressScreen)
         composable(
             route = Screen.TransferProgress.route,
             arguments = listOf(navArgument(Screen.TransferProgress.ARG_SESSION_ID) { type = NavType.StringType })
         ) { backStackEntry ->
             val sessionId = backStackEntry.arguments?.getString(Screen.TransferProgress.ARG_SESSION_ID) ?: ""
-            androidx.compose.runtime.LaunchedEffect(sessionId) {
+            LaunchedEffect(sessionId) {
                 transferViewModel.attachSession(sessionId)
             }
             TransferProgressScreen(
                 sessionId = sessionId,
                 viewModel = transferViewModel,
+                onBackClick = { navController.popBackStack() }
+            )
+        }
+
+        // 7. Màn hình Nhật ký Kiểm toán an ninh (AuditLogScreen)
+        composable(Screen.AuditLog.route) {
+            AuditLogScreen(
+                viewModel = auditViewModel,
                 onBackClick = { navController.popBackStack() }
             )
         }

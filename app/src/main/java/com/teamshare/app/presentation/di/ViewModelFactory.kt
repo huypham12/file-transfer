@@ -3,9 +3,13 @@ package com.teamshare.app.presentation.di
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.teamshare.app.core.platform.device.DeviceIdentityManager
 import com.teamshare.app.core.platform.network.AndroidNetworkMonitor
 import com.teamshare.app.core.platform.service.TransferServiceController
+import com.teamshare.app.core.platform.storage.StatFsStorageAuditor
+import com.teamshare.app.core.security.biometric.BiometricAuthManager
 import com.teamshare.app.core.security.keystore.AndroidKeystoreKeyManager
+import com.teamshare.app.core.storage.saf.FileProviderGateway
 import com.teamshare.app.core.storage.saf.StorageDirectoryManager
 import com.teamshare.app.core.transfer.TransferCoordinator
 import com.teamshare.app.core.transfer.lan.LanTransferEngine
@@ -14,13 +18,24 @@ import com.teamshare.app.data.local.db.AppDatabase
 import com.teamshare.app.data.repository.AuditRepositoryImpl
 import com.teamshare.app.data.repository.TransferRepositoryImpl
 import com.teamshare.app.domain.usecase.audit.QuerySecurityAuditUseCase
+import com.teamshare.app.domain.usecase.device.GetDeviceIdentityUseCase
+import com.teamshare.app.domain.usecase.platform.OpenFileSecurelyUseCase
+import com.teamshare.app.domain.usecase.transfer.CancelTransferSessionUseCase
+import com.teamshare.app.domain.usecase.transfer.CheckReceiverStorageUseCase
 import com.teamshare.app.domain.usecase.transfer.ControlSessionUseCase
+import com.teamshare.app.domain.usecase.transfer.CreateSenderSessionUseCase
+import com.teamshare.app.domain.usecase.transfer.ManageApprovalModeUseCase
+import com.teamshare.app.domain.usecase.transfer.RequestConnectionUseCase
+import com.teamshare.app.domain.usecase.transfer.ScanQrTokenUseCase
 import com.teamshare.app.presentation.viewmodel.AuditViewModel
+import com.teamshare.app.presentation.viewmodel.ReceiverViewModel
+import com.teamshare.app.presentation.viewmodel.SenderViewModel
 import com.teamshare.app.presentation.viewmodel.TransferViewModel
 
 /**
  * Nhà máy cấp phát ViewModels (Dependency Injection) cho tầng Presentation.
  * Khởi tạo trễ (Lazy initialization) các thành phần tinh gọn phục vụ Secure Local Drop.
+ * Cung cấp đầy đủ cả 4 ViewModels: Sender, Receiver, Transfer, Audit theo Stage 7.
  */
 class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
 
@@ -36,6 +51,10 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
     private val lanEngine by lazy { LanTransferEngine() }
     private val relayEngine by lazy { RelayClientEngine() }
 
+    private val deviceIdentityManager by lazy { DeviceIdentityManager(keyManager) }
+    private val biometricAuthManager by lazy { BiometricAuthManager(context) }
+    private val fileProviderGateway by lazy { FileProviderGateway(context) }
+
     val transferCoordinator by lazy {
         TransferCoordinator(
             lanEngine = lanEngine,
@@ -49,13 +68,58 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
         )
     }
 
-    val transferViewModel by lazy {
-        TransferViewModel(
-            controlSessionUseCase = ControlSessionUseCase(transferCoordinator, transferRepo, auditRepo),
-            transferCoordinator = transferCoordinator
+    // 1. SenderViewModel
+    val senderViewModel by lazy {
+        SenderViewModel(
+            createSenderSessionUseCase = CreateSenderSessionUseCase(
+                transferRepository = transferRepo,
+                deviceIdentityManager = deviceIdentityManager,
+                auditRepository = auditRepo
+            ),
+            manageApprovalModeUseCase = ManageApprovalModeUseCase(
+                transferRepository = transferRepo,
+                auditRepository = auditRepo
+            ),
+            cancelTransferSessionUseCase = CancelTransferSessionUseCase(
+                transferRepository = transferRepo,
+                auditRepository = auditRepo
+            )
         )
     }
 
+    // 2. ReceiverViewModel
+    val receiverViewModel by lazy {
+        val checkStorageUseCase = CheckReceiverStorageUseCase(
+            storageAuditor = StatFsStorageAuditor(),
+            auditRepository = auditRepo
+        )
+        ReceiverViewModel(
+            scanQrTokenUseCase = ScanQrTokenUseCase(auditRepository = auditRepo),
+            checkReceiverStorageUseCase = checkStorageUseCase,
+            requestConnectionUseCase = RequestConnectionUseCase(
+                transferRepository = transferRepo,
+                checkReceiverStorageUseCase = checkStorageUseCase,
+                auditRepository = auditRepo
+            ),
+            getDeviceIdentityUseCase = GetDeviceIdentityUseCase(deviceIdentityManager),
+            lanEngine = lanEngine
+        )
+    }
+
+    // 3. TransferViewModel
+    val transferViewModel by lazy {
+        TransferViewModel(
+            controlSessionUseCase = ControlSessionUseCase(transferCoordinator, transferRepo, auditRepo),
+            transferCoordinator = transferCoordinator,
+            openFileSecurelyUseCase = OpenFileSecurelyUseCase(
+                biometricAuthManager = biometricAuthManager,
+                fileProviderGateway = fileProviderGateway,
+                auditRepository = auditRepo
+            )
+        )
+    }
+
+    // 4. AuditViewModel
     val auditViewModel by lazy {
         AuditViewModel(
             querySecurityAuditUseCase = QuerySecurityAuditUseCase(auditRepo)
@@ -65,6 +129,8 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         return when {
+            modelClass.isAssignableFrom(SenderViewModel::class.java) -> senderViewModel as T
+            modelClass.isAssignableFrom(ReceiverViewModel::class.java) -> receiverViewModel as T
             modelClass.isAssignableFrom(TransferViewModel::class.java) -> transferViewModel as T
             modelClass.isAssignableFrom(AuditViewModel::class.java) -> auditViewModel as T
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")

@@ -1,13 +1,62 @@
 package com.teamshare.app.presentation.viewmodel
 
+import android.graphics.Bitmap
 import com.teamshare.app.core.transfer.lan.TransferEngineState
+import com.teamshare.app.domain.model.ApprovalMode
 import com.teamshare.app.domain.model.AuditLog
+import com.teamshare.app.domain.model.DeviceProfile
+import com.teamshare.app.domain.model.SessionQrPayload
 import com.teamshare.app.domain.model.TransferChannel
 import com.teamshare.app.domain.model.TransferProgress
+import java.io.File
+
+/**
+ * Trạng thái giao diện Màn hình Người phát tệp (SenderHomeScreen & QrDisplayScreen).
+ * Tuân thủ SDD Mục 4.2.2 (SenderSessionUiState).
+ */
+data class SenderSessionUiState(
+    val selectedFiles: List<File> = emptyList(),
+    val totalBytes: Long = 0L,
+    val approvalMode: ApprovalMode = ApprovalMode.MANUAL_APPROVAL,
+    val isSharing: Boolean = false,
+    val sessionId: String = "",
+    val qrBitmap: Bitmap? = null,
+    val qrPayload: SessionQrPayload? = null,
+    val remainingTtlSeconds: Long = 300L,
+    val pendingApprovalDevice: DeviceProfile? = null,
+    val connectedDevices: List<DeviceProfile> = emptyList(),
+    val errorMessage: String? = null
+)
+
+/**
+ * Trạng thái kết nối của Người nhận (Receiver).
+ */
+enum class ReceiverConnectionState {
+    IDLE,
+    CONNECTING,
+    WAITING_APPROVAL,
+    APPROVED,
+    REJECTED,
+    FAILED
+}
+
+/**
+ * Trạng thái giao diện Màn hình Người nhận (ScannerScreen & ReceiverHomeScreen).
+ */
+data class ReceiverUiState(
+    val isScanning: Boolean = true,
+    val qrPayload: SessionQrPayload? = null,
+    val availableBytes: Long = 0L,
+    val isStorageSufficient: Boolean = true,
+    val shortfallBytes: Long = 0L,
+    val connectionState: ReceiverConnectionState = ReceiverConnectionState.IDLE,
+    val pendingSessionId: String? = null,
+    val errorMessage: String? = null
+)
 
 /**
  * Trạng thái giao diện Màn hình Tiến trình Truyền tải (TransferProgressScreen).
- * Được điều tiết chu kỳ tối thiểu 100ms để bảo vệ luồng đồ họa Compose.
+ * Được điều tiết chu kỳ tối thiểu 100ms để bảo vệ luồng đồ họa Compose (NFR-PERF-03).
  */
 data class TransferUiState(
     val sessionId: String = "",
@@ -16,16 +65,24 @@ data class TransferUiState(
     val transferredBytes: Long = 0L,
     val speedBytesPerSec: Long = 0L,
     val progressPercent: Float = 0.0f,
+    val peerDeviceModel: String = "",
     val channel: TransferChannel = TransferChannel.DIRECT_LAN,
     val state: TransferEngineState = TransferEngineState.IDLE,
     val sasCode: String? = null,
     val errorCode: String? = null,
     val errorMessage: String? = null,
     val etaSeconds: Long = 0L,
-    val durationText: String = ""
+    val durationText: String = "",
+    val completedFilePath: String? = null
 ) {
     companion object {
-        fun fromProgress(progress: TransferProgress, fileName: String = "", durationText: String = ""): TransferUiState {
+        fun fromProgress(
+            progress: TransferProgress,
+            fileName: String = "",
+            peerDeviceModel: String = "",
+            durationText: String = "",
+            completedFilePath: String? = null
+        ): TransferUiState {
             val remainingBytes = (progress.totalBytes - progress.bytesTransferred).coerceAtLeast(0L)
             val eta = if (progress.speedBytesPerSec > 0L) remainingBytes / progress.speedBytesPerSec else 0L
             return TransferUiState(
@@ -35,13 +92,15 @@ data class TransferUiState(
                 transferredBytes = progress.bytesTransferred,
                 speedBytesPerSec = progress.speedBytesPerSec,
                 progressPercent = progress.progressPercent,
+                peerDeviceModel = peerDeviceModel,
                 channel = progress.channel,
                 state = progress.state,
                 sasCode = progress.sasCode,
                 errorCode = progress.errorCode,
                 errorMessage = progress.errorMessage,
                 etaSeconds = eta,
-                durationText = durationText
+                durationText = durationText,
+                completedFilePath = completedFilePath
             )
         }
     }
@@ -52,6 +111,9 @@ data class TransferUiState(
  */
 data class AuditUiState(
     val logs: List<AuditLog> = emptyList(),
+    val filteredLogs: List<AuditLog> = emptyList(),
+    val filterSeverity: String = "ALL",
+    val searchQuery: String = "",
     val isLoading: Boolean = false,
     val errorMessage: String? = null
 )

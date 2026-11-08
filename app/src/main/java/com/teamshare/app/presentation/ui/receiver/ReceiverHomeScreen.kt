@@ -1,0 +1,342 @@
+package com.teamshare.app.presentation.ui.receiver
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FolderZip
+import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Lan
+import androidx.compose.material.icons.filled.SdStorage
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.teamshare.app.domain.model.TransferType
+import com.teamshare.app.presentation.ui.components.ErrorBanner
+import com.teamshare.app.presentation.ui.components.formatFileSize
+import com.teamshare.app.presentation.viewmodel.ReceiverConnectionState
+import com.teamshare.app.presentation.viewmodel.ReceiverViewModel
+import java.io.File
+
+/**
+ * Màn hình xem trước siêu dữ liệu tệp và đối chiếu dung lượng đĩa trống máy nhận (FR-RCV-02, FR-RCV-03).
+ * Tuân thủ SDD Mục 4.2.1 (ReceiverHomeScreen).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ReceiverHomeScreen(
+    viewModel: ReceiverViewModel,
+    onBackClick: () -> Unit,
+    onStartTransfer: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    val payload = uiState.qrPayload
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Chuẩn bị nhận tệp") },
+                navigationIcon = {
+                    IconButton(onClick = {
+                        viewModel.cancelDownload()
+                        onBackClick()
+                    }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Quay lại"
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            )
+        },
+        bottomBar = {
+            Surface(
+                shadowElevation = 8.dp,
+                color = MaterialTheme.colorScheme.surface
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.cancelDownload()
+                            onBackClick()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Từ chối")
+                    }
+
+                    Button(
+                        onClick = {
+                            val targetDir = File(context.filesDir, "transfers/completed").apply { mkdirs() }
+                            viewModel.requestConnection(
+                                targetDir = targetDir,
+                                onConnected = {
+                                    val sId = uiState.pendingSessionId ?: payload?.sessionId ?: ""
+                                    onStartTransfer(sId)
+                                }
+                            )
+                            // Nếu đang kết nối P2P, ta chuyển sang Progress Screen
+                            val sId = uiState.pendingSessionId ?: payload?.sessionId ?: ""
+                            if (sId.isNotBlank()) {
+                                onStartTransfer(sId)
+                            }
+                        },
+                        enabled = uiState.isStorageSufficient && uiState.connectionState != ReceiverConnectionState.CONNECTING,
+                        modifier = Modifier
+                            .weight(2f)
+                            .height(50.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        if (uiState.connectionState == ReceiverConnectionState.CONNECTING) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.5.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Đang kết nối...")
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = "Tải về",
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Chấp nhận tải về",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        modifier = modifier
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            if (uiState.errorMessage != null) {
+                ErrorBanner(
+                    message = uiState.errorMessage ?: "",
+                    onDismiss = { viewModel.clearError() }
+                )
+            }
+
+            // Card Thông tin tệp tin nhận
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        val isZip = payload?.transferType == TransferType.FOLDER_ZIP
+                        Icon(
+                            imageVector = if (isZip) Icons.Default.FolderZip else Icons.Default.InsertDriveFile,
+                            contentDescription = "File Type",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier
+                                .padding(12.dp)
+                                .size(32.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        val displayName = if (payload != null && payload.itemCount > 1) {
+                            "Gói dữ liệu (${payload.itemCount} tệp)"
+                        } else if (payload?.transferType == TransferType.FOLDER_ZIP) {
+                            "Thư mục chia sẻ"
+                        } else {
+                            "Tệp chia sẻ"
+                        }
+                        Text(
+                            text = displayName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Kích thước: ${formatFileSize(payload?.totalBytes ?: 0L)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            // Card Đo đạc bộ nhớ máy nhận (StatFs)
+            val isSufficient = uiState.isStorageSufficient
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isSufficient) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                    } else {
+                        MaterialTheme.colorScheme.errorContainer
+                    }
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (isSufficient) Icons.Default.CheckCircle else Icons.Default.Warning,
+                        contentDescription = "Storage Status",
+                        tint = if (isSufficient) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column {
+                        Text(
+                            text = if (isSufficient) "Bộ nhớ đĩa khả dụng an toàn" else "Cảnh báo không đủ bộ nhớ trống!",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSufficient) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Bộ nhớ trống: ${formatFileSize(uiState.availableBytes)} (Yêu cầu: ${formatFileSize(payload?.totalBytes ?: 0L)} + 50MB đệm)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isSufficient) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+            }
+
+            // Card Thông tin Mạng & Bên gửi
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Chi tiết kênh kết nối",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Kênh truyền:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = "Wi-Fi LAN (TLS 1.3 Direct)",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Máy chủ phát (Host):", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = "${payload?.senderIp ?: "127.0.0.1"}:${payload?.senderPort ?: 8889}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Mã phiên (Session Token):", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = "${payload?.sessionToken?.take(16)}...",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

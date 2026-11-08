@@ -25,14 +25,15 @@ import com.teamshare.app.presentation.ui.share.ShareIntentHandlerActivity
 import com.teamshare.app.presentation.ui.theme.TeamShareTheme
 
 /**
- * Cửa sổ tương tác chính của ứng dụng TeamShare.
- * Kế thừa FragmentActivity hỗ trợ BiometricPrompt và Jetpack Compose,
+ * Activity chính của ứng dụng chia sẻ tệp ngang hàng an toàn (Secure Local Drop).
+ * Cấu hình chế độ bảo mật chống quay màn hình qua [WindowSecurityManager.applyFlagSecure],
  * tích hợp Material 3 Theme, AppNavHost và tiếp nhận chia sẻ tệp từ Android Sharesheet (SRS FR-MOB-01).
  */
 class MainActivity : FragmentActivity() {
 
     private val viewModelFactory by lazy { ViewModelFactory(applicationContext) }
     private var pendingSessionId by mutableStateOf<String?>(null)
+    private var pendingNavigateToSendHome by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,6 +49,7 @@ class MainActivity : FragmentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val navController = rememberNavController()
 
+                    // Deep-link từ Notification truyền tệp
                     LaunchedEffect(pendingSessionId) {
                         pendingSessionId?.let { sId ->
                             navController.navigate(Screen.TransferProgress.createRoute(sId)) {
@@ -57,8 +59,20 @@ class MainActivity : FragmentActivity() {
                         }
                     }
 
+                    // Tiếp nhận chia sẻ từ Sharesheet ngoài
+                    LaunchedEffect(pendingNavigateToSendHome) {
+                        if (pendingNavigateToSendHome) {
+                            navController.navigate(Screen.SenderHome.route) {
+                                launchSingleTop = true
+                            }
+                            pendingNavigateToSendHome = false
+                        }
+                    }
+
                     AppNavHost(
                         navController = navController,
+                        senderViewModel = viewModelFactory.senderViewModel,
+                        receiverViewModel = viewModelFactory.receiverViewModel,
                         transferViewModel = viewModelFactory.transferViewModel,
                         auditViewModel = viewModelFactory.auditViewModel
                     )
@@ -91,10 +105,10 @@ class MainActivity : FragmentActivity() {
                 intent.getParcelableArrayListExtra(ShareIntentHandlerActivity.EXTRA_SHARED_URIS)
             }
             if (!sharedUris.isNullOrEmpty()) {
-                SafeLogger.i("MainActivity", "Tiếp nhận ${sharedUris.size} tệp từ Sharesheet (sẵn sàng cho Stage 5 Sender Flow)")
+                SafeLogger.i("MainActivity", "Tiếp nhận ${sharedUris.size} tệp từ Sharesheet, chuyển hướng sang SenderHomeScreen")
+                viewModelFactory.senderViewModel.onUrisSelected(sharedUris, applicationContext)
+                pendingNavigateToSendHome = true
             }
         }
     }
 }
-
-

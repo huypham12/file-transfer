@@ -1,5 +1,6 @@
 package com.teamshare.app.presentation.viewmodel
 
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.teamshare.app.core.platform.network.NetworkAddressHelper
@@ -11,6 +12,7 @@ import com.teamshare.app.domain.model.TransferChannel
 import com.teamshare.app.domain.model.TransferDirection
 import com.teamshare.app.domain.model.TransferProgress
 import com.teamshare.app.domain.model.TransferSession
+import com.teamshare.app.domain.usecase.platform.OpenFileSecurelyUseCase
 import com.teamshare.app.domain.usecase.transfer.ControlSessionUseCase
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -26,10 +28,12 @@ import kotlinx.coroutines.launch
  * ViewModel điều khiển phiên truyền tải tệp P2P (LAN / Relay).
  * Tích hợp động cơ điều tiết (Throttling) ở chu kỳ tối thiểu 100ms (10 FPS)
  * theo chuẩn NFR-PERF-03 để bảo vệ luồng đồ họa Compose khỏi quá tải Recomposition.
+ * Tích hợp xác thực sinh trắc học vân tay Class 3 mở tệp an toàn (SRS FR-MOB-02).
  */
 class TransferViewModel(
     private val controlSessionUseCase: ControlSessionUseCase,
     private val transferCoordinator: TransferCoordinator? = null,
+    private val openFileSecurelyUseCase: OpenFileSecurelyUseCase? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
@@ -47,15 +51,16 @@ class TransferViewModel(
     }
 
     /**
-     * Tự động kết nối và nạp trạng thái phiên truyền tải từ TransferCoordinator (P3).
+     * Tự động kết nối và nạp trạng thái phiên truyền tải từ TransferCoordinator.
      */
-    fun attachSession(sessionId: String, fileName: String = "") {
+    fun attachSession(sessionId: String, fileName: String = "", peerDeviceModel: String = "") {
         val activeSession = transferCoordinator?.getActiveSession(sessionId)
         if (activeSession != null) {
             _uiState.update {
                 it.copy(
                     sessionId = sessionId,
                     fileName = if (fileName.isNotBlank()) fileName else it.fileName,
+                    peerDeviceModel = if (peerDeviceModel.isNotBlank()) peerDeviceModel else it.peerDeviceModel,
                     transferredBytes = activeSession.bytesTransferred,
                     totalBytes = activeSession.totalBytes,
                     progressPercent = if (activeSession.totalBytes > 0)
@@ -69,10 +74,19 @@ class TransferViewModel(
             _uiState.update {
                 it.copy(
                     sessionId = sessionId,
-                    fileName = if (fileName.isNotBlank()) fileName else it.fileName
+                    fileName = if (fileName.isNotBlank()) fileName else it.fileName,
+                    peerDeviceModel = if (peerDeviceModel.isNotBlank()) peerDeviceModel else it.peerDeviceModel
                 )
             }
         }
+    }
+
+    fun setPeerDeviceModel(model: String) {
+        _uiState.update { it.copy(peerDeviceModel = model) }
+    }
+
+    fun setCompletedFilePath(path: String) {
+        _uiState.update { it.copy(completedFilePath = path) }
     }
 
     /**
@@ -90,6 +104,7 @@ class TransferViewModel(
         peerPort: Int = 0,
         relayUrl: String? = null,
         expectedSha256: String? = null,
+        peerDeviceModel: String = "",
         onCompleted: (() -> Unit)? = null
     ): String {
         val coordinator = transferCoordinator ?: return "session_dl_$docId"
@@ -115,6 +130,7 @@ class TransferViewModel(
             it.copy(
                 sessionId = sessionId,
                 fileName = fileName,
+                peerDeviceModel = peerDeviceModel,
                 totalBytes = fileSize,
                 transferredBytes = 0L,
                 progressPercent = 0f,
@@ -161,6 +177,7 @@ class TransferViewModel(
         relayUrl: String? = null,
         teamId: String = "",
         expectedSha256: String? = null,
+        peerDeviceModel: String = "",
         onCompleted: (() -> Unit)? = null
     ): String {
         val coordinator = transferCoordinator ?: return "session_ul_$docId"
@@ -183,6 +200,7 @@ class TransferViewModel(
             it.copy(
                 sessionId = sessionId,
                 fileName = fileName,
+                peerDeviceModel = peerDeviceModel,
                 totalBytes = file.length(),
                 transferredBytes = 0L,
                 progressPercent = 0f,
@@ -234,6 +252,9 @@ class TransferViewModel(
                         0L
                     }
 
+                    val remainingBytes = (progress.totalBytes - progress.bytesTransferred).coerceAtLeast(0L)
+                    val eta = if (speed > 0L) remainingBytes / speed else 0L
+
                     _uiState.update { current ->
                         current.copy(
                             sessionId = progress.sessionId,
@@ -242,8 +263,12 @@ class TransferViewModel(
                             totalBytes = progress.totalBytes,
                             progressPercent = progress.progressPercent,
                             speedBytesPerSec = if (progress.speedBytesPerSec > 0L) progress.speedBytesPerSec else speed,
+                            channel = progress.channel,
                             state = progress.state,
-                            errorMessage = progress.errorMessage
+                            sasCode = progress.sasCode,
+                            errorCode = progress.errorCode,
+                            errorMessage = progress.errorMessage,
+                            etaSeconds = eta
                         )
                     }
 
@@ -251,6 +276,35 @@ class TransferViewModel(
                         onCompleted?.invoke()
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Mở tệp an toàn qua FileProvider sau khi xác thực sinh trắc học vân tay Class 3 thành công.
+     */
+    fun openFileSecurely(
+        activity: FragmentActivity,
+        file: File,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        val useCase = openFileSecurelyUseCase
+        if (useCase == null) {
+            onResult(false, "Tính năng xác thực bảo mật chưa được cấu hình")
+            return
+        }
+
+        scope.launch {
+            try {
+                val result = useCase.execute(file = file, activity = activity)
+                result.onSuccess { intent ->
+                    activity.startActivity(intent)
+                    onResult(true, null)
+                }.onFailure { err ->
+                    onResult(false, err.message ?: "Xác thực sinh trắc học thất bại")
+                }
+            } catch (e: Exception) {
+                onResult(false, e.message ?: "Xác thực sinh trắc học thất bại")
             }
         }
     }
