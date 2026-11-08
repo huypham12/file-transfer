@@ -108,6 +108,7 @@ func HandleStream(hub *Hub) http.HandlerFunc {
 			Role:     attachMsg.Role,
 			Message:  "Đã kết nối vào kênh chuyển tiếp Zero-Knowledge thành công",
 		})
+		log.Printf("[Relay] Stream [%s]: Da gan ket noi %s thanh cong (dia chi: %s)", attachMsg.StreamId, attachMsg.Role, r.RemoteAddr)
 
 		// Nếu là người tạo bridge mới thì kích hoạt goroutine chờ bên còn lại
 		if isNew {

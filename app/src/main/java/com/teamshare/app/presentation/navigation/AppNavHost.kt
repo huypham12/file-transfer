@@ -43,11 +43,15 @@ fun AppNavHost(
         composable(Screen.Home.route) {
             HomeScreen(
                 transferViewModel = transferViewModel,
+                receiverViewModel = receiverViewModel,
                 onNavigateToSend = { navController.navigate(Screen.SenderHome.route) },
                 onNavigateToScan = { navController.navigate(Screen.Scanner.route) },
                 onNavigateToAudit = { navController.navigate(Screen.AuditLog.route) },
                 onNavigateToProgress = { sessionId ->
                     navController.navigate(Screen.TransferProgress.createRoute(sessionId))
+                },
+                onNavigateToReceiverHome = {
+                    navController.navigate(Screen.ReceiverHome.route)
                 }
             )
         }

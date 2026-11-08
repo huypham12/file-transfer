@@ -6,6 +6,7 @@ import com.teamshare.app.core.platform.device.DeviceIdentityManagerTest
 import com.teamshare.app.core.platform.network.AndroidNetworkMonitorTest
 import com.teamshare.app.core.platform.service.NotificationManagerHelperTest
 import com.teamshare.app.core.platform.service.TransferForegroundServiceTest
+import com.teamshare.app.core.platform.share.ShareCodeHelperTest
 import com.teamshare.app.core.platform.share.ShareIntentParserTest
 import com.teamshare.app.core.platform.storage.StatFsAuditorTest
 import com.teamshare.app.core.platform.window.WindowSecurityManagerTest
@@ -90,6 +91,7 @@ import org.junit.runners.Suite
     AndroidNetworkMonitorTest::class,
     NotificationManagerHelperTest::class,
     TransferForegroundServiceTest::class,
+    ShareCodeHelperTest::class,
     ShareIntentParserTest::class,
     StatFsAuditorTest::class,
     WindowSecurityManagerTest::class,

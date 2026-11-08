@@ -15,6 +15,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
 import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import com.teamshare.app.core.platform.network.NetworkConfig
 import com.teamshare.app.core.platform.service.NotificationManagerHelper
 import com.teamshare.app.core.platform.window.WindowSecurityManager
 import com.teamshare.app.core.security.sanitizer.SafeLogger
@@ -40,7 +44,10 @@ class MainActivity : FragmentActivity() {
         WindowSecurityManager.applyFlagSecure(this)
         enableEdgeToEdge()
 
-        com.teamshare.app.core.platform.network.NetworkAddressHelper.init(applicationContext)
+        NetworkConfig.init(applicationContext)
+        lifecycleScope.launch(Dispatchers.IO) {
+            NetworkConfig.autoDetectRelayHostFromEmulator()
+        }
 
         handleIncomingIntent(intent)
 

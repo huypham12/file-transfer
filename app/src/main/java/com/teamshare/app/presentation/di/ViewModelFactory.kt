@@ -43,7 +43,7 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
     private val database by lazy { AppDatabase.getInstance(context, keyManager) }
 
     private val transferRepo by lazy { TransferRepositoryImpl(database.transferSessionDao()) }
-    private val auditRepo by lazy { AuditRepositoryImpl(database.auditDao()) }
+    private val auditRepo by lazy { AuditRepositoryImpl(database.auditDao(), database.transferSessionDao()) }
 
     private val dirManager by lazy { StorageDirectoryManager(context) }
     private val networkMonitor by lazy { AndroidNetworkMonitor(context) }
@@ -83,26 +83,31 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
             cancelTransferSessionUseCase = CancelTransferSessionUseCase(
                 transferRepository = transferRepo,
                 auditRepository = auditRepo
-            )
+            ),
+            lanEngine = lanEngine,
+            relayEngine = relayEngine
         )
     }
 
     // 2. ReceiverViewModel
     val receiverViewModel by lazy {
         val checkStorageUseCase = CheckReceiverStorageUseCase(
-            storageAuditor = StatFsStorageAuditor(),
+            storageAuditor = StatFsStorageAuditor(context),
             auditRepository = auditRepo
+        )
+        val requestConnUseCase = RequestConnectionUseCase(
+            transferRepository = transferRepo,
+            checkReceiverStorageUseCase = checkStorageUseCase,
+            auditRepository = auditRepo,
+            relayEngine = relayEngine
         )
         ReceiverViewModel(
             scanQrTokenUseCase = ScanQrTokenUseCase(auditRepository = auditRepo),
             checkReceiverStorageUseCase = checkStorageUseCase,
-            requestConnectionUseCase = RequestConnectionUseCase(
-                transferRepository = transferRepo,
-                checkReceiverStorageUseCase = checkStorageUseCase,
-                auditRepository = auditRepo
-            ),
+            requestConnectionUseCase = requestConnUseCase,
             getDeviceIdentityUseCase = GetDeviceIdentityUseCase(deviceIdentityManager),
-            lanEngine = lanEngine
+            lanEngine = lanEngine,
+            relayEngine = relayEngine
         )
     }
 

@@ -189,4 +189,48 @@ class ReceiverViewModelTest {
         assertEquals(ReceiverConnectionState.IDLE, state.connectionState)
         assertNull(state.errorMessage)
     }
+
+    @Test
+    fun testValidateShareCode_validAndExpired() {
+        val storageAuditor = FakeStorageAuditor(mockAvailableBytes = 500 * 1024 * 1024L)
+        val checkStorageUseCase = CheckReceiverStorageUseCase(storageAuditor, auditRepository)
+        val viewModel = ReceiverViewModel(
+            scanQrTokenUseCase = scanQrTokenUseCase,
+            checkReceiverStorageUseCase = checkStorageUseCase,
+            customScope = CoroutineScope(Dispatchers.Unconfined)
+        )
+
+        val validPayload = createValidQrPayload(isExpired = false)
+        val validResult = viewModel.validateShareCode(validPayload.toQrString())
+        assertTrue(validResult.isSuccess)
+        assertEquals("sess_test_123", validResult.getOrThrow().sessionId)
+
+        val expiredPayload = createValidQrPayload(isExpired = true)
+        val expiredResult = viewModel.validateShareCode(expiredPayload.toQrString())
+        assertTrue(expiredResult.isFailure)
+        assertTrue(expiredResult.exceptionOrNull()?.message?.contains("0x103") == true)
+    }
+
+    @Test
+    fun testOnManualCodeEntered_success() = kotlinx.coroutines.runBlocking {
+        val storageAuditor = FakeStorageAuditor(mockAvailableBytes = 500 * 1024 * 1024L)
+        val checkStorageUseCase = CheckReceiverStorageUseCase(storageAuditor, auditRepository)
+        val viewModel = ReceiverViewModel(
+            scanQrTokenUseCase = scanQrTokenUseCase,
+            checkReceiverStorageUseCase = checkStorageUseCase,
+            customScope = CoroutineScope(Dispatchers.Unconfined)
+        )
+
+        val payload = createValidQrPayload()
+        var callbackInvoked = false
+        val chatMessage = "Nhận tệp nhé: ${payload.toQrString()} từ máy mình"
+
+        viewModel.onManualCodeEntered(chatMessage, onValidCode = { callbackInvoked = true }).join()
+
+        val state = viewModel.uiState.value
+        assertFalse(state.isScanning)
+        assertNotNull(state.qrPayload)
+        assertEquals("sess_test_123", state.qrPayload?.sessionId)
+        assertTrue(callbackInvoked)
+    }
 }

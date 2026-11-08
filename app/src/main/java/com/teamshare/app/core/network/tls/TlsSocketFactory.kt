@@ -2,6 +2,7 @@ package com.teamshare.app.core.network.tls
 
 import java.io.IOException
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.security.SecureRandom
@@ -101,14 +102,17 @@ class TlsSocketFactory(
             checkNotNull(sslContext) { "Yêu cầu useTls = true nhưng SSLContext chưa được cấu hình cho TlsSocketFactory" }
         }
         val socket = if (useTls && sslContext != null) {
-            val sslSocket = sslContext.socketFactory.createSocket(host, port) as SSLSocket
+            val sslSocket = sslContext.socketFactory.createSocket() as SSLSocket
+            sslSocket.connect(InetSocketAddress(host, port), timeoutMs)
             val supportedProtocols = sslSocket.supportedProtocols.toList()
             if (supportedProtocols.contains("TLSv1.3")) {
                 sslSocket.enabledProtocols = arrayOf("TLSv1.3")
             }
             sslSocket
         } else {
-            SocketFactory.getDefault().createSocket(host, port)
+            val plainSocket = Socket()
+            plainSocket.connect(InetSocketAddress(host, port), timeoutMs)
+            plainSocket
         }
         socket.soTimeout = timeoutMs
         socket.tcpNoDelay = true // Tắt thuật toán Nagle để giảm độ trễ đóng gói frame

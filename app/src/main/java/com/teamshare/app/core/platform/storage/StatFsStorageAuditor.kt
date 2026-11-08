@@ -38,11 +38,26 @@ class StatFsStorageAuditor(
     }
 
     private fun resolveTargetDirectory(targetDir: File?): File {
-        if (targetDir != null) return targetDir
-        if (context != null) {
-            return context.filesDir ?: File(".")
+        if (targetDir != null) {
+            if (!targetDir.exists()) {
+                targetDir.mkdirs()
+            }
+            if (targetDir.exists()) return targetDir
         }
-        return File(".")
+        if (context != null) {
+            val appDir = context.getExternalFilesDir(null) ?: context.filesDir
+            if (appDir != null) {
+                if (!appDir.exists()) {
+                    appDir.mkdirs()
+                }
+                return appDir
+            }
+        }
+        val defaultDir = File(System.getProperty("java.io.tmpdir") ?: ".")
+        if (!defaultDir.exists()) {
+            defaultDir.mkdirs()
+        }
+        return defaultDir
     }
 
     override fun getAvailableBytes(targetDir: File?): Long {

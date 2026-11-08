@@ -317,7 +317,7 @@ fun ReceiverHomeScreen(
                     ) {
                         Text("Máy chủ phát (Host):", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            text = "${payload?.senderIp ?: "127.0.0.1"}:${payload?.senderPort ?: 8889}",
+                            text = "${payload?.senderIp ?: "127.0.0.1"}:${payload?.senderPort ?: com.teamshare.app.core.platform.network.NetworkConfig.DEFAULT_LAN_PORT}",
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold

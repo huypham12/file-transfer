@@ -16,7 +16,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Security
@@ -33,15 +35,23 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.teamshare.app.core.platform.share.ShareCodeHelper
 import com.teamshare.app.core.transfer.lan.TransferEngineState
+import com.teamshare.app.presentation.ui.components.EnterCodeBottomSheet
+import com.teamshare.app.presentation.viewmodel.ReceiverViewModel
 import com.teamshare.app.presentation.viewmodel.TransferViewModel
 
 /**
@@ -52,13 +62,35 @@ import com.teamshare.app.presentation.viewmodel.TransferViewModel
 @Composable
 fun HomeScreen(
     transferViewModel: TransferViewModel,
+    receiverViewModel: ReceiverViewModel? = null,
     onNavigateToSend: () -> Unit,
     onNavigateToScan: () -> Unit,
     onNavigateToAudit: () -> Unit,
     onNavigateToProgress: (String) -> Unit,
+    onNavigateToReceiverHome: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val transferUiState by transferViewModel.uiState.collectAsState()
+    val clipboardManager = LocalClipboardManager.current
+    var showEnterCodeSheet by remember { mutableStateOf(false) }
+    var autoDetectedCode by remember { mutableStateOf<String?>(null) }
+
+    // Kiểm tra Clipboard thông minh khi mở màn hình chính (Smart Clipboard Auto-Detect)
+    LaunchedEffect(Unit) {
+        if (receiverViewModel != null) {
+            try {
+                val clipText = clipboardManager.getText()?.text ?: ""
+                val cleaned = ShareCodeHelper.extractPayload(clipText)
+                if (cleaned.isNotBlank()) {
+                    val testResult = receiverViewModel.validateShareCode(cleaned)
+                    if (testResult.isSuccess) {
+                        autoDetectedCode = cleaned
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -104,6 +136,55 @@ fun HomeScreen(
             // Thẻ Trạng thái Mạng LAN
             NetworkStatusCard()
 
+            // Banner gợi ý thông minh từ Clipboard khi phát hiện mã chia sẻ
+            autoDetectedCode?.let {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showEnterCodeSheet = true },
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentPaste,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier
+                                    .padding(8.dp)
+                                    .size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Phát hiện mã chia sẻ trong Clipboard",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "Chạm để xem thông tin và nhận tệp ngay",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                            )
+                        }
+                    }
+                }
+            }
+
             // Nếu đang có phiên truyền tệp dở dang, hiển thị Mini Banner
             if (transferUiState.sessionId.isNotBlank() &&
                 transferUiState.state != TransferEngineState.IDLE &&
@@ -142,6 +223,16 @@ fun HomeScreen(
                 onClick = onNavigateToScan
             )
 
+            // 3. Action Card: Nhập mã nhận tệp (Từ xa qua Zalo/Telegram)
+            HeroActionCard(
+                title = "Nhập mã nhận tệp",
+                subtitle = "Dán mã chia sẻ từ xa qua Zalo/Telegram (Không cần Camera)",
+                icon = Icons.Default.Key,
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                onClick = { showEnterCodeSheet = true }
+            )
+
             Text(
                 text = "Bảo mật & Quản trị",
                 style = MaterialTheme.typography.titleMedium,
@@ -149,7 +240,7 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            // 3. Action Card: Lịch sử & Nhật ký kiểm toán
+            // 4. Action Card: Lịch sử & Nhật ký kiểm toán
             HeroActionCard(
                 title = "Nhật ký kiểm toán an ninh",
                 subtitle = "Tra cứu lịch sử truyền nhận & đối chiếu mã băm SHA-256",
@@ -161,6 +252,19 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+
+    // Hộp thoại BottomSheet Nhập mã nhận tệp (Trực tiếp từ màn hình chính)
+    if (showEnterCodeSheet && receiverViewModel != null) {
+        EnterCodeBottomSheet(
+            viewModel = receiverViewModel,
+            onDismiss = { showEnterCodeSheet = false },
+            onCodeAccepted = {
+                showEnterCodeSheet = false
+                onNavigateToReceiverHome?.invoke()
+            },
+            initialCode = autoDetectedCode ?: ""
+        )
     }
 }
 

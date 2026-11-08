@@ -1,5 +1,7 @@
 package com.teamshare.app.domain.model
 
+import com.teamshare.app.core.platform.network.NetworkConfig
+import com.teamshare.app.core.platform.share.ShareCodeHelper
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 import java.util.Base64
@@ -26,7 +28,7 @@ data class SessionQrPayload(
     val sessionId: String,
     val sessionToken: String,
     val senderIp: String,
-    val senderPort: Int = 8889,
+    val senderPort: Int = NetworkConfig.DEFAULT_LAN_PORT,
     val channel: TransferChannel = TransferChannel.DIRECT_LAN,
     val transferType: TransferType = TransferType.SINGLE_FILE,
     val totalBytes: Long = 0L,
@@ -38,7 +40,7 @@ data class SessionQrPayload(
     val signature: String = ""
 ) {
     companion object {
-        const val DEFAULT_TTL_MS = 5 * 60 * 1000L // 5 phút
+        const val DEFAULT_TTL_MS = NetworkConfig.DEFAULT_QR_TTL_MS
         const val URI_SCHEME_PREFIX = "teamshare://drop?payload="
 
         /**
@@ -46,9 +48,10 @@ data class SessionQrPayload(
          */
         @Throws(IllegalArgumentException::class)
         fun parse(qrRawText: String): SessionQrPayload {
-            val trimmed = qrRawText.trim()
+            val extracted = ShareCodeHelper.extractPayload(qrRawText)
+            val trimmed = extracted.trim()
             if (trimmed.isEmpty()) {
-                throw IllegalArgumentException("Mã QR không có nội dung")
+                throw IllegalArgumentException("Mã chia sẻ không có nội dung")
             }
 
             val jsonString = if (trimmed.startsWith(URI_SCHEME_PREFIX)) {
@@ -77,7 +80,7 @@ data class SessionQrPayload(
                 .takeIf { it.isNotBlank() } ?: json.optString("sessionToken", "")
             val ip = json.optString("ip", "")
                 .takeIf { it.isNotBlank() } ?: json.optString("senderIp", "")
-            val port = if (json.has("port")) json.optInt("port", 8889) else json.optInt("senderPort", 8889)
+            val port = if (json.has("port")) json.optInt("port", NetworkConfig.DEFAULT_LAN_PORT) else json.optInt("senderPort", NetworkConfig.DEFAULT_LAN_PORT)
 
             if (sessionId.isBlank() || token.isBlank()) {
                 throw IllegalArgumentException("Mã QR thiếu trường bắt buộc: sid/sessionId hoặc tok/sessionToken")

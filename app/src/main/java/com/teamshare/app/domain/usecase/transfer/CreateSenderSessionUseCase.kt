@@ -1,6 +1,7 @@
 package com.teamshare.app.domain.usecase.transfer
 
 import com.teamshare.app.core.platform.device.IDeviceIdentityManager
+import com.teamshare.app.core.platform.network.NetworkConfig
 import com.teamshare.app.core.security.crypto.Sha256StreamCalculator
 import com.teamshare.app.core.transfer.zip.ZipStreamPacker
 import com.teamshare.app.domain.model.ApprovalMode
@@ -47,7 +48,7 @@ class CreateSenderSessionUseCase(
     suspend fun execute(
         files: List<File>,
         senderIp: String,
-        senderPort: Int = 8889,
+        senderPort: Int = NetworkConfig.DEFAULT_LAN_PORT,
         approvalMode: ApprovalMode = ApprovalMode.AUTO_ACCEPT,
         channel: TransferChannel = TransferChannel.DIRECT_LAN,
         relayUrl: String = "",

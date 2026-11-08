@@ -3,6 +3,7 @@ package com.teamshare.app.presentation.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.teamshare.app.core.transfer.lan.LanTransferEngine
+import com.teamshare.app.core.transfer.relay.RelayClientEngine
 import com.teamshare.app.domain.model.DeviceProfile
 import com.teamshare.app.domain.model.SessionQrPayload
 import com.teamshare.app.domain.usecase.device.GetDeviceIdentityUseCase
@@ -28,6 +29,7 @@ class ReceiverViewModel(
     private val requestConnectionUseCase: RequestConnectionUseCase? = null,
     private val getDeviceIdentityUseCase: GetDeviceIdentityUseCase? = null,
     private val lanEngine: LanTransferEngine? = null,
+    private val relayEngine: RelayClientEngine? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
@@ -47,36 +49,76 @@ class ReceiverViewModel(
         if (!_uiState.value.isScanning) return Job().apply { complete() }
 
         return scope.launch {
-            val result = scanQrTokenUseCase.execute(qrRawText)
-            result.onSuccess { payload ->
-                // Kiểm tra dung lượng đĩa trống thực tế (StatFs)
-                val storageResult = checkReceiverStorageUseCase.execute(
-                    requiredBytes = payload.totalBytes,
-                    targetDir = targetDir,
-                    sessionId = payload.sessionId
-                )
-
-                _uiState.update {
-                    it.copy(
-                        isScanning = false,
-                        qrPayload = payload,
-                        availableBytes = storageResult.availableBytes,
-                        isStorageSufficient = storageResult.isSufficient,
-                        shortfallBytes = storageResult.shortfallBytes,
-                        pendingSessionId = payload.sessionId,
-                        errorMessage = null
+            try {
+                val result = scanQrTokenUseCase.execute(qrRawText)
+                result.onSuccess { payload ->
+                    // Kiểm tra dung lượng đĩa trống thực tế (StatFs)
+                    val storageResult = checkReceiverStorageUseCase.execute(
+                        requiredBytes = payload.totalBytes,
+                        targetDir = targetDir,
+                        sessionId = payload.sessionId
                     )
-                }
 
-                onValidQr?.invoke(payload)
-            }.onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            isScanning = false,
+                            qrPayload = payload,
+                            availableBytes = storageResult.availableBytes,
+                            isStorageSufficient = storageResult.isSufficient,
+                            shortfallBytes = storageResult.shortfallBytes,
+                            pendingSessionId = payload.sessionId,
+                            errorMessage = null
+                        )
+                    }
+
+                    onValidQr?.invoke(payload)
+                }.onFailure { error ->
+                    _uiState.update {
+                        it.copy(
+                            errorMessage = error.message ?: "Mã QR không hợp lệ"
+                        )
+                    }
+                }
+            } catch (e: Throwable) {
                 _uiState.update {
                     it.copy(
-                        errorMessage = error.message ?: "Mã QR không hợp lệ"
+                        errorMessage = e.message ?: "Lỗi xử lý mã chia sẻ"
                     )
                 }
             }
         }
+    }
+
+    /**
+     * Xác thực nhanh chuỗi mã chia sẻ (phục vụ xem trước Live Preview trên UI nhập mã).
+     */
+    fun validateShareCode(codeText: String): Result<SessionQrPayload> {
+        return try {
+            val payload = SessionQrPayload.parse(codeText)
+            if (payload.isExpired) {
+                Result.failure(SecurityException("0x103: Mã chia sẻ đã hết hạn hiệu lực (5 phút)"))
+            } else {
+                Result.success(payload)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Xử lý khi người dùng nhập hoặc dán mã chia sẻ thủ công.
+     */
+    fun onManualCodeEntered(
+        codeText: String,
+        targetDir: File? = null,
+        onValidCode: ((SessionQrPayload) -> Unit)? = null
+    ): Job {
+        _uiState.update { it.copy(isScanning = true, errorMessage = null) }
+        return onQrCodeScanned(
+            qrRawText = codeText,
+            targetDir = targetDir,
+            onValidQr = onValidCode
+        )
     }
 
     /**
@@ -107,7 +149,7 @@ class ReceiverViewModel(
 
         val connUseCase = requestConnectionUseCase
         val engine = lanEngine
-        if (connUseCase == null || engine == null) {
+        if (connUseCase == null || (engine == null && relayEngine == null)) {
             // Trường hợp chạy UI mockup hoặc chưa khởi tạo động cơ mạng
             _uiState.update { it.copy(connectionState = ReceiverConnectionState.APPROVED) }
             return
@@ -125,7 +167,8 @@ class ReceiverViewModel(
                 payload = payload,
                 myProfile = profile,
                 targetDirectory = targetDir,
-                lanEngine = engine
+                lanEngine = engine ?: LanTransferEngine(),
+                relayEngineOverride = relayEngine
             )
 
             downloadResult.onSuccess { downloadedFile ->

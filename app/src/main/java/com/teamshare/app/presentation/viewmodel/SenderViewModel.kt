@@ -2,14 +2,27 @@ package com.teamshare.app.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.teamshare.app.core.platform.network.NetworkAddressHelper
+import com.teamshare.app.core.platform.network.NetworkConfig
+import com.teamshare.app.core.transfer.lan.LanTransferEngine
+import com.teamshare.app.core.transfer.relay.RelayClientEngine
 import com.teamshare.app.domain.model.ApprovalMode
 import com.teamshare.app.domain.model.DeviceProfile
+import com.teamshare.app.domain.model.SessionStatus
+import com.teamshare.app.domain.model.TransferChannel
+import com.teamshare.app.domain.model.TransferDirection
+import com.teamshare.app.domain.model.TransferSession
+import com.teamshare.app.domain.model.TransferType
 import com.teamshare.app.domain.usecase.transfer.CancelTransferSessionUseCase
 import com.teamshare.app.domain.usecase.transfer.CreateSenderSessionUseCase
 import com.teamshare.app.domain.usecase.transfer.ManageApprovalModeUseCase
 import com.teamshare.app.presentation.ui.qr.QrCodeBitmapGenerator
 import java.io.File
+import java.io.RandomAccessFile
+import java.util.UUID
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +39,8 @@ class SenderViewModel(
     private val createSenderSessionUseCase: CreateSenderSessionUseCase,
     private val manageApprovalModeUseCase: ManageApprovalModeUseCase,
     private val cancelTransferSessionUseCase: CancelTransferSessionUseCase,
+    private val lanEngine: LanTransferEngine? = null,
+    private val relayEngine: RelayClientEngine? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
@@ -35,6 +50,9 @@ class SenderViewModel(
     val uiState: StateFlow<SenderSessionUiState> = _uiState.asStateFlow()
 
     private var ttlTimerJob: Job? = null
+    private var serverJob: Job? = null
+    private var relayJob: Job? = null
+    private var pendingApprovalDeferred: CompletableDeferred<Boolean>? = null
 
     /**
      * Cập nhật danh sách tệp hoặc thư mục được người dùng chọn qua SAF.
@@ -126,10 +144,11 @@ class SenderViewModel(
 
     /**
      * Khởi tạo phiên phát chia sẻ 1-N và tạo mã QR động.
+     * Tự động phát hiện địa chỉ IPv4 Wi-Fi của thiết bị và tự động kích hoạt kênh kép LAN + Relay Server.
      */
     fun startSharingSession(
-        senderIp: String = "127.0.0.1",
-        senderPort: Int = 8889,
+        senderIp: String? = null,
+        senderPort: Int = LanTransferEngine.DEFAULT_LAN_PORT,
         onSessionCreated: ((String) -> Unit)? = null
     ): Job {
         val files = _uiState.value.selectedFiles
@@ -138,12 +157,35 @@ class SenderViewModel(
             return Job().apply { complete() }
         }
 
+        val isEmulator = NetworkConfig.isEmulator()
+
         return scope.launch {
+            if (isEmulator && NetworkConfig.detectedHostLanIp.isBlank()) {
+                NetworkConfig.autoDetectRelayHostFromEmulator()
+            }
+
+            // Tự động lấy IP Wi-Fi thực tế của thiết bị (hoặc IP Wi-Fi host máy tính nếu là máy ảo)
+            val resolvedIp = if (!senderIp.isNullOrBlank() && senderIp != "127.0.0.1") {
+                senderIp
+            } else if (isEmulator && NetworkConfig.detectedHostLanIp.isNotBlank()) {
+                NetworkConfig.detectedHostLanIp
+            } else {
+                NetworkAddressHelper.getLocalIpv4Address() ?: "127.0.0.1"
+            }
+
+            val relayQrUrl = NetworkConfig.resolveRelayUrlForQr()
+            val senderRelayUrl = NetworkConfig.resolveRelayUrlForSender()
+            val primaryChannel = if (isEmulator) TransferChannel.ZERO_KNOWLEDGE_RELAY else TransferChannel.DIRECT_LAN
+            val streamId = UUID.randomUUID().toString()
+
             val result = createSenderSessionUseCase.execute(
                 files = files,
-                senderIp = senderIp,
+                senderIp = resolvedIp,
                 senderPort = senderPort,
-                approvalMode = _uiState.value.approvalMode
+                approvalMode = _uiState.value.approvalMode,
+                channel = primaryChannel,
+                relayUrl = relayQrUrl,
+                streamId = streamId
             )
 
             result.onSuccess { sessionData ->
@@ -165,6 +207,26 @@ class SenderViewModel(
                     )
                 }
 
+                val preparedFile = prepareFileToSend(files, sessionData.session.sessionId)
+
+                // 1. Mở ServerSocket trên máy phát để lắng nghe kết nối từ máy nhận qua LAN
+                startSenderServerJob(
+                    fileToSend = preparedFile,
+                    sessionId = sessionData.session.sessionId,
+                    sessionToken = sessionData.session.sessionToken,
+                    port = senderPort
+                )
+
+                // 2. Đồng thời kết nối tới Relay Server Go nếu có relayEngine
+                if (relayEngine != null) {
+                    startSenderRelayJob(
+                        fileToSend = preparedFile,
+                        sessionId = sessionData.session.sessionId,
+                        sessionToken = sessionData.session.sessionToken,
+                        relayUrl = senderRelayUrl
+                    )
+                }
+
                 startTtlTimer()
                 onSessionCreated?.invoke(sessionData.session.sessionId)
             }.onFailure { error ->
@@ -176,6 +238,136 @@ class SenderViewModel(
                 }
             }
         }
+    }
+
+    private fun prepareFileToSend(files: List<File>, sessionId: String): File {
+        return if (files.size == 1) {
+            files[0]
+        } else {
+            val parentDir = files[0].parentFile ?: File(".")
+            val batchDir = File(parentDir, "batch_$sessionId").apply { mkdirs() }
+            files.forEach { src ->
+                val dest = File(batchDir, src.name)
+                if (!dest.exists()) {
+                    try { src.copyTo(dest, overwrite = true) } catch (_: Exception) {}
+                }
+            }
+            batchDir
+        }
+    }
+
+    /**
+     * Khởi chạy ServerSocket trong chế độ nền để tiếp nhận kết nối tải tệp P2P.
+     */
+    private fun startSenderServerJob(
+        fileToSend: File,
+        sessionId: String,
+        sessionToken: String,
+        port: Int
+    ) {
+        val engine = lanEngine ?: return
+        serverJob?.cancel()
+        serverJob = scope.launch(Dispatchers.IO) {
+            engine.startSenderServer(
+                port = port,
+                sessionToken = sessionToken,
+                file = fileToSend,
+                sessionId = sessionId,
+                approvalMode = _uiState.value.approvalMode,
+                onDeviceApproval = { peerProfile ->
+                    handleDeviceApproval(peerProfile)
+                },
+                serverTimeoutMs = 300_000 // 5 phút TTL
+            )
+        }
+    }
+
+    /**
+     * Khởi chạy gắn kênh vào Server Go Relay để tiếp nhận máy nhận qua mạng Internet / NAT.
+     */
+    private fun startSenderRelayJob(
+        fileToSend: File,
+        sessionId: String,
+        sessionToken: String,
+        relayUrl: String
+    ) {
+        val relay = relayEngine ?: return
+        relayJob?.cancel()
+        relayJob = scope.launch(Dispatchers.IO) {
+            val dummySession = TransferSession(
+                sessionId = sessionId,
+                sessionToken = sessionToken,
+                direction = TransferDirection.SENDER,
+                channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+                peerDeviceModel = "",
+                peerFingerprint = "",
+                approvalMode = _uiState.value.approvalMode,
+                transferType = if (fileToSend.isDirectory) TransferType.FOLDER_ZIP else TransferType.SINGLE_FILE,
+                manifestJson = "",
+                totalBytes = fileToSend.length(),
+                confirmedOffset = 0L,
+                tempFilePath = "",
+                expectedSha256 = "",
+                status = SessionStatus.PENDING,
+                startedAt = System.currentTimeMillis()
+            )
+
+            val isFolder = fileToSend.isDirectory
+            val actualFile = if (isFolder) {
+                val tempZip = File(fileToSend.parentFile ?: File("."), "${fileToSend.name}_tmp.zip")
+                try {
+                    tempZip.outputStream().use { fos ->
+                        com.teamshare.app.core.transfer.zip.ZipStreamPacker.packDirectoryToStream(fileToSend, fos)
+                    }
+                    tempZip
+                } catch (_: Exception) {
+                    fileToSend
+                }
+            } else {
+                fileToSend
+            }
+
+            var raf: RandomAccessFile? = null
+            try {
+                raf = RandomAccessFile(actualFile, "r")
+                val sha = com.teamshare.app.core.security.crypto.Sha256StreamCalculator.calculateFileSha256(actualFile)
+                relay.sendFileViaRelay(
+                    relayWsUrl = relayUrl,
+                    session = dummySession,
+                    fileChannel = raf.channel,
+                    expectedSha256 = sha,
+                    peerValidator = { peerAuth ->
+                        val peerProfile = DeviceProfile(
+                            manufacturer = "Android",
+                            model = peerAuth.memberId,
+                            fingerprint = peerAuth.deviceFingerprint
+                        )
+                        scope.launch { handleDeviceApproval(peerProfile) }
+                        true
+                    }
+                )
+            } catch (_: Exception) {
+            } finally {
+                try { raf?.close() } catch (_: Exception) {}
+                if (isFolder && actualFile.name.endsWith("_tmp.zip")) {
+                    try { actualFile.delete() } catch (_: Exception) {}
+                }
+            }
+        }
+    }
+
+    /**
+     * Xử lý phê duyệt thiết bị (Auto Accept hoặc Manual Dialog).
+     */
+    private suspend fun handleDeviceApproval(peerProfile: DeviceProfile): Boolean {
+        if (_uiState.value.approvalMode == ApprovalMode.AUTO_ACCEPT) {
+            onDeviceConnectionRequested(peerProfile)
+            return true
+        }
+        val deferred = CompletableDeferred<Boolean>()
+        pendingApprovalDeferred = deferred
+        _uiState.update { it.copy(pendingApprovalDevice = peerProfile) }
+        return deferred.await()
     }
 
     /**
@@ -230,6 +422,8 @@ class SenderViewModel(
                     connectedDevices = updatedList
                 )
             }
+            pendingApprovalDeferred?.complete(accept)
+            pendingApprovalDeferred = null
         }
     }
 
@@ -239,6 +433,15 @@ class SenderViewModel(
     fun stopSharingSession(onStopped: (() -> Unit)? = null): Job {
         val sessionId = _uiState.value.sessionId
         ttlTimerJob?.cancel()
+        serverJob?.cancel()
+        serverJob = null
+        relayJob?.cancel()
+        relayJob = null
+        lanEngine?.cancel()
+        relayEngine?.cancel()
+        pendingApprovalDeferred?.complete(false)
+        pendingApprovalDeferred = null
+
         _uiState.update {
             it.copy(
                 isSharing = false,
@@ -274,5 +477,9 @@ class SenderViewModel(
     override fun onCleared() {
         super.onCleared()
         ttlTimerJob?.cancel()
+        serverJob?.cancel()
+        lanEngine?.cancel()
+        pendingApprovalDeferred?.complete(false)
+        pendingApprovalDeferred = null
     }
 }

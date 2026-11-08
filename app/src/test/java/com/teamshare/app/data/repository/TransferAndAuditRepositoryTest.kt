@@ -147,5 +147,25 @@ class TransferAndAuditRepositoryTest {
         val all = transferRepository.getAllSessions().first()
         assertEquals(3, all.size)
     }
+
+    @Test
+    fun testAuditRepositoryLoggingWithUnknownSession_doesNotCrash() = runBlocking {
+        val repoWithDao = AuditRepositoryImpl(auditDao, sessionDao)
+        val orphanLog = SecurityAuditLog(
+            sessionId = "non_existent_session_999",
+            timestamp = 3000L,
+            eventType = AuditEventType.SECURITY_ALERT,
+            actorDevice = "EXTERNAL_PEER",
+            channel = "DIRECT_LAN",
+            severity = AuditSeverity.WARNING,
+            details = "Quét phải mã QR lạ chưa tồn tại trong CSDL"
+        )
+
+        // Không bao giờ được ném exception làm crash ứng dụng
+        repoWithDao.logEvent(orphanLog)
+
+        val recentLogs = repoWithDao.getRecentLogs(10).first()
+        assertTrue(recentLogs.isNotEmpty())
+    }
 }
 

@@ -68,7 +68,7 @@ class LanTransferEngine(
 ) {
     companion object {
         const val DEFAULT_SERVER_TIMEOUT_MS = 60_000 // 60 giây chờ kết nối
-        const val DEFAULT_LAN_PORT = 8889
+        const val DEFAULT_LAN_PORT = com.teamshare.app.core.platform.network.NetworkConfig.DEFAULT_LAN_PORT
     }
 
     private var activeServerSocket: ServerSocket? = null
@@ -440,6 +440,7 @@ class LanTransferEngine(
         deviceManufacturer: String = "Generic",
         deviceFingerprint: String = "fingerprint",
         useTls: Boolean = false,
+        timeoutMs: Int = com.teamshare.app.core.platform.network.NetworkConfig.LAN_FAST_PROBE_TIMEOUT_MS,
         callback: TransferProgressCallback? = null
     ): Result<File> = withContext(Dispatchers.IO) {
         isCancelled.set(false)
@@ -452,7 +453,7 @@ class LanTransferEngine(
         }
 
         val socket = try {
-            socketFactory.createSocket(host, port, useTls = useTls).also {
+            socketFactory.createSocket(host, port, useTls = useTls, timeoutMs = timeoutMs).also {
                 activeSocket = it
             }
         } catch (e: Exception) {
