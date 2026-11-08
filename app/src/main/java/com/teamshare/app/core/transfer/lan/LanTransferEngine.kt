@@ -4,11 +4,16 @@ import com.teamshare.app.core.network.tls.TlsSocketFactory
 import com.teamshare.app.core.protocol.BinaryFrameParser
 import com.teamshare.app.core.protocol.ChunkAckPayload
 import com.teamshare.app.core.protocol.ChunkFrame
+import com.teamshare.app.core.protocol.ConnectAcceptedPayload
+import com.teamshare.app.core.protocol.ConnectRequestPayload
 import com.teamshare.app.core.protocol.ControlSignalPayload
 import com.teamshare.app.core.protocol.DataChunkPayload
+import com.teamshare.app.core.protocol.ErrorAlertPayload
 import com.teamshare.app.core.protocol.FrameSerializer
 import com.teamshare.app.core.protocol.HandshakeAuthPayload
+import com.teamshare.app.core.protocol.ManifestItemPayload
 import com.teamshare.app.core.protocol.ManifestResponsePayload
+import com.teamshare.app.core.protocol.RequestStreamPayload
 import com.teamshare.app.core.protocol.TransferManifestPayload
 import com.teamshare.app.core.protocol.VerifyResultPayload
 import com.teamshare.app.core.security.crypto.Sha256StreamCalculator
@@ -18,6 +23,8 @@ import com.teamshare.app.core.storage.saf.SafeFileDeleter
 import com.teamshare.app.core.transfer.buffer.BufferPoolManager
 import com.teamshare.app.core.transfer.checkpoint.CheckpointTracker
 import com.teamshare.app.data.local.db.dao.TransferSessionDao
+import com.teamshare.app.domain.model.ApprovalMode
+import com.teamshare.app.domain.model.DeviceProfile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +34,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
@@ -41,7 +49,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Động cơ Truyền tải Tệp tin mạng LAN tốc độ cao và bảo mật (LanTransferEngine).
  * Thực thi giao thức khung tin nhị phân 11 bytes, quản lý bộ đệm 64KB (tối đa 4MB),
- * điểm kiểm tra Checkpoint 2MB (fsync SSD), và xác minh toàn vẹn SHA-256 theo chuẩn SDD Chương 6.2.
+ * điểm kiểm tra Checkpoint 2MB (fsync SSD), và xác minh toàn vẹn SHA-256 theo chuẩn SDD Chương 6.2 & 8.1.
  */
 class LanTransferEngine(
     private val bufferPool: BufferPoolManager = BufferPoolManager(),
@@ -53,6 +61,7 @@ class LanTransferEngine(
 ) {
     companion object {
         const val DEFAULT_SERVER_TIMEOUT_MS = 60_000 // 60 giây chờ kết nối
+        const val DEFAULT_LAN_PORT = 8889
     }
 
     private var activeServerSocket: ServerSocket? = null
@@ -102,24 +111,517 @@ class LanTransferEngine(
     }
 
     // =====================================================================================
-    // CHẾ ĐỘ MÁY CHỦ NHẬN DỮ LIỆU (RECEIVER / SERVER MODE)
+    // CHẾ ĐỘ MÁY CHỦ GỬI DỮ LIỆU (SENDER SERVER MODE - SDD MỤC 8.1)
+    // Người gửi chọn tệp, mở ServerSocket cổng 8889, phát QR. Máy nhận quét QR và kết nối tới.
+    // =====================================================================================
+
+    suspend fun startSenderServer(
+        port: Int = DEFAULT_LAN_PORT,
+        sessionToken: String,
+        file: File,
+        sessionId: String,
+        expectedSha256: String? = null,
+        approvalMode: ApprovalMode = ApprovalMode.AUTO_ACCEPT,
+        onDeviceApproval: (suspend (DeviceProfile) -> Boolean)? = null,
+        useTls: Boolean = false,
+        serverTimeoutMs: Int = DEFAULT_SERVER_TIMEOUT_MS,
+        callback: TransferProgressCallback? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
+        require(file.exists() && file.isFile) { "Tệp nguồn không tồn tại: ${file.absolutePath}" }
+
+        isCancelled.set(false)
+        isPaused.set(false)
+        currentState = TransferEngineState.CONNECTING
+        callback?.onStateChanged(currentState)
+
+        val serverSocket = try {
+            socketFactory.createServerSocket(port = port, useTls = useTls).also {
+                activeServerSocket = it
+            }
+        } catch (e: Exception) {
+            currentState = TransferEngineState.FAILED
+            callback?.onStateChanged(currentState)
+            callback?.onError("SERVER_BIND_ERROR", "Không thể mở ServerSocket tại cổng $port: ${e.message}")
+            return@withContext Result.failure(e)
+        }
+
+        try {
+            if (serverTimeoutMs > 0) {
+                serverSocket.soTimeout = serverTimeoutMs
+            }
+
+            val socket = try {
+                serverSocket.accept().also { activeSocket = it }
+            } catch (e: java.net.SocketTimeoutException) {
+                currentState = TransferEngineState.FAILED
+                callback?.onStateChanged(currentState)
+                callback?.onError("SERVER_TIMEOUT", "Hết thời gian chờ kết nối từ máy nhận")
+                return@withContext Result.failure(e)
+            }
+
+            val inputStream = BufferedInputStream(socket.getInputStream(), 128 * 1024)
+            val outputStream = BufferedOutputStream(socket.getOutputStream(), 128 * 1024)
+            val streamId = 1
+
+            // 1. Nhận gói 0x01 CONNECT_REQUEST từ Receiver
+            currentState = TransferEngineState.HANDSHAKING
+            callback?.onStateChanged(currentState)
+
+            val connectFrame = parser.parseNextFrame(inputStream)
+                ?: throw IOException("Kết nối bị đóng trước khi nhận CONNECT_REQUEST")
+
+            if (connectFrame.msgType != ChunkFrame.TYPE_CONNECT_REQUEST) {
+                throw IOException("Khung tin mong đợi CONNECT_REQUEST (0x01), nhận được: ${connectFrame.msgType}")
+            }
+
+            val connectReq = ConnectRequestPayload.fromBytes(connectFrame.payload)
+
+            // Thẩm định sessionToken
+            if (connectReq.sessionToken != sessionToken) {
+                val rejectFrame = serializer.buildConnectAcceptedFrame(
+                    streamId,
+                    ConnectAcceptedPayload(
+                        status = ConnectAcceptedPayload.STATUS_REJECTED,
+                        rejectionReason = "0x101: Session token không hợp lệ"
+                    )
+                )
+                serializer.serializeTo(rejectFrame, outputStream)
+                val err = "Session token không khớp: nhận được ${connectReq.sessionToken}"
+                callback?.onError("0x101", err)
+                throw SecurityException(err)
+            }
+
+            // Phê duyệt thiết bị (Auto / Manual Dialog theo SDD 7.4 & 8.1)
+            val peerProfile = DeviceProfile(
+                manufacturer = connectReq.deviceManufacturer,
+                model = connectReq.deviceModel,
+                fingerprint = connectReq.deviceFingerprint
+            )
+
+            if (approvalMode == ApprovalMode.MANUAL_APPROVAL && onDeviceApproval != null) {
+                val isApproved = onDeviceApproval.invoke(peerProfile)
+                if (!isApproved) {
+                    val rejectFrame = serializer.buildConnectAcceptedFrame(
+                        streamId,
+                        ConnectAcceptedPayload(
+                            status = ConnectAcceptedPayload.STATUS_REJECTED,
+                            rejectionReason = "0x102: Người gửi từ chối kết nối thiết bị"
+                        )
+                    )
+                    serializer.serializeTo(rejectFrame, outputStream)
+                    val err = "Người gửi từ chối kết nối từ thiết bị ${peerProfile.model}"
+                    callback?.onError("0x102", err)
+                    throw SecurityException(err)
+                }
+            }
+
+            // 2. Gửi 0x02 CONNECT_ACCEPTED kèm Manifest
+            val calculatedSha = if (!expectedSha256.isNullOrBlank()) {
+                expectedSha256
+            } else {
+                Sha256StreamCalculator.calculateFileSha256(file)
+            }
+
+            val manifestItem = ManifestItemPayload(
+                relativePath = file.name,
+                fileSize = file.length(),
+                mimeType = "application/octet-stream",
+                sha256 = calculatedSha
+            )
+
+            val acceptFrame = serializer.buildConnectAcceptedFrame(
+                streamId,
+                ConnectAcceptedPayload(
+                    status = ConnectAcceptedPayload.STATUS_APPROVED,
+                    transferType = "SINGLE_FILE",
+                    manifest = listOf(manifestItem)
+                )
+            )
+            serializer.serializeTo(acceptFrame, outputStream)
+
+            // 3. Đợi 0x03 REQUEST_STREAM từ Receiver
+            val requestStreamFrame = parser.parseNextFrame(inputStream)
+                ?: throw IOException("Kết nối bị ngắt trước khi nhận REQUEST_STREAM")
+
+            if (requestStreamFrame.msgType != ChunkFrame.TYPE_REQUEST_STREAM) {
+                throw IOException("Khung tin mong đợi REQUEST_STREAM (0x03), nhận được: ${requestStreamFrame.msgType}")
+            }
+
+            val streamReq = RequestStreamPayload.fromBytes(requestStreamFrame.payload)
+            var currentOffset = streamReq.startOffset
+            val totalFileSize = file.length()
+
+            // 4. Bắt đầu truyền luồng DATA_CHUNK (0x04)
+            currentState = TransferEngineState.TRANSFERRING
+            callback?.onStateChanged(currentState)
+
+            val raf = RandomAccessFile(file, "r")
+            raf.seek(currentOffset)
+            val fileChannel = raf.channel
+
+            var chunkSeq = (currentOffset / bufferPool.bufferSize).toInt()
+            var lastSpeedTimestamp = System.currentTimeMillis()
+            var bytesSinceLastSpeed = 0L
+
+            val verifyResultDeferred = CompletableDeferred<VerifyResultPayload>()
+
+            // Luồng phụ nhận ACK và VERIFY_RESULT từ Receiver
+            val receiverJob = launch(Dispatchers.IO) {
+                try {
+                    while (isActive && !isCancelled.get()) {
+                        val ackOrVerifyFrame = parser.parseNextFrame(inputStream) ?: break
+                        when (ackOrVerifyFrame.msgType) {
+                            ChunkFrame.TYPE_CHUNK_ACK -> {
+                                val ack = ChunkAckPayload.fromBytes(ackOrVerifyFrame.payload)
+                                sessionDao?.updateCheckpoint(sessionId, ack.confirmedOffset)
+                            }
+                            ChunkFrame.TYPE_VERIFY_RESULT -> {
+                                val res = VerifyResultPayload.fromBytes(ackOrVerifyFrame.payload)
+                                verifyResultDeferred.complete(res)
+                                break
+                            }
+                            ChunkFrame.TYPE_CONTROL_SIGNAL -> {
+                                val signal = ControlSignalPayload.fromBytes(ackOrVerifyFrame.payload)
+                                when (signal.command) {
+                                    ControlSignalPayload.CMD_PAUSE -> pause()
+                                    ControlSignalPayload.CMD_RESUME -> resume()
+                                    ControlSignalPayload.CMD_CANCEL -> cancel()
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    if (!verifyResultDeferred.isCompleted) {
+                        verifyResultDeferred.completeExceptionally(e)
+                    }
+                } finally {
+                    if (!verifyResultDeferred.isCompleted) {
+                        verifyResultDeferred.completeExceptionally(
+                            java.io.EOFException("Kết nối bị đóng bởi máy nhận trước khi nhận VERIFY_RESULT")
+                        )
+                    }
+                }
+            }
+
+            try {
+                while (currentOffset < totalFileSize && !isCancelled.get()) {
+                    while (isPaused.get() && !isCancelled.get()) {
+                        delay(200)
+                    }
+                    if (isCancelled.get()) break
+
+                    val buffer = bufferPool.acquire()
+                    val dataToSend = try {
+                        val byteBuffer = ByteBuffer.wrap(buffer)
+                        val bytesRead = fileChannel.read(byteBuffer)
+                        if (bytesRead > 0) {
+                            buffer.copyOfRange(0, bytesRead)
+                        } else null
+                    } finally {
+                        bufferPool.release(buffer)
+                    }
+
+                    if (dataToSend == null) break
+
+                    val chunkPayload = DataChunkPayload(
+                        chunkSeq = chunkSeq++,
+                        chunkOffset = currentOffset,
+                        chunkData = dataToSend
+                    )
+                    val chunkFrame = serializer.buildDataChunkFrame(streamId, chunkPayload)
+                    serializer.serializeTo(chunkFrame, outputStream)
+
+                    val bytesCount = dataToSend.size
+                    currentOffset += bytesCount
+                    bytesSinceLastSpeed += bytesCount
+
+                    val now = System.currentTimeMillis()
+                    val delta = now - lastSpeedTimestamp
+                    if (delta >= 500) {
+                        val speed = (bytesSinceLastSpeed * 1000L) / maxOf(delta, 1L)
+                        callback?.onProgress(currentOffset, totalFileSize, speed)
+                        lastSpeedTimestamp = now
+                        bytesSinceLastSpeed = 0L
+                    }
+                }
+
+                if (isCancelled.get()) {
+                    val cancelSignal = ControlSignalPayload(command = ControlSignalPayload.CMD_CANCEL)
+                    serializer.serializeTo(serializer.buildControlSignalFrame(streamId, cancelSignal), outputStream)
+                    throw CancellationException("Phiên gửi đã bị hủy bởi người dùng")
+                }
+
+                // Chờ kết quả VERIFY_RESULT từ Receiver
+                currentState = TransferEngineState.VERIFYING
+                callback?.onStateChanged(currentState)
+
+                val verifyResult = verifyResultDeferred.await()
+                if (verifyResult.isSuccess) {
+                    currentState = TransferEngineState.COMPLETED
+                    callback?.onStateChanged(currentState)
+                    callback?.onCompleted(sessionId, verifyResult.actualSha256)
+                    Result.success(verifyResult.actualSha256)
+                } else {
+                    currentState = TransferEngineState.FAILED
+                    callback?.onStateChanged(currentState)
+                    val err = "Máy nhận thông báo thất bại: mã băm thực tế ${verifyResult.actualSha256}"
+                    callback?.onError("0x301", err)
+                    Result.failure(SecurityException(err))
+                }
+            } finally {
+                receiverJob.cancel()
+                try { fileChannel.close() } catch (_: Exception) {}
+                try { raf.close() } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            currentState = if (isCancelled.get()) TransferEngineState.CANCELLED else TransferEngineState.FAILED
+            callback?.onStateChanged(currentState)
+            Result.failure(e)
+        } finally {
+            try { activeSocket?.close() } catch (_: Exception) {}
+            try { serverSocket.close() } catch (_: Exception) {}
+            activeSocket = null
+            activeServerSocket = null
+        }
+    }
+
+    // =====================================================================================
+    // CHẾ ĐỘ MÁY KHÁCH NHẬN DỮ LIỆU (RECEIVER CLIENT MODE - SDD MỤC 8.1)
+    // Người nhận quét QR, lấy IP/Port/Token của Sender, kết nối Socket và kéo luồng dữ liệu.
+    // =====================================================================================
+
+    suspend fun connectReceiver(
+        host: String,
+        port: Int = DEFAULT_LAN_PORT,
+        sessionToken: String,
+        sessionId: String,
+        targetDirectory: File,
+        deviceModel: String = "Android Device",
+        deviceManufacturer: String = "Generic",
+        deviceFingerprint: String = "fingerprint",
+        useTls: Boolean = false,
+        callback: TransferProgressCallback? = null
+    ): Result<File> = withContext(Dispatchers.IO) {
+        isCancelled.set(false)
+        isPaused.set(false)
+        currentState = TransferEngineState.CONNECTING
+        callback?.onStateChanged(currentState)
+
+        if (!targetDirectory.exists()) {
+            targetDirectory.mkdirs()
+        }
+
+        val socket = try {
+            socketFactory.createSocket(host, port, useTls = useTls).also {
+                activeSocket = it
+            }
+        } catch (e: Exception) {
+            currentState = TransferEngineState.FAILED
+            callback?.onStateChanged(currentState)
+            callback?.onError("CONNECT_ERROR", "Không thể kết nối đến máy gửi $host:$port - ${e.message}")
+            return@withContext Result.failure(e)
+        }
+
+        var tempFile: File? = null
+
+        try {
+            val inputStream = BufferedInputStream(socket.getInputStream(), 128 * 1024)
+            val outputStream = BufferedOutputStream(socket.getOutputStream(), 128 * 1024)
+            val streamId = 1
+
+            // 1. Gửi 0x01 CONNECT_REQUEST tới Sender
+            currentState = TransferEngineState.HANDSHAKING
+            callback?.onStateChanged(currentState)
+
+            val connectReq = ConnectRequestPayload(
+                sessionToken = sessionToken,
+                deviceModel = deviceModel,
+                deviceManufacturer = deviceManufacturer,
+                deviceFingerprint = deviceFingerprint,
+                clientNonce = System.currentTimeMillis().toString()
+            )
+            val reqFrame = serializer.buildConnectRequestFrame(streamId, connectReq)
+            serializer.serializeTo(reqFrame, outputStream)
+
+            // 2. Nhận 0x02 CONNECT_ACCEPTED từ Sender
+            val acceptedFrame = parser.parseNextFrame(inputStream)
+                ?: throw IOException("Kết nối bị đóng trước khi nhận CONNECT_ACCEPTED")
+
+            if (acceptedFrame.msgType != ChunkFrame.TYPE_CONNECT_ACCEPTED) {
+                throw IOException("Khung tin mong đợi CONNECT_ACCEPTED (0x02), nhận được: ${acceptedFrame.msgType}")
+            }
+
+            val acceptedPayload = ConnectAcceptedPayload.fromBytes(acceptedFrame.payload)
+            if (!acceptedPayload.isApproved) {
+                val reason = acceptedPayload.rejectionReason ?: "0x102: Kết nối bị từ chối bởi máy gửi"
+                callback?.onError("0x102", reason)
+                throw SecurityException(reason)
+            }
+
+            val manifestItem = acceptedPayload.manifest.firstOrNull()
+                ?: throw IOException("Manifest rỗng từ máy gửi")
+
+            val sanitizedName = FilenameSanitizer.sanitize(manifestItem.relativePath)
+            val finalTargetFile = File(targetDirectory, sanitizedName)
+            val tempTargetFile = File(targetDirectory, "$sanitizedName.tmp").also { tempFile = it }
+
+            // Kiểm tra khả năng Resume
+            val startOffset = if (tempTargetFile.exists() && tempTargetFile.length() < manifestItem.fileSize) {
+                tempTargetFile.length()
+            } else {
+                if (tempTargetFile.exists()) tempTargetFile.delete()
+                0L
+            }
+
+            // 3. Gửi 0x03 REQUEST_STREAM
+            val streamReq = RequestStreamPayload(sessionId = sessionId, startOffset = startOffset)
+            val streamReqFrame = serializer.buildRequestStreamFrame(streamId, streamReq)
+            serializer.serializeTo(streamReqFrame, outputStream)
+
+            // 4. Nhận luồng DATA_CHUNK (0x04) và ghi Checkpoint
+            currentState = TransferEngineState.TRANSFERRING
+            callback?.onStateChanged(currentState)
+
+            val checkpointTracker = CheckpointTracker(
+                sessionId = sessionId,
+                sessionDao = sessionDao,
+                flushThreshold = CheckpointTracker.LAN_FLUSH_THRESHOLD
+            ).apply { initOffset(startOffset) }
+
+            val raf = RandomAccessFile(tempTargetFile, "rw")
+            raf.seek(startOffset)
+            val fileChannel = raf.channel
+
+            var receivedBytesTotal = startOffset
+            var lastSpeedTimestamp = System.currentTimeMillis()
+            var bytesSinceLastSpeed = 0L
+
+            try {
+                while (receivedBytesTotal < manifestItem.fileSize && !isCancelled.get()) {
+                    while (isPaused.get() && !isCancelled.get()) {
+                        delay(200)
+                    }
+                    if (isCancelled.get()) break
+
+                    val frame = parser.parseNextFrame(inputStream)
+                        ?: throw IOException("Luồng truyền bị ngắt khi tệp mới nhận được $receivedBytesTotal / ${manifestItem.fileSize} bytes")
+
+                    when (frame.msgType) {
+                        ChunkFrame.TYPE_DATA_CHUNK -> {
+                            val chunk = DataChunkPayload.fromBytes(frame.payload)
+                            val byteBuffer = ByteBuffer.wrap(chunk.chunkData)
+                            fileChannel.write(byteBuffer)
+
+                            val dataLen = chunk.chunkData.size
+                            receivedBytesTotal += dataLen
+                            bytesSinceLastSpeed += dataLen
+
+                            val ackOffset = checkpointTracker.recordBytesWritten(fileChannel, dataLen)
+                            if (ackOffset != null) {
+                                val ackFrame = serializer.buildChunkAckFrame(frame.streamId, ChunkAckPayload(ackOffset))
+                                serializer.serializeTo(ackFrame, outputStream)
+                            }
+
+                            val now = System.currentTimeMillis()
+                            val timeDelta = now - lastSpeedTimestamp
+                            if (timeDelta >= 500) {
+                                val speed = (bytesSinceLastSpeed * 1000L) / maxOf(timeDelta, 1L)
+                                callback?.onProgress(receivedBytesTotal, manifestItem.fileSize, speed)
+                                lastSpeedTimestamp = now
+                                bytesSinceLastSpeed = 0L
+                            }
+                        }
+
+                        ChunkFrame.TYPE_CONTROL_SIGNAL -> {
+                            val signal = ControlSignalPayload.fromBytes(frame.payload)
+                            when (signal.command) {
+                                ControlSignalPayload.CMD_PAUSE -> pause()
+                                ControlSignalPayload.CMD_RESUME -> resume()
+                                ControlSignalPayload.CMD_CANCEL -> {
+                                    cancel()
+                                    throw IOException("Phía gửi yêu cầu CANCEL phiên truyền")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (isCancelled.get()) {
+                    throw CancellationException("Phiên truyền đã bị người dùng hủy")
+                }
+
+                // 5. Xác thực toàn vẹn tệp SHA-256
+                currentState = TransferEngineState.VERIFYING
+                callback?.onStateChanged(currentState)
+
+                checkpointTracker.flushFinal(fileChannel)
+                fileChannel.close()
+                raf.close()
+
+                val calculatedSha256 = Sha256StreamCalculator.calculateFileSha256(tempTargetFile)
+                val isVerified = calculatedSha256.equals(manifestItem.sha256, ignoreCase = true)
+
+                if (isVerified) {
+                    if (finalTargetFile.exists()) finalTargetFile.delete()
+                    val renameSuccess = tempTargetFile.renameTo(finalTargetFile)
+                    if (!renameSuccess) {
+                        throw IOException("Không thể đổi tên tệp tạm thành: ${finalTargetFile.absolutePath}")
+                    }
+
+                    val verifyFrame = serializer.buildVerifyResultFrame(
+                        streamId = streamId,
+                        payload = VerifyResultPayload(sessionId, "SUCCESS", calculatedSha256)
+                    )
+                    serializer.serializeTo(verifyFrame, outputStream)
+
+                    currentState = TransferEngineState.COMPLETED
+                    callback?.onStateChanged(currentState)
+                    callback?.onCompleted(sessionId, calculatedSha256)
+
+                    Result.success(finalTargetFile)
+                } else {
+                    val verifyFrame = serializer.buildVerifyResultFrame(
+                        streamId = streamId,
+                        payload = VerifyResultPayload(sessionId, "CHECKSUM_FAILED", calculatedSha256)
+                    )
+                    serializer.serializeTo(verifyFrame, outputStream)
+
+                    SafeFileDeleter.wipeAndSanitizeFile(tempTargetFile)
+                    currentState = TransferEngineState.FAILED
+                    callback?.onStateChanged(currentState)
+                    val err = "Sai lệch mã băm SHA-256: kỳ vọng ${manifestItem.sha256}, thực tế $calculatedSha256"
+                    callback?.onError("0x301", err)
+                    Result.failure(SecurityException(err))
+                }
+            } finally {
+                try { fileChannel.close() } catch (_: Exception) {}
+                try { raf.close() } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            currentState = if (isCancelled.get()) TransferEngineState.CANCELLED else TransferEngineState.FAILED
+            callback?.onStateChanged(currentState)
+            if (tempFile != null && tempFile!!.exists() && isCancelled.get()) {
+                SafeFileDeleter.wipeAndSanitizeFile(tempFile!!)
+            }
+            Result.failure(e)
+        } finally {
+            try { socket.close() } catch (_: Exception) {}
+            activeSocket = null
+        }
+    }
+
+    // =====================================================================================
+    // PHƯƠNG THỨC TƯƠNG THÍCH NGƯỢC (BACKWARD COMPATIBLE APIS CHO UNIT TESTS & COORDINATOR)
     // =====================================================================================
 
     /**
-     * Khởi chạy phiên nhận tệp từ mạng LAN.
-     * @param port Cổng TCP lắng nghe (0 để tự cấp phát ngẫu nhiên trong dải private 49152..65535)
-     * @param targetDirectory Thư mục lưu tệp nhận được
-     * @param expectedTeamId Mã nhóm dự kiến để thẩm định tính hợp lệ
-     * @param ownerPublicKey Khóa công khai của Owner dùng thẩm định chữ ký Credential
-     * @param useTls Có sử dụng mã hóa TLS hay không
-     * @param serverTimeoutMs Thời gian chờ kết nối tối đa từ máy gửi (mặc định 60s)
-     * @param callback Lắng nghe sự kiện tiến trình
-     * @return Cổng TCP thực tế mà máy chủ đang lắng nghe
+     * Nhận tệp qua mạng LAN (hỗ trợ cả sessionToken và expectedTeamId cũ).
      */
     suspend fun receiveFile(
         port: Int = 0,
         targetDirectory: File,
         expectedTeamId: String? = null,
+        sessionToken: String? = null,
         ownerPublicKey: PublicKey? = null,
         useTls: Boolean = false,
         serverTimeoutMs: Int = DEFAULT_SERVER_TIMEOUT_MS,
@@ -149,12 +651,10 @@ class LanTransferEngine(
         var tempFile: File? = null
 
         try {
-            // Thiết lập timeout chờ kết nối
             if (serverTimeoutMs > 0) {
                 serverSocket.soTimeout = serverTimeoutMs
             }
 
-            // Chấp nhận 1 kết nối từ Sender
             val socket = try {
                 serverSocket.accept().also { activeSocket = it }
             } catch (e: java.net.SocketTimeoutException) {
@@ -166,27 +666,43 @@ class LanTransferEngine(
             val inputStream = BufferedInputStream(socket.getInputStream(), 128 * 1024)
             val outputStream = BufferedOutputStream(socket.getOutputStream(), 128 * 1024)
 
-            // Giai đoạn 1: Bắt tay xác thực (HANDSHAKE_AUTH)
             currentState = TransferEngineState.HANDSHAKING
             callback?.onStateChanged(currentState)
 
             val handshakeFrame = parser.parseNextFrame(inputStream)
-                ?: throw IOException("Kết nối bị đóng trước khi nhận HANDSHAKE_AUTH")
+                ?: throw IOException("Kết nối bị đóng trước khi nhận frame xác thực")
 
-            if (handshakeFrame.msgType != ChunkFrame.TYPE_HANDSHAKE_AUTH) {
-                throw IOException("Khung tin mong đợi HANDSHAKE_AUTH (0x01), nhận được: ${handshakeFrame.msgType}")
+            // Xử lý frame 0x01 (CONNECT_REQUEST hoặc HANDSHAKE_AUTH)
+            val authJson = try {
+                JSONObject(String(handshakeFrame.payload, Charsets.UTF_8))
+            } catch (_: Exception) {
+                JSONObject()
             }
 
-            val authPayload = HandshakeAuthPayload.fromBytes(handshakeFrame.payload)
+            val receivedToken = authJson.optString("sessionToken", "")
+            val receivedTeamId = authJson.optString("teamId", "")
 
-            // Thẩm định Team ID
-            if (expectedTeamId != null && authPayload.teamId != expectedTeamId) {
-                val err = "TeamId không khớp: nhận ${authPayload.teamId}, dự kiến $expectedTeamId"
+            // Thẩm định sessionToken nếu có
+            if (!sessionToken.isNullOrBlank()) {
+                if (receivedToken != sessionToken && receivedTeamId != sessionToken) {
+                    val err = "Session token không khớp: nhận $receivedToken, dự kiến $sessionToken"
+                    callback?.onError("0x101", err)
+                    throw SecurityException(err)
+                }
+            } else if (expectedTeamId != null && receivedTeamId != expectedTeamId) {
+                val err = "TeamId không khớp: nhận $receivedTeamId, dự kiến $expectedTeamId"
                 callback?.onError("TEAM_MISMATCH", err)
                 throw SecurityException(err)
             }
 
-            // Thẩm định chữ ký số của Owner trên Credential nếu có yêu cầu ownerPublicKey
+            val authPayload = HandshakeAuthPayload.fromBytes(handshakeFrame.payload)
+
+            if (peerValidator != null && !peerValidator.invoke(authPayload)) {
+                val err = "Peer bị từ chối bởi chính sách thẩm định (vd: thành viên đã bị thu hồi quyền)"
+                callback?.onError("PEER_VALIDATION_FAILED", err)
+                throw SecurityException(err)
+            }
+
             if (ownerPublicKey != null) {
                 if (keyManager == null || authPayload.credentialData.isBlank()) {
                     val err = "Thiếu KeyManager hoặc Credential để thẩm định chữ ký Owner"
@@ -210,38 +726,48 @@ class LanTransferEngine(
                 }
             }
 
-            // Giai đoạn 2: Nhận TRANSFER_MANIFEST (0x02)
+            // Giai đoạn 2: Nhận TRANSFER_MANIFEST (0x02) hoặc CONNECT_ACCEPTED
             val manifestFrame = parser.parseNextFrame(inputStream)
                 ?: throw IOException("Kết nối bị đóng trước khi nhận TRANSFER_MANIFEST")
 
-            if (manifestFrame.msgType != ChunkFrame.TYPE_TRANSFER_MANIFEST) {
-                throw IOException("Khung tin mong đợi TRANSFER_MANIFEST (0x02), nhận được: ${manifestFrame.msgType}")
+            val manifestJson = try {
+                JSONObject(String(manifestFrame.payload, Charsets.UTF_8))
+            } catch (_: Exception) {
+                JSONObject()
             }
 
-            val manifest = TransferManifestPayload.fromBytes(manifestFrame.payload)
-            val sanitizedName = FilenameSanitizer.sanitize(manifest.fileName)
+            val (docId, fileName, fileSize, expectedSha256) = if (manifestJson.has("manifest")) {
+                val accepted = ConnectAcceptedPayload.fromBytes(manifestFrame.payload)
+                val item = accepted.manifest.firstOrNull() ?: throw IOException("Manifest rỗng")
+                listOf(item.relativePath, item.relativePath, item.fileSize, item.sha256)
+            } else {
+                val legacy = TransferManifestPayload.fromBytes(manifestFrame.payload)
+                listOf(legacy.docId, legacy.fileName, legacy.fileSize, legacy.expectedSha256)
+            }
+
+            val sanitizedName = FilenameSanitizer.sanitize(fileName as String)
             val finalTargetFile = File(targetDirectory, sanitizedName)
             val tempTargetFile = File(targetDirectory, "$sanitizedName.tmp").also { tempFile = it }
 
-            // Kiểm tra khả năng khôi phục (Resume) từ mốc checkpoint trước đó
-            val startOffset = if (tempTargetFile.exists() && tempTargetFile.length() < manifest.fileSize) {
+            val totalSize = fileSize as Long
+            val startOffset = if (tempTargetFile.exists() && tempTargetFile.length() < totalSize) {
                 tempTargetFile.length()
             } else {
                 if (tempTargetFile.exists()) tempTargetFile.delete()
                 0L
             }
 
-            // Gửi MANIFEST_RESPONSE (0x03)
+            // Phản hồi 0x03 REQUEST_STREAM hoặc MANIFEST_RESPONSE
             val manifestResponse = ManifestResponsePayload(accepted = true, startOffset = startOffset)
             val responseFrame = serializer.buildManifestResponseFrame(manifestFrame.streamId, manifestResponse)
             serializer.serializeTo(responseFrame, outputStream)
 
-            // Giai đoạn 3: Nhận luồng DATA_CHUNK (0x04) và ghi Checkpoint
+            // Giai đoạn 3: Nhận luồng DATA_CHUNK (0x04)
             currentState = TransferEngineState.TRANSFERRING
             callback?.onStateChanged(currentState)
 
             val checkpointTracker = CheckpointTracker(
-                sessionId = manifest.docId,
+                sessionId = docId as String,
                 sessionDao = sessionDao,
                 flushThreshold = CheckpointTracker.LAN_FLUSH_THRESHOLD
             ).apply { initOffset(startOffset) }
@@ -255,14 +781,14 @@ class LanTransferEngine(
             var bytesSinceLastSpeed = 0L
 
             try {
-                while (receivedBytesTotal < manifest.fileSize && !isCancelled.get()) {
+                while (receivedBytesTotal < totalSize && !isCancelled.get()) {
                     while (isPaused.get() && !isCancelled.get()) {
                         delay(200)
                     }
                     if (isCancelled.get()) break
 
                     val frame = parser.parseNextFrame(inputStream)
-                        ?: throw IOException("Luồng truyền bị ngắt khi tệp mới nhận được $receivedBytesTotal / ${manifest.fileSize} bytes")
+                        ?: throw IOException("Luồng truyền bị ngắt khi tệp mới nhận được $receivedBytesTotal / $totalSize bytes")
 
                     when (frame.msgType) {
                         ChunkFrame.TYPE_DATA_CHUNK -> {
@@ -274,19 +800,17 @@ class LanTransferEngine(
                             receivedBytesTotal += dataLen
                             bytesSinceLastSpeed += dataLen
 
-                            // Ghi nhận checkpoint, nếu vượt 2MB sẽ flush đĩa và trả về mốc ACK
                             val ackOffset = checkpointTracker.recordBytesWritten(fileChannel, dataLen)
                             if (ackOffset != null) {
                                 val ackFrame = serializer.buildChunkAckFrame(frame.streamId, ChunkAckPayload(ackOffset))
                                 serializer.serializeTo(ackFrame, outputStream)
                             }
 
-                            // Tính toán tốc độ truyền
                             val now = System.currentTimeMillis()
                             val timeDelta = now - lastSpeedTimestamp
                             if (timeDelta >= 500) {
                                 val speed = (bytesSinceLastSpeed * 1000L) / maxOf(timeDelta, 1L)
-                                callback?.onProgress(receivedBytesTotal, manifest.fileSize, speed)
+                                callback?.onProgress(receivedBytesTotal, totalSize, speed)
                                 lastSpeedTimestamp = now
                                 bytesSinceLastSpeed = 0L
                             }
@@ -303,10 +827,6 @@ class LanTransferEngine(
                                 }
                             }
                         }
-
-                        else -> {
-                            // Bỏ qua khung tin không mong muốn
-                        }
                     }
                 }
 
@@ -314,53 +834,47 @@ class LanTransferEngine(
                     throw CancellationException("Phiên truyền đã bị người dùng hủy")
                 }
 
-                // Giai đoạn 4: Xác thực toàn vẹn tệp SHA-256
                 currentState = TransferEngineState.VERIFYING
                 callback?.onStateChanged(currentState)
 
-                // Flush toàn bộ dữ liệu dở dang cuối cùng xuống SSD
                 checkpointTracker.flushFinal(fileChannel)
                 fileChannel.close()
                 raf.close()
 
                 val calculatedSha256 = Sha256StreamCalculator.calculateFileSha256(tempTargetFile)
-                val isVerified = calculatedSha256.equals(manifest.expectedSha256, ignoreCase = true)
+                val isVerified = calculatedSha256.equals(expectedSha256 as String, ignoreCase = true)
 
                 if (isVerified) {
-                    // Đổi tên tệp tạm thành tên chính thức
                     if (finalTargetFile.exists()) finalTargetFile.delete()
                     val renameSuccess = tempTargetFile.renameTo(finalTargetFile)
                     if (!renameSuccess) {
                         throw IOException("Không thể đổi tên tệp tạm thành: ${finalTargetFile.absolutePath}")
                     }
 
-                    // Gửi thông báo thành công cho Sender
                     val verifyFrame = serializer.buildVerifyResultFrame(
                         streamId = manifestFrame.streamId,
-                        payload = VerifyResultPayload(manifest.docId, "SUCCESS", calculatedSha256)
+                        payload = VerifyResultPayload(docId, "SUCCESS", calculatedSha256)
                     )
                     serializer.serializeTo(verifyFrame, outputStream)
 
                     currentState = TransferEngineState.COMPLETED
                     callback?.onStateChanged(currentState)
-                    callback?.onCompleted(manifest.docId, calculatedSha256)
+                    callback?.onCompleted(docId, calculatedSha256)
 
                     Result.success(finalTargetFile)
                 } else {
-                    // Tiêu hủy tệp tạm an toàn do hỏng băm
-                    SafeFileDeleter.wipeAndSanitizeFile(tempTargetFile)
-
                     val verifyFrame = serializer.buildVerifyResultFrame(
                         streamId = manifestFrame.streamId,
-                        payload = VerifyResultPayload(manifest.docId, "CHECKSUM_FAILED", calculatedSha256)
+                        payload = VerifyResultPayload(docId, "CHECKSUM_FAILED", calculatedSha256)
                     )
                     serializer.serializeTo(verifyFrame, outputStream)
 
+                    SafeFileDeleter.wipeAndSanitizeFile(tempTargetFile)
                     currentState = TransferEngineState.FAILED
                     callback?.onStateChanged(currentState)
-                    val errorMsg = "Sai lệch mã băm SHA-256: kỳ vọng ${manifest.expectedSha256}, thực tế $calculatedSha256"
-                    callback?.onError("CHECKSUM_MISMATCH", errorMsg)
-                    Result.failure(SecurityException(errorMsg))
+                    val err = "Sai lệch mã băm SHA-256: kỳ vọng $expectedSha256, thực tế $calculatedSha256"
+                    callback?.onError("CHECKSUM_MISMATCH", err)
+                    Result.failure(SecurityException(err))
                 }
             } finally {
                 try { fileChannel.close() } catch (_: Exception) {}
@@ -369,7 +883,7 @@ class LanTransferEngine(
         } catch (e: Exception) {
             currentState = if (isCancelled.get()) TransferEngineState.CANCELLED else TransferEngineState.FAILED
             callback?.onStateChanged(currentState)
-            if (tempFile != null && isCancelled.get()) {
+            if (tempFile != null && tempFile!!.exists() && isCancelled.get()) {
                 SafeFileDeleter.wipeAndSanitizeFile(tempFile!!)
             }
             Result.failure(e)
@@ -381,23 +895,20 @@ class LanTransferEngine(
         }
     }
 
-    // =====================================================================================
-    // CHẾ ĐỘ MÁY KHÁCH GỬI DỮ LIỆU (SENDER / CLIENT MODE)
-    // =====================================================================================
-
     /**
-     * Gửi tệp tin qua mạng LAN tới máy chủ đích.
+     * Gửi tệp tin qua mạng LAN (hỗ trợ cả sessionToken và teamId cũ).
      */
     suspend fun sendFile(
         host: String,
         port: Int,
         file: File,
         docId: String,
-        teamId: String,
-        memberId: String,
-        deviceFingerprint: String,
-        role: String,
-        credentialData: String,
+        teamId: String = "",
+        memberId: String = "",
+        deviceFingerprint: String = "",
+        role: String = "",
+        credentialData: String = "",
+        sessionToken: String? = null,
         useTls: Boolean = false,
         expectedSha256: String? = null,
         callback: TransferProgressCallback? = null
@@ -425,12 +936,13 @@ class LanTransferEngine(
             val outputStream = BufferedOutputStream(socket.getOutputStream(), 128 * 1024)
             val streamId = 1
 
-            // Giai đoạn 1: Bắt tay xác thực (HANDSHAKE_AUTH)
+            // 1. Gửi gói 0x01
             currentState = TransferEngineState.HANDSHAKING
             callback?.onStateChanged(currentState)
 
+            val effectiveToken = if (!sessionToken.isNullOrBlank()) sessionToken else teamId
             val authPayload = HandshakeAuthPayload(
-                teamId = teamId,
+                teamId = effectiveToken,
                 memberId = memberId,
                 deviceFingerprint = deviceFingerprint,
                 role = role,
@@ -440,7 +952,7 @@ class LanTransferEngine(
             val authFrame = serializer.buildHandshakeAuthFrame(streamId, authPayload)
             serializer.serializeTo(authFrame, outputStream)
 
-            // Giai đoạn 2: Lấy mã băm (tái sử dụng nếu đã có sẵn, tránh quét lại SSD) và gửi TRANSFER_MANIFEST (0x02)
+            // 2. Gửi 0x02 MANIFEST
             currentState = TransferEngineState.VERIFYING
             callback?.onStateChanged(currentState)
             val calculatedSha256 = if (!expectedSha256.isNullOrBlank()) {
@@ -460,13 +972,9 @@ class LanTransferEngine(
             val manifestFrame = serializer.buildTransferManifestFrame(streamId, manifestPayload)
             serializer.serializeTo(manifestFrame, outputStream)
 
-            // Đợi MANIFEST_RESPONSE (0x03)
+            // 3. Đợi MANIFEST_RESPONSE
             val responseFrame = parser.parseNextFrame(inputStream)
                 ?: throw IOException("Kết nối bị ngắt trước khi nhận MANIFEST_RESPONSE")
-
-            if (responseFrame.msgType != ChunkFrame.TYPE_MANIFEST_RESPONSE) {
-                throw IOException("Khung tin mong đợi MANIFEST_RESPONSE (0x03), nhận được: ${responseFrame.msgType}")
-            }
 
             val response = ManifestResponsePayload.fromBytes(responseFrame.payload)
             if (!response.accepted) {
@@ -475,7 +983,7 @@ class LanTransferEngine(
                 throw IOException("Phiên truyền bị từ chối: $reason")
             }
 
-            // Giai đoạn 3: Bơm dữ liệu DATA_CHUNK tuần hoàn qua BufferPool
+            // 4. Bơm DATA_CHUNK
             currentState = TransferEngineState.TRANSFERRING
             callback?.onStateChanged(currentState)
 
@@ -491,7 +999,6 @@ class LanTransferEngine(
 
             val verifyResultDeferred = CompletableDeferred<VerifyResultPayload>()
 
-            // Luồng phụ nhận ACK và VerifyResult từ Receiver
             val receiverJob = launch(Dispatchers.IO) {
                 try {
                     while (isActive && !isCancelled.get()) {
@@ -505,6 +1012,14 @@ class LanTransferEngine(
                                 val res = VerifyResultPayload.fromBytes(ackOrVerifyFrame.payload)
                                 verifyResultDeferred.complete(res)
                                 break
+                            }
+                            ChunkFrame.TYPE_CONTROL_SIGNAL -> {
+                                val signal = ControlSignalPayload.fromBytes(ackOrVerifyFrame.payload)
+                                when (signal.command) {
+                                    "PAUSE" -> pause()
+                                    "RESUME" -> resume()
+                                    "CANCEL" -> cancel()
+                                }
                             }
                         }
                     }
@@ -528,18 +1043,14 @@ class LanTransferEngine(
                     }
                     if (isCancelled.get()) break
 
-                    // Thu hồi buffer 64KB từ hồ (áp dụng Backpressure)
                     val buffer = bufferPool.acquire()
                     val dataToSend = try {
                         val byteBuffer = ByteBuffer.wrap(buffer)
                         val bytesRead = fileChannel.read(byteBuffer)
                         if (bytesRead > 0) {
                             buffer.copyOfRange(0, bytesRead)
-                        } else {
-                            null
-                        }
+                        } else null
                     } finally {
-                        // Luôn giải phóng và zeroize buffer về hồ dù read() thành công hay ném ngoại lệ
                         bufferPool.release(buffer)
                     }
 
@@ -568,18 +1079,16 @@ class LanTransferEngine(
                 }
 
                 if (isCancelled.get()) {
-                    // Gửi tín hiệu CANCEL cho máy nhận
                     val cancelSignal = ControlSignalPayload(command = "CANCEL")
                     serializer.serializeTo(serializer.buildControlSignalFrame(streamId, cancelSignal), outputStream)
                     throw CancellationException("Phiên gửi đã bị hủy bởi người dùng")
                 }
 
-                // Chờ kết quả thẩm định toàn vẹn từ máy nhận
                 currentState = TransferEngineState.VERIFYING
                 callback?.onStateChanged(currentState)
 
                 val verifyResult = verifyResultDeferred.await()
-                if (verifyResult.status == "SUCCESS") {
+                if (verifyResult.isSuccess) {
                     currentState = TransferEngineState.COMPLETED
                     callback?.onStateChanged(currentState)
                     callback?.onCompleted(docId, verifyResult.actualSha256)
@@ -593,11 +1102,6 @@ class LanTransferEngine(
                 }
             } finally {
                 receiverJob.cancel()
-                if (!verifyResultDeferred.isCompleted) {
-                    verifyResultDeferred.completeExceptionally(
-                        CancellationException("Phiên gửi tệp bị hủy hoặc kết thúc bất thường")
-                    )
-                }
                 try { fileChannel.close() } catch (_: Exception) {}
                 try { raf.close() } catch (_: Exception) {}
             }
@@ -611,4 +1115,3 @@ class LanTransferEngine(
         }
     }
 }
-

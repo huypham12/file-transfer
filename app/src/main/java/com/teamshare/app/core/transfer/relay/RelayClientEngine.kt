@@ -125,8 +125,8 @@ class RelayClientEngine(
         session: TransferSession,
         fileChannel: FileChannel,
         expectedSha256: String,
-        localCredential: TeamMembershipCredential,
-        ownerPublicKey: PublicKey,
+        localCredential: TeamMembershipCredential? = null,
+        ownerPublicKey: PublicKey? = null,
         callback: TransferProgressCallback? = null,
         peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null,
         maxRetries: Int = 3
@@ -171,8 +171,8 @@ class RelayClientEngine(
         session: TransferSession,
         fileChannel: FileChannel,
         expectedSha256: String,
-        localCredential: TeamMembershipCredential,
-        ownerPublicKey: PublicKey,
+        localCredential: TeamMembershipCredential? = null,
+        ownerPublicKey: PublicKey? = null,
         callback: TransferProgressCallback? = null,
         peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null
     ): Boolean = withContext(Dispatchers.IO) {
@@ -196,7 +196,8 @@ class RelayClientEngine(
             // 1. Gửi bản tin ATTACH_STREAM
             val attachReq = AttachStreamRequest(
                 streamId = session.sessionId,
-                role = "SENDER"
+                role = "SENDER",
+                authTicket = session.sessionToken
             )
             connection.sendText(attachReq.toJson())
 
@@ -219,12 +220,18 @@ class RelayClientEngine(
             callback?.onSasGenerated(sas)
 
             // 3. Trao đổi xác thực hai chiều qua Binary Frames
+            val effectiveTeamId = localCredential?.teamId?.ifBlank { session.sessionToken } ?: session.sessionToken
+            val effectiveMemberId = localCredential?.memberId ?: "member_${session.sessionId.take(8)}"
+            val effectiveFingerprint = localCredential?.deviceFingerprint ?: session.peerFingerprint
+            val effectiveRole = localCredential?.role?.name ?: "MEMBER"
+            val effectiveSignature = localCredential?.ownerSignature ?: ""
+
             val authPayload = HandshakeAuthPayload(
-                teamId = localCredential.teamId,
-                memberId = localCredential.memberId,
-                deviceFingerprint = localCredential.deviceFingerprint,
-                role = localCredential.role.name,
-                credentialData = localCredential.ownerSignature,
+                teamId = effectiveTeamId,
+                memberId = effectiveMemberId,
+                deviceFingerprint = effectiveFingerprint,
+                role = effectiveRole,
+                credentialData = effectiveSignature,
                 clientNonce = System.currentTimeMillis().toString()
             )
             val authFrame = serializer.buildHandshakeAuthFrame(streamIdInt, authPayload)
@@ -234,30 +241,40 @@ class RelayClientEngine(
             val peerAuthFrame = parseFrame(peerAuthBytes)
             val peerAuthPayload = HandshakeAuthPayload.fromBytes(peerAuthFrame.payload)
 
-            // Thẩm định chữ ký số Owner trên chứng thư của Receiver
-            val claims = listOf(
-                "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:${peerAuthPayload.role}",
-                "${peerAuthPayload.teamId}|${peerAuthPayload.memberId}|${peerAuthPayload.role}",
-                "${peerAuthPayload.teamId}|${peerAuthPayload.deviceFingerprint}|${peerAuthPayload.role}"
-            )
-            val peerSignatureBytes = parseHexOrBytes(peerAuthPayload.credentialData)
-            var isValidPeer = false
-            for (claim in claims) {
-                if (CryptoEngine.verifySignature(ownerPublicKey, claim.toByteArray(Charsets.UTF_8), peerSignatureBytes)) {
-                    isValidPeer = true
-                    break
+            // Thẩm định bên nhận: nếu có ownerPublicKey và localCredential thì kiểm tra chữ ký số, ngược lại kiểm tra sessionToken
+            if (ownerPublicKey != null && localCredential != null && localCredential.teamId.isNotBlank()) {
+                val claims = listOf(
+                    "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:${peerAuthPayload.role}",
+                    "${peerAuthPayload.teamId}|${peerAuthPayload.memberId}|${peerAuthPayload.role}",
+                    "${peerAuthPayload.teamId}|${peerAuthPayload.deviceFingerprint}|${peerAuthPayload.role}"
+                )
+                val peerSignatureBytes = parseHexOrBytes(peerAuthPayload.credentialData)
+                var isValidPeer = false
+                for (claim in claims) {
+                    if (CryptoEngine.verifySignature(ownerPublicKey, claim.toByteArray(Charsets.UTF_8), peerSignatureBytes)) {
+                        isValidPeer = true
+                        break
+                    }
                 }
-            }
-            if (!isValidPeer && peerAuthPayload.role == "OWNER" && peerAuthPayload.teamId == localCredential.teamId && localCredential.teamId.isNotBlank()) {
-                val ownerClaim = "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:OWNER"
-                isValidPeer = CryptoEngine.verifySignature(ownerPublicKey, ownerClaim.toByteArray(Charsets.UTF_8), peerSignatureBytes)
-            }
-            if (!isValidPeer && peerValidator?.invoke(peerAuthPayload) == true) {
-                isValidPeer = true
-            }
-            if (!isValidPeer) {
-                callback?.onError("0x101", "Chứng thư thành viên của bên nhận không hợp lệ (sai chữ ký Owner)")
-                throw SecurityException("Bên nhận mang chứng thư giả mạo hoặc sai chữ ký số của Owner")
+                if (!isValidPeer && peerAuthPayload.role == "OWNER" && peerAuthPayload.teamId == localCredential.teamId) {
+                    val ownerClaim = "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:OWNER"
+                    isValidPeer = CryptoEngine.verifySignature(ownerPublicKey, ownerClaim.toByteArray(Charsets.UTF_8), peerSignatureBytes)
+                }
+                if (!isValidPeer && peerValidator?.invoke(peerAuthPayload) == true) {
+                    isValidPeer = true
+                }
+                if (!isValidPeer) {
+                    callback?.onError("0x101", "Chứng thư thành viên của bên nhận không hợp lệ (sai chữ ký Owner)")
+                    throw SecurityException("Bên nhận mang chứng thư giả mạo hoặc sai chữ ký số của Owner")
+                }
+            } else {
+                // Kiểm tra theo sessionToken (Stage 3)
+                if (peerAuthPayload.teamId != session.sessionToken && peerValidator?.invoke(peerAuthPayload) != true) {
+                    if (session.sessionToken.isNotBlank() && peerAuthPayload.teamId.isNotBlank() && peerAuthPayload.teamId != session.sessionToken) {
+                        callback?.onError("0x101", "Session token của bên nhận không khớp")
+                        throw SecurityException("Bên nhận mang session token không hợp lệ")
+                    }
+                }
             }
 
             // 4. Gửi TRANSFER_MANIFEST (0x02) sang Receiver (SDD Mục 6.2)
@@ -438,8 +455,8 @@ class RelayClientEngine(
         session: TransferSession,
         targetFile: File,
         expectedSha256: String,
-        localCredential: TeamMembershipCredential,
-        ownerPublicKey: PublicKey,
+        localCredential: TeamMembershipCredential? = null,
+        ownerPublicKey: PublicKey? = null,
         callback: TransferProgressCallback? = null,
         peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null,
         maxRetries: Int = 3
@@ -484,8 +501,8 @@ class RelayClientEngine(
         session: TransferSession,
         targetFile: File,
         expectedSha256: String,
-        localCredential: TeamMembershipCredential,
-        ownerPublicKey: PublicKey,
+        localCredential: TeamMembershipCredential? = null,
+        ownerPublicKey: PublicKey? = null,
         callback: TransferProgressCallback? = null,
         peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null
     ): Boolean = withContext(Dispatchers.IO) {
@@ -508,7 +525,8 @@ class RelayClientEngine(
             // 1. Gửi bản tin ATTACH_STREAM với vai trò RECEIVER
             val attachReq = AttachStreamRequest(
                 streamId = session.sessionId,
-                role = "RECEIVER"
+                role = "RECEIVER",
+                authTicket = session.sessionToken
             )
             connection.sendText(attachReq.toJson())
 
@@ -531,12 +549,18 @@ class RelayClientEngine(
             callback?.onSasGenerated(sas)
 
             // 3. Trao đổi xác thực hai chiều Handshake Auth
+            val effectiveTeamId = localCredential?.teamId?.ifBlank { session.sessionToken } ?: session.sessionToken
+            val effectiveMemberId = localCredential?.memberId ?: "member_${session.sessionId.take(8)}"
+            val effectiveFingerprint = localCredential?.deviceFingerprint ?: session.peerFingerprint
+            val effectiveRole = localCredential?.role?.name ?: "MEMBER"
+            val effectiveSignature = localCredential?.ownerSignature ?: ""
+
             val authPayload = HandshakeAuthPayload(
-                teamId = localCredential.teamId,
-                memberId = localCredential.memberId,
-                deviceFingerprint = localCredential.deviceFingerprint,
-                role = localCredential.role.name,
-                credentialData = localCredential.ownerSignature,
+                teamId = effectiveTeamId,
+                memberId = effectiveMemberId,
+                deviceFingerprint = effectiveFingerprint,
+                role = effectiveRole,
+                credentialData = effectiveSignature,
                 clientNonce = System.currentTimeMillis().toString()
             )
             val authFrame = serializer.buildHandshakeAuthFrame(streamIdInt, authPayload)
@@ -546,30 +570,39 @@ class RelayClientEngine(
             val peerAuthFrame = parseFrame(peerAuthBytes)
             val peerAuthPayload = HandshakeAuthPayload.fromBytes(peerAuthFrame.payload)
 
-            // Thẩm định chữ ký số Owner trên chứng thư của Sender
-            val claims = listOf(
-                "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:${peerAuthPayload.role}",
-                "${peerAuthPayload.teamId}|${peerAuthPayload.memberId}|${peerAuthPayload.role}",
-                "${peerAuthPayload.teamId}|${peerAuthPayload.deviceFingerprint}|${peerAuthPayload.role}"
-            )
-            val peerSignatureBytes = parseHexOrBytes(peerAuthPayload.credentialData)
-            var isValidPeer = false
-            for (claim in claims) {
-                if (CryptoEngine.verifySignature(ownerPublicKey, claim.toByteArray(Charsets.UTF_8), peerSignatureBytes)) {
-                    isValidPeer = true
-                    break
+            // Thẩm định bên gửi: nếu có ownerPublicKey và localCredential thì kiểm tra chữ ký số, ngược lại kiểm tra sessionToken
+            if (ownerPublicKey != null && localCredential != null && localCredential.teamId.isNotBlank()) {
+                val claims = listOf(
+                    "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:${peerAuthPayload.role}",
+                    "${peerAuthPayload.teamId}|${peerAuthPayload.memberId}|${peerAuthPayload.role}",
+                    "${peerAuthPayload.teamId}|${peerAuthPayload.deviceFingerprint}|${peerAuthPayload.role}"
+                )
+                val peerSignatureBytes = parseHexOrBytes(peerAuthPayload.credentialData)
+                var isValidPeer = false
+                for (claim in claims) {
+                    if (CryptoEngine.verifySignature(ownerPublicKey, claim.toByteArray(Charsets.UTF_8), peerSignatureBytes)) {
+                        isValidPeer = true
+                        break
+                    }
                 }
-            }
-            if (!isValidPeer && peerAuthPayload.role == "OWNER" && peerAuthPayload.teamId == localCredential.teamId && localCredential.teamId.isNotBlank()) {
-                val ownerClaim = "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:OWNER"
-                isValidPeer = CryptoEngine.verifySignature(ownerPublicKey, ownerClaim.toByteArray(Charsets.UTF_8), peerSignatureBytes)
-            }
-            if (!isValidPeer && peerValidator?.invoke(peerAuthPayload) == true) {
-                isValidPeer = true
-            }
-            if (!isValidPeer) {
-                callback?.onError("0x101", "Chứng thư thành viên của bên gửi không hợp lệ (sai chữ ký Owner)")
-                throw SecurityException("Bên gửi mang chứng thư giả mạo hoặc sai chữ ký số của Owner")
+                if (!isValidPeer && peerAuthPayload.role == "OWNER" && peerAuthPayload.teamId == localCredential.teamId) {
+                    val ownerClaim = "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:OWNER"
+                    isValidPeer = CryptoEngine.verifySignature(ownerPublicKey, ownerClaim.toByteArray(Charsets.UTF_8), peerSignatureBytes)
+                }
+                if (!isValidPeer && peerValidator?.invoke(peerAuthPayload) == true) {
+                    isValidPeer = true
+                }
+                if (!isValidPeer) {
+                    callback?.onError("0x101", "Chứng thư thành viên của bên gửi không hợp lệ (sai chữ ký Owner)")
+                    throw SecurityException("Bên gửi mang chứng thư giả mạo hoặc sai chữ ký số của Owner")
+                }
+            } else {
+                if (peerAuthPayload.teamId != session.sessionToken && peerValidator?.invoke(peerAuthPayload) != true) {
+                    if (session.sessionToken.isNotBlank() && peerAuthPayload.teamId.isNotBlank() && peerAuthPayload.teamId != session.sessionToken) {
+                        callback?.onError("0x101", "Session token của bên gửi không khớp")
+                        throw SecurityException("Bên gửi mang session token không hợp lệ")
+                    }
+                }
             }
 
             // 4. Nhận TRANSFER_MANIFEST (0x02) từ Sender (SDD Mục 6.2)
@@ -680,7 +713,7 @@ class RelayClientEngine(
 
             val isMatch = targetExpectedSha.isNotBlank() && actualSha256.equals(targetExpectedSha, ignoreCase = true)
             val verifyPayload = VerifyResultPayload(
-                docId = session.docId,
+                sessionId = session.sessionId,
                 status = if (isMatch) "SUCCESS" else "CHECKSUM_FAILED",
                 actualSha256 = actualSha256
             )

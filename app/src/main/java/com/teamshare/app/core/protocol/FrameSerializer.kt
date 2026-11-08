@@ -37,18 +37,20 @@ class FrameSerializer {
         outputStream.flush()
     }
 
-    // --- Helper Factory Methods cho 8 loại thông điệp ---
+    // =====================================================================================
+    // Helper Factory Methods cho 8 loại thông điệp chuẩn SDD Mục 6.2
+    // =====================================================================================
 
-    fun buildHandshakeAuthFrame(streamId: Int, payload: HandshakeAuthPayload): ChunkFrame {
-        return ChunkFrame(ChunkFrame.TYPE_HANDSHAKE_AUTH, streamId, payload.toBytes())
+    fun buildConnectRequestFrame(streamId: Int, payload: ConnectRequestPayload): ChunkFrame {
+        return ChunkFrame(ChunkFrame.TYPE_CONNECT_REQUEST, streamId, payload.toBytes())
     }
 
-    fun buildTransferManifestFrame(streamId: Int, payload: TransferManifestPayload): ChunkFrame {
-        return ChunkFrame(ChunkFrame.TYPE_TRANSFER_MANIFEST, streamId, payload.toBytes())
+    fun buildConnectAcceptedFrame(streamId: Int, payload: ConnectAcceptedPayload): ChunkFrame {
+        return ChunkFrame(ChunkFrame.TYPE_CONNECT_ACCEPTED, streamId, payload.toBytes())
     }
 
-    fun buildManifestResponseFrame(streamId: Int, payload: ManifestResponsePayload): ChunkFrame {
-        return ChunkFrame(ChunkFrame.TYPE_MANIFEST_RESPONSE, streamId, payload.toBytes())
+    fun buildRequestStreamFrame(streamId: Int, payload: RequestStreamPayload): ChunkFrame {
+        return ChunkFrame(ChunkFrame.TYPE_REQUEST_STREAM, streamId, payload.toBytes())
     }
 
     fun buildDataChunkFrame(streamId: Int, payload: DataChunkPayload): ChunkFrame {
@@ -63,12 +65,35 @@ class FrameSerializer {
         return ChunkFrame(ChunkFrame.TYPE_CONTROL_SIGNAL, streamId, payload.toBytes())
     }
 
-    fun buildRevokeSignalFrame(streamId: Int, payload: RevokeSignalPayload): ChunkFrame {
-        return ChunkFrame(ChunkFrame.TYPE_REVOKE_SIGNAL, streamId, payload.toBytes())
-    }
-
     fun buildVerifyResultFrame(streamId: Int, payload: VerifyResultPayload): ChunkFrame {
         return ChunkFrame(ChunkFrame.TYPE_VERIFY_RESULT, streamId, payload.toBytes())
     }
-}
 
+    fun buildErrorAlertFrame(streamId: Int, payload: ErrorAlertPayload): ChunkFrame {
+        return ChunkFrame(ChunkFrame.TYPE_ERROR_ALERT, streamId, payload.toBytes())
+    }
+
+    // =====================================================================================
+    // Helper Factory Methods Deprecated hỗ trợ tương thích ngược
+    // =====================================================================================
+
+    @Deprecated("Sử dụng buildConnectRequestFrame thay thế", ReplaceWith("buildConnectRequestFrame(streamId, payload)"))
+    fun buildHandshakeAuthFrame(streamId: Int, payload: HandshakeAuthPayload): ChunkFrame {
+        return ChunkFrame(ChunkFrame.TYPE_CONNECT_REQUEST, streamId, payload.toBytes())
+    }
+
+    @Deprecated("Sử dụng buildConnectAcceptedFrame thay thế", ReplaceWith("buildConnectAcceptedFrame(streamId, payload)"))
+    fun buildTransferManifestFrame(streamId: Int, payload: TransferManifestPayload): ChunkFrame {
+        return ChunkFrame(ChunkFrame.TYPE_CONNECT_ACCEPTED, streamId, payload.toBytes())
+    }
+
+    @Deprecated("Sử dụng buildRequestStreamFrame thay thế", ReplaceWith("buildRequestStreamFrame(streamId, payload)"))
+    fun buildManifestResponseFrame(streamId: Int, payload: ManifestResponsePayload): ChunkFrame {
+        return ChunkFrame(ChunkFrame.TYPE_REQUEST_STREAM, streamId, payload.toBytes())
+    }
+
+    @Deprecated("Đã loại bỏ trong giao thức mới")
+    fun buildRevokeSignalFrame(streamId: Int, payload: RevokeSignalPayload): ChunkFrame {
+        return ChunkFrame(ChunkFrame.TYPE_CONTROL_SIGNAL, streamId, payload.toBytes())
+    }
+}

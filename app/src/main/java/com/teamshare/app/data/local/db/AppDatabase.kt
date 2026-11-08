@@ -8,30 +8,35 @@ import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.teamshare.app.core.security.keystore.IKeyManager
 import com.teamshare.app.data.local.db.converter.Converters
-import com.teamshare.app.data.local.db.dao.AuditDao
+import com.teamshare.app.data.local.db.dao.AuditLogDao
 import com.teamshare.app.data.local.db.dao.TransferSessionDao
-import com.teamshare.app.data.local.db.entity.AuditEntity
-import com.teamshare.app.data.local.db.entity.SessionEntity
+import com.teamshare.app.data.local.db.entity.SecurityAuditLogEntity
+import com.teamshare.app.data.local.db.entity.TransferSessionEntity
 import net.sqlcipher.database.SupportFactory
 
 /**
- * Cơ sở dữ liệu Room Database chính của ứng dụng TeamShare.
- * Tinh gọn quản lý 2 thực thể cốt lõi: TransferSession và SecurityAuditLog.
+ * Cơ sở dữ liệu Room Database chính của ứng dụng TeamShare theo SDD Chương 5.
+ * Tinh gọn quản lý 2 thực thể cốt lõi: TransferSessionEntity và SecurityAuditLogEntity.
  * Tích hợp mã hóa toàn bộ trang 256-bit AES qua SQLCipher (Zetetic).
  */
 @Database(
     entities = [
-        SessionEntity::class,
-        AuditEntity::class
+        TransferSessionEntity::class,
+        SecurityAuditLogEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun transferSessionDao(): TransferSessionDao
-    abstract fun auditDao(): AuditDao
+    abstract fun auditLogDao(): AuditLogDao
+
+    /**
+     * Tương thích ngược với các thành phần cũ gọi auditDao().
+     */
+    fun auditDao(): AuditLogDao = auditLogDao()
 
     companion object {
         const val DATABASE_NAME = "teamshare_encrypted.db"

@@ -1,23 +1,53 @@
 package com.teamshare.app.domain.model
 
 /**
- * Hướng truyền tải dữ liệu của thiết bị trong phiên P2P.
+ * Hướng truyền tải dữ liệu của thiết bị trong phiên Secure Drop (SDD Chương 4).
  */
 enum class TransferDirection {
-    INCOMING,
-    OUTGOING
+    SENDER,
+    RECEIVER,
+    INCOMING, // Backward compatibility alias
+    OUTGOING; // Backward compatibility alias
+
+    val isSender: Boolean get() = this == SENDER || this == OUTGOING
+    val isReceiver: Boolean get() = this == RECEIVER || this == INCOMING
+}
+
+typealias SessionDirection = TransferDirection
+
+/**
+ * Chế độ phê duyệt khi máy nhận kết nối tới phiên phát mã QR (FR-SND-04).
+ */
+enum class ApprovalMode {
+    MANUAL_APPROVAL,
+    AUTO_ACCEPT
 }
 
 /**
- * Loại kênh truyền tải mạng kết nối hai thiết bị.
+ * Phân loại định dạng nội dung truyền tải (SDD Chương 5 & 6).
+ */
+enum class TransferType {
+    SINGLE_FILE,
+    BATCH_FILES,
+    FOLDER_ZIP
+}
+
+/**
+ * Loại kênh truyền tải mạng kết nối hai thiết bị (Direct LAN TLS 1.3 hoặc Relay E2EE).
  */
 enum class TransferChannel {
     DIRECT_LAN,
-    ZERO_KNOWLEDGE_RELAY
+    RELAY_E2EE,
+    ZERO_KNOWLEDGE_RELAY; // Backward compatibility alias
+
+    val isLan: Boolean get() = this == DIRECT_LAN
+    val isRelay: Boolean get() = this == RELAY_E2EE || this == ZERO_KNOWLEDGE_RELAY
 }
 
+typealias ChannelType = TransferChannel
+
 /**
- * Trạng thái của Không gian Nhóm cộng tác.
+ * Trạng thái của Không gian Nhóm cộng tác (Legacy).
  */
 enum class TeamStatus {
     ACTIVE,
@@ -25,7 +55,7 @@ enum class TeamStatus {
 }
 
 /**
- * Vai trò của thành viên trong nhóm cộng tác (RBAC).
+ * Vai trò của thành viên trong nhóm cộng tác (RBAC Legacy).
  */
 enum class MemberRole {
     OWNER,
@@ -33,7 +63,7 @@ enum class MemberRole {
 }
 
 /**
- * Trạng thái tệp tin trên máy cục bộ so với không gian nhóm.
+ * Trạng thái tệp tin trên máy cục bộ so với không gian nhóm (Legacy).
  */
 enum class DownloadStatus {
     NOT_DOWNLOADED,
@@ -42,9 +72,10 @@ enum class DownloadStatus {
 }
 
 /**
- * Trạng thái tổng thể của phiên truyền dữ liệu (TransferSession).
+ * Trạng thái tổng thể của phiên truyền dữ liệu (TransferSession) theo SDD Chương 5.
  */
 enum class SessionStatus {
+    PENDING,
     IDLE,
     HANDSHAKING,
     TRANSFERRING,
@@ -65,20 +96,30 @@ enum class AuditSeverity {
 }
 
 /**
- * Các loại sự kiện được ghi vết trong nhật ký hoạt động nhóm.
+ * Các loại sự kiện được ghi vết trong nhật ký kiểm toán an ninh bất biến (SDD Chương 5).
  */
 enum class AuditEventType {
-    TEAM_CREATED,
-    TEAM_DISBANDED,
-    INVITATION_GENERATED,
-    MEMBER_JOINED,
-    MEMBER_REVOKED,
-    DOCUMENT_PUBLISHED,
+    // 1-N Drop Session Events
+    SESSION_CREATED,
+    SESSION_APPROVED,
+    SESSION_REJECTED,
+    DEVICE_CONNECTED,
     TRANSFER_STARTED,
     TRANSFER_COMPLETED,
     TRANSFER_PAUSED,
+    TRANSFER_RESUMED,
+    TRANSFER_CANCELLED,
+    CHECKSUM_VERIFIED,
     CHECKSUM_FAILED,
-    SECURITY_ALERT
+    SECURITY_ALERT,
+
+    // Legacy Events (Backward compatibility)
+    @Deprecated("Legacy team event") TEAM_CREATED,
+    @Deprecated("Legacy team event") TEAM_DISBANDED,
+    @Deprecated("Legacy team event") INVITATION_GENERATED,
+    @Deprecated("Legacy team event") MEMBER_JOINED,
+    @Deprecated("Legacy team event") MEMBER_REVOKED,
+    @Deprecated("Legacy team event") DOCUMENT_PUBLISHED
 }
 
 /**
@@ -138,4 +179,3 @@ data class NetworkAdaptiveState(
     val recommendedChannel: TransferChannel,
     val message: String
 )
-

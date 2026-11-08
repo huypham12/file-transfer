@@ -61,7 +61,13 @@ class FakeTransferRepository : ITransferRepository {
 
     override suspend fun getSessionById(sessionId: String): TransferSession? = sessions[sessionId]
 
+    override fun observeSessionById(sessionId: String): Flow<TransferSession?> = flowOf(sessions[sessionId])
+
+    override suspend fun findByToken(token: String): TransferSession? = sessions.values.firstOrNull { it.sessionToken == token }
+
     override fun getActiveSessions(): Flow<List<TransferSession>> = flowOf(sessions.values.toList())
+
+    override fun getAllSessions(): Flow<List<TransferSession>> = flowOf(sessions.values.toList())
 
     override suspend fun updateCheckpoint(sessionId: String, confirmedOffset: Long) {
         updateCheckpointCallCount++

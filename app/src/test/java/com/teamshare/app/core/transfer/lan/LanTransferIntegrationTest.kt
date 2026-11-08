@@ -2,6 +2,8 @@ package com.teamshare.app.core.transfer.lan
 
 import com.teamshare.app.core.network.tls.TlsSocketFactory
 import com.teamshare.app.core.security.crypto.Sha256StreamCalculator
+import com.teamshare.app.domain.model.ApprovalMode
+import com.teamshare.app.domain.model.DeviceProfile
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -543,6 +545,159 @@ class LanTransferIntegrationTest {
         } catch (e: IllegalStateException) {
             assertTrue(e.message!!.contains("SSLContext chưa được cấu hình"))
         }
+    }
+
+    // =====================================================================================
+    // KIỂM THỬ GIAO THỨC CHUẨN SDD MỤC 8.1 (SENDER SERVER MODE vs RECEIVER CLIENT MODE)
+    // =====================================================================================
+
+    @Test
+    fun testSdd81SenderServerModeWithReceiverClientMode() = runBlocking {
+        val targetDir = tempFolder.newFolder("sdd81_received")
+        val sourceFile = createDummyFile(sizeBytes = 120 * 1024, name = "sdd81_report.pdf")
+        val sourceSha256 = Sha256StreamCalculator.calculateFileSha256(sourceFile)
+
+        val port = TlsSocketFactory.findAvailablePort()
+        val sessionToken = "session-token-secret-8889-xyz"
+        val sessionId = "session-id-sdd81-test"
+
+        val senderEngine = LanTransferEngine()
+        val receiverEngine = LanTransferEngine()
+
+        val serverReady = CompletableDeferred<Unit>()
+
+        // 1. Phía gửi mở ServerSocket (SDD 8.1)
+        val senderJob = async(Dispatchers.IO) {
+            serverReady.complete(Unit)
+            senderEngine.startSenderServer(
+                port = port,
+                sessionToken = sessionToken,
+                file = sourceFile,
+                sessionId = sessionId,
+                expectedSha256 = sourceSha256,
+                approvalMode = ApprovalMode.AUTO_ACCEPT,
+                useTls = false
+            )
+        }
+
+        serverReady.await()
+        kotlinx.coroutines.delay(100) // Đợi socket lắng nghe
+
+        // 2. Phía nhận kết nối Client Socket (SDD 8.1)
+        val receiverResult = receiverEngine.connectReceiver(
+            host = "127.0.0.1",
+            port = port,
+            sessionToken = sessionToken,
+            sessionId = sessionId,
+            targetDirectory = targetDir,
+            deviceModel = "Xiaomi Redmi Turbo 4 Pro",
+            deviceManufacturer = "Xiaomi",
+            deviceFingerprint = "fingerprint-redmi-turbo-4",
+            useTls = false
+        )
+
+        assertTrue("Phía nhận kết nối và tải tệp phải thành công", receiverResult.isSuccess)
+        val receivedFile = receiverResult.getOrNull()!!
+        assertTrue(receivedFile.exists())
+        assertEquals(sourceFile.length(), receivedFile.length())
+        val receivedSha = Sha256StreamCalculator.calculateFileSha256(receivedFile)
+        assertEquals(sourceSha256, receivedSha)
+
+        val senderResult = senderJob.await()
+        assertTrue("Phía gửi phải hoàn tất thành công", senderResult.isSuccess)
+        assertEquals(sourceSha256, senderResult.getOrNull())
+    }
+
+    @Test
+    fun testSdd81SenderServerRejectsInvalidToken() = runBlocking {
+        val targetDir = tempFolder.newFolder("sdd81_reject")
+        val sourceFile = createDummyFile(sizeBytes = 10 * 1024, name = "reject_test.bin")
+
+        val port = TlsSocketFactory.findAvailablePort()
+        val validToken = "valid-session-token-123"
+        val invalidToken = "attacker-forged-token-999"
+
+        val senderEngine = LanTransferEngine()
+        val receiverEngine = LanTransferEngine()
+
+        val serverReady = CompletableDeferred<Unit>()
+
+        val senderJob = async(Dispatchers.IO) {
+            serverReady.complete(Unit)
+            senderEngine.startSenderServer(
+                port = port,
+                sessionToken = validToken,
+                file = sourceFile,
+                sessionId = "session-reject-test",
+                approvalMode = ApprovalMode.AUTO_ACCEPT,
+                useTls = false
+            )
+        }
+
+        serverReady.await()
+        kotlinx.coroutines.delay(100)
+
+        // Phía nhận kết nối với token giả mạo
+        val receiverResult = receiverEngine.connectReceiver(
+            host = "127.0.0.1",
+            port = port,
+            sessionToken = invalidToken,
+            sessionId = "session-reject-test",
+            targetDirectory = targetDir,
+            useTls = false
+        )
+
+        assertTrue("Phía nhận với token sai phải bị từ chối", receiverResult.isFailure)
+        val senderResult = senderJob.await()
+        assertTrue("Phía gửi phải phát hiện và từ chối token sai", senderResult.isFailure)
+    }
+
+    @Test
+    fun testSdd81SenderServerManualApprovalFlow() = runBlocking {
+        val targetDir = tempFolder.newFolder("sdd81_manual")
+        val sourceFile = createDummyFile(sizeBytes = 20 * 1024, name = "manual_approval.txt")
+
+        val port = TlsSocketFactory.findAvailablePort()
+        val token = "session-manual-token-777"
+
+        val senderEngine = LanTransferEngine()
+        val receiverEngine = LanTransferEngine()
+
+        val serverReady = CompletableDeferred<Unit>()
+
+        // Trường hợp người gửi bấm TỪ CHỐI trên Dialog
+        val senderJob = async(Dispatchers.IO) {
+            serverReady.complete(Unit)
+            senderEngine.startSenderServer(
+                port = port,
+                sessionToken = token,
+                file = sourceFile,
+                sessionId = "session-manual-test",
+                approvalMode = ApprovalMode.MANUAL_APPROVAL,
+                onDeviceApproval = { device ->
+                    // Giả lập từ chối thiết bị lạ
+                    false
+                },
+                useTls = false
+            )
+        }
+
+        serverReady.await()
+        kotlinx.coroutines.delay(100)
+
+        val receiverResult = receiverEngine.connectReceiver(
+            host = "127.0.0.1",
+            port = port,
+            sessionToken = token,
+            sessionId = "session-manual-test",
+            targetDirectory = targetDir,
+            deviceModel = "Suspicious Device",
+            useTls = false
+        )
+
+        assertTrue("Kết nối phải bị từ chối do người dùng không phê duyệt", receiverResult.isFailure)
+        val senderResult = senderJob.await()
+        assertTrue("Sender phải ghi nhận từ chối kết nối", senderResult.isFailure)
     }
 }
 

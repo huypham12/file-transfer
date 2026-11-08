@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 /**
- * Hiện thực hóa ITransferRepository quản lý các Phiên truyền tải P2P và Checkpoint ghi đĩa.
+ * Hiện thực hóa ITransferRepository quản lý các Phiên truyền tải Secure Drop và Checkpoint ghi đĩa.
  */
 class TransferRepositoryImpl(
     private val sessionDao: TransferSessionDao
@@ -26,8 +26,20 @@ class TransferRepositoryImpl(
         sessionDao.getSessionById(sessionId)?.toDomain()
     }
 
+    override fun observeSessionById(sessionId: String): Flow<TransferSession?> {
+        return sessionDao.observeSessionById(sessionId).map { it?.toDomain() }
+    }
+
+    override suspend fun findByToken(token: String): TransferSession? = withContext(Dispatchers.IO) {
+        sessionDao.findByToken(token)?.toDomain()
+    }
+
     override fun getActiveSessions(): Flow<List<TransferSession>> {
         return sessionDao.getActiveSessions().map { list -> list.map { it.toDomain() } }
+    }
+
+    override fun getAllSessions(): Flow<List<TransferSession>> {
+        return sessionDao.getAllSessions().map { list -> list.map { it.toDomain() } }
     }
 
     override suspend fun updateCheckpoint(sessionId: String, confirmedOffset: Long): Unit = withContext(Dispatchers.IO) {
@@ -39,7 +51,11 @@ class TransferRepositoryImpl(
         status: SessionStatus,
         errorCode: String?
     ): Unit = withContext(Dispatchers.IO) {
-        val completedAt = if (status == SessionStatus.COMPLETED) System.currentTimeMillis() else null
+        val completedAt = if (status == SessionStatus.COMPLETED || status == SessionStatus.FAILED || status == SessionStatus.CANCELLED) {
+            System.currentTimeMillis()
+        } else {
+            null
+        }
         sessionDao.updateSessionStatus(sessionId, status.name, completedAt, errorCode)
     }
 
@@ -47,4 +63,3 @@ class TransferRepositoryImpl(
         sessionDao.deleteSession(sessionId)
     }
 }
-

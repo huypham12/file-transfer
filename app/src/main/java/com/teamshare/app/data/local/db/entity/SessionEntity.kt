@@ -6,43 +6,59 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * Thực thể CSDL bảng 'transfer_sessions' quản lý tiến trình phiên truyền tải P2P và Checkpoint.
+ * Thực thể CSDL bảng 'transfer_sessions' quản lý tiến trình các phiên truyền tải Secure Drop (SDD Chương 5).
+ * Tối ưu hóa với 2 chỉ mục: [idx_sessions_status_dir] phục vụ resume/active sessions và [idx_sessions_token] cho tra cứu O(1).
  */
 @Entity(
     tableName = "transfer_sessions",
     indices = [
-        Index(name = "idx_sessions_status", value = ["status"]),
-        Index(name = "idx_sessions_peer_member", value = ["peer_member_id"])
+        Index(name = "idx_sessions_status_dir", value = ["status", "direction"]),
+        Index(name = "idx_sessions_token", value = ["session_token"])
     ]
 )
-data class SessionEntity(
+data class TransferSessionEntity(
     @PrimaryKey
     @ColumnInfo(name = "session_id")
     val sessionId: String,
 
-    @ColumnInfo(name = "doc_id")
-    val docId: String = "",
-
-    @ColumnInfo(name = "peer_member_id")
-    val peerMemberId: String = "",
+    @ColumnInfo(name = "session_token")
+    val sessionToken: String = "",
 
     @ColumnInfo(name = "direction")
     val direction: String,
 
     @ColumnInfo(name = "channel")
-    val channel: String,
+    val channel: String = "DIRECT_LAN",
+
+    @ColumnInfo(name = "peer_device_model")
+    val peerDeviceModel: String = "",
+
+    @ColumnInfo(name = "peer_fingerprint")
+    val peerFingerprint: String = "",
+
+    @ColumnInfo(name = "approval_mode", defaultValue = "MANUAL_APPROVAL")
+    val approvalMode: String = "MANUAL_APPROVAL",
+
+    @ColumnInfo(name = "transfer_type", defaultValue = "SINGLE_FILE")
+    val transferType: String = "SINGLE_FILE",
+
+    @ColumnInfo(name = "manifest_json")
+    val manifestJson: String = "[]",
 
     @ColumnInfo(name = "total_bytes")
-    val totalBytes: Long,
+    val totalBytes: Long = 0L,
 
-    @ColumnInfo(name = "confirmed_offset")
+    @ColumnInfo(name = "confirmed_offset", defaultValue = "0")
     val confirmedOffset: Long = 0L,
 
     @ColumnInfo(name = "temp_file_path")
     val tempFilePath: String = "",
 
-    @ColumnInfo(name = "status")
-    val status: String = "TRANSFERRING",
+    @ColumnInfo(name = "expected_sha256")
+    val expectedSha256: String = "",
+
+    @ColumnInfo(name = "status", defaultValue = "PENDING")
+    val status: String = "PENDING",
 
     @ColumnInfo(name = "error_code")
     val errorCode: String? = null,
@@ -53,3 +69,8 @@ data class SessionEntity(
     @ColumnInfo(name = "completed_at")
     val completedAt: Long? = null
 )
+
+/**
+ * Typealias đảm bảo tương thích ngược với các thành phần cũ trong quá trình refactor.
+ */
+typealias SessionEntity = TransferSessionEntity

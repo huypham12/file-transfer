@@ -638,19 +638,22 @@ class RelayClientEngineIntegrationTest {
         // Fake DAO lưu mốc confirmedOffset = 64KB
         val fakeDao = object : com.teamshare.app.data.local.db.dao.TransferSessionDao {
             var offset = halfSize.toLong()
-            override suspend fun insertSession(session: com.teamshare.app.data.local.db.entity.SessionEntity): Long = 1L
+            override suspend fun insertSession(session: com.teamshare.app.data.local.db.entity.TransferSessionEntity): Long = 1L
+            override fun observeSessionById(sessionId: String): kotlinx.coroutines.flow.Flow<com.teamshare.app.data.local.db.entity.TransferSessionEntity?> = kotlinx.coroutines.flow.emptyFlow()
+            override suspend fun findByToken(token: String): com.teamshare.app.data.local.db.entity.TransferSessionEntity? = null
             override suspend fun updateCheckpoint(sessionId: String, offset: Long): Int {
                 this.offset = offset
                 return 1
             }
             override suspend fun updateSessionStatus(sessionId: String, status: String, completedAt: Long?, errorCode: String?): Int = 1
-            override suspend fun getSessionById(sessionId: String): com.teamshare.app.data.local.db.entity.SessionEntity? {
-                return com.teamshare.app.data.local.db.entity.SessionEntity(
+            override suspend fun getSessionById(sessionId: String): com.teamshare.app.data.local.db.entity.TransferSessionEntity? {
+                return com.teamshare.app.data.local.db.entity.TransferSessionEntity(
                     sessionId = sessionId,
-                    docId = "doc_resume",
-                    peerMemberId = "peer",
+                    sessionToken = "token_resume",
                     direction = "OUTGOING",
                     channel = "ZERO_KNOWLEDGE_RELAY",
+                    peerDeviceModel = "TestModel",
+                    peerFingerprint = "fp_peer",
                     status = "TRANSFERRING",
                     totalBytes = totalSize.toLong(),
                     confirmedOffset = offset,
@@ -658,7 +661,8 @@ class RelayClientEngineIntegrationTest {
                     startedAt = 0L
                 )
             }
-            override fun getActiveSessions(): kotlinx.coroutines.flow.Flow<List<com.teamshare.app.data.local.db.entity.SessionEntity>> = kotlinx.coroutines.flow.emptyFlow()
+            override fun getActiveSessions(): kotlinx.coroutines.flow.Flow<List<com.teamshare.app.data.local.db.entity.TransferSessionEntity>> = kotlinx.coroutines.flow.emptyFlow()
+            override fun getAllSessions(): kotlinx.coroutines.flow.Flow<List<com.teamshare.app.data.local.db.entity.TransferSessionEntity>> = kotlinx.coroutines.flow.emptyFlow()
             override suspend fun deleteSession(sessionId: String): Int = 1
         }
 
@@ -717,5 +721,73 @@ class RelayClientEngineIntegrationTest {
         assertTrue("Tệp đích phải tồn tại", targetFile.exists())
         assertEquals("Kích thước tệp hoàn chỉnh phải là 128KB", totalSize.toLong(), targetFile.length())
         assertEquals("Mã băm hoàn chỉnh phải khớp 100%", expectedSha256, Sha256StreamCalculator.calculateFileSha256(targetFile))
+    }
+
+    @Test
+    fun testSuccessfulFileTransferThroughRelayWithoutTeamCredentials() = runBlocking {
+        setupMockRelayServer()
+        val relayUrl = mockWebServer.url("/v1/stream").toString()
+
+        val token = "e2ee-session-token-stage3-999"
+        val sessionId = UUID.randomUUID().toString()
+
+        val sourceFile = tempFolder.newFile("source_stage3_relay.dat")
+        val sourceData = ByteArray(64 * 1024) { (it % 256).toByte() }
+        RandomAccessFile(sourceFile, "rw").use { it.write(sourceData) }
+
+        val expectedSha256 = Sha256StreamCalculator.calculateFileSha256(sourceFile)
+        val targetFile = File(tempFolder.root, "received_stage3_relay.dat")
+
+        val senderSession = TransferSession(
+            sessionId = sessionId,
+            sessionToken = token,
+            direction = TransferDirection.OUTGOING,
+            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            totalBytes = sourceFile.length(),
+            confirmedOffset = 0L
+        )
+
+        val receiverSession = TransferSession(
+            sessionId = sessionId,
+            sessionToken = token,
+            direction = TransferDirection.INCOMING,
+            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            totalBytes = sourceFile.length(),
+            confirmedOffset = 0L
+        )
+
+        val senderEngine = RelayClientEngine()
+        val receiverEngine = RelayClientEngine()
+
+        val senderJob = async {
+            FileInputStream(sourceFile).channel.use { channel ->
+                senderEngine.sendFileViaRelay(
+                    relayWsUrl = relayUrl,
+                    session = senderSession,
+                    fileChannel = channel,
+                    expectedSha256 = expectedSha256
+                    // Hoàn toàn không truyền localCredential và ownerPublicKey!
+                )
+            }
+        }
+
+        val receiverJob = async {
+            receiverEngine.receiveFileViaRelay(
+                relayWsUrl = relayUrl,
+                session = receiverSession,
+                targetFile = targetFile,
+                expectedSha256 = expectedSha256
+                // Hoàn toàn không truyền localCredential và ownerPublicKey!
+            )
+        }
+
+        val sRes = senderJob.await()
+        val rRes = receiverJob.await()
+
+        assertTrue("Sender không dùng Team credential phải hoàn tất thành công", sRes)
+        assertTrue("Receiver không dùng Team credential phải hoàn tất thành công", rRes)
+        assertTrue("Tệp đích nhận qua Relay phải tồn tại", targetFile.exists())
+        assertEquals(sourceFile.length(), targetFile.length())
+        assertEquals(expectedSha256, Sha256StreamCalculator.calculateFileSha256(targetFile))
     }
 }

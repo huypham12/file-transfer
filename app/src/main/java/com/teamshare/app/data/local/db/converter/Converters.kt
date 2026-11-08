@@ -1,11 +1,13 @@
 package com.teamshare.app.data.local.db.converter
 
 import androidx.room.TypeConverter
+import com.teamshare.app.domain.model.ApprovalMode
 import com.teamshare.app.domain.model.AuditSeverity
 import com.teamshare.app.domain.model.AuditEventType
 import com.teamshare.app.domain.model.SessionStatus
 import com.teamshare.app.domain.model.TransferChannel
 import com.teamshare.app.domain.model.TransferDirection
+import com.teamshare.app.domain.model.TransferType
 
 /**
  * TypeConverters cho Room Database hỗ trợ chuyển đổi giữa Enum Domain và String trong CSDL SQLite.
@@ -21,6 +23,22 @@ class Converters {
     }
 
     @TypeConverter
+    fun fromApprovalMode(mode: ApprovalMode?): String? = mode?.name
+
+    @TypeConverter
+    fun toApprovalMode(value: String?): ApprovalMode? = value?.let {
+        runCatching { ApprovalMode.valueOf(it) }.getOrDefault(ApprovalMode.MANUAL_APPROVAL)
+    }
+
+    @TypeConverter
+    fun fromTransferType(type: TransferType?): String? = type?.name
+
+    @TypeConverter
+    fun toTransferType(value: String?): TransferType? = value?.let {
+        runCatching { TransferType.valueOf(it) }.getOrDefault(TransferType.SINGLE_FILE)
+    }
+
+    @TypeConverter
     fun fromTransferChannel(channel: TransferChannel?): String? = channel?.name
 
     @TypeConverter
@@ -33,7 +51,7 @@ class Converters {
 
     @TypeConverter
     fun toSessionStatus(value: String?): SessionStatus? = value?.let {
-        runCatching { SessionStatus.valueOf(it) }.getOrDefault(SessionStatus.TRANSFERRING)
+        runCatching { SessionStatus.valueOf(it) }.getOrDefault(SessionStatus.PENDING)
     }
 
     @TypeConverter
