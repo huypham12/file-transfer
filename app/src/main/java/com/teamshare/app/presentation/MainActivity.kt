@@ -16,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.fragment.app.FragmentActivity
 import androidx.navigation.compose.rememberNavController
 import com.teamshare.app.core.platform.service.NotificationManagerHelper
+import com.teamshare.app.core.platform.window.WindowSecurityManager
+import com.teamshare.app.core.security.sanitizer.SafeLogger
 import com.teamshare.app.presentation.di.ViewModelFactory
 import com.teamshare.app.presentation.navigation.AppNavHost
 import com.teamshare.app.presentation.navigation.Screen
@@ -34,6 +36,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowSecurityManager.applyFlagSecure(this)
         enableEdgeToEdge()
 
         com.teamshare.app.core.platform.network.NetworkAddressHelper.init(applicationContext)
@@ -88,7 +91,7 @@ class MainActivity : FragmentActivity() {
                 intent.getParcelableArrayListExtra(ShareIntentHandlerActivity.EXTRA_SHARED_URIS)
             }
             if (!sharedUris.isNullOrEmpty()) {
-                android.util.Log.i("MainActivity", "Tiếp nhận ${sharedUris.size} tệp từ Sharesheet (sẵn sàng cho Stage 5 Sender Flow)")
+                SafeLogger.i("MainActivity", "Tiếp nhận ${sharedUris.size} tệp từ Sharesheet (sẵn sàng cho Stage 5 Sender Flow)")
             }
         }
     }

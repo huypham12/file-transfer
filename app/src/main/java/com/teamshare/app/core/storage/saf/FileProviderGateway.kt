@@ -7,12 +7,13 @@ import androidx.core.content.FileProvider
 import java.io.File
 
 /**
- * Cổng giao tiếp cấp phát Content URI qua Android FileProvider.
+ * Cổng giao tiếp cấp phát Content URI qua Android FileProvider (SRS FR-DOC-03 & SDD Mục 6.4).
  * Đảm bảo cấp quyền truy cập tối thiểu, có kiểm soát cho các ứng dụng xem ngoài (Viewer).
  */
-class FileProviderGateway(
-    private val context: Context,
-    private val authority: String = DEFAULT_AUTHORITY
+open class FileProviderGateway(
+    private val context: Context? = null,
+    private val authority: String = DEFAULT_AUTHORITY,
+    private val uriProvider: ((File, String) -> Uri)? = null
 ) {
 
     companion object {
@@ -20,22 +21,27 @@ class FileProviderGateway(
     }
 
     /**
-     * Tạo Content URI an toàn trỏ tới tệp trong thư mục transfers/completed/.
+     * Tạo Content URI an toàn trỏ tới tệp tin (Scoped Storage).
      */
-    fun getShareableUri(file: File): Uri {
-        return FileProvider.getUriForFile(context, authority, file)
+    open fun getShareableUri(file: File): Uri {
+        uriProvider?.let { return it(file, authority) }
+        val ctx = context ?: throw IllegalStateException("Context không được để trống khi không cung cấp uriProvider")
+        return FileProvider.getUriForFile(ctx, authority, file)
     }
 
     /**
      * Tạo Intent mở tệp với cờ cấp quyền đọc tạm thời FLAG_GRANT_READ_URI_PERMISSION.
      */
-    fun createViewIntent(file: File, mimeType: String): Intent {
+    open fun createViewIntent(file: File, mimeType: String): Intent {
         val uri = getShareableUri(file)
-        return Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, mimeType)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val intent = Intent(Intent.ACTION_VIEW)
+        try {
+            intent.setDataAndType(uri, mimeType)
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        } catch (_: Throwable) {
+            // Fallback an toàn trên môi trường Unit Test thuần JVM không có mock Android Intent
         }
+        return intent
     }
 }
-

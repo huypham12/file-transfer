@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.widget.Toast
 import com.teamshare.app.presentation.MainActivity
 import com.teamshare.app.core.platform.share.ShareIntentParser
+import com.teamshare.app.core.platform.window.WindowSecurityManager
 import com.teamshare.app.core.security.sanitizer.FilenameSanitizer
 import com.teamshare.app.core.storage.saf.SafStorageGateway
 
@@ -33,6 +34,7 @@ class ShareIntentHandlerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowSecurityManager.applyFlagSecure(this)
         safGateway = SafStorageGateway(applicationContext)
 
         handleIncomingIntent(intent)

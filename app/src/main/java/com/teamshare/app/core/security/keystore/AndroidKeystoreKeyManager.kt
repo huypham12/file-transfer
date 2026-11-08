@@ -49,6 +49,11 @@ class AndroidKeystoreKeyManager(
         return generateHardwareBackedEcKeyPair(alias)
     }
 
+    override fun generateDeviceKeyPair(): PublicKey {
+        val alias = IKeyManager.DEVICE_IDENTITY_KEY_ALIAS
+        return generateHardwareBackedEcKeyPair(alias)
+    }
+
     override fun getPublicKey(keyAlias: String): PublicKey? {
         return keyStore.getCertificate(keyAlias)?.publicKey
     }

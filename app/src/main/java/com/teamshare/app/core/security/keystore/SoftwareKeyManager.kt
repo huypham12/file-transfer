@@ -32,6 +32,13 @@ class SoftwareKeyManager : IKeyManager {
         return keyPair.public
     }
 
+    override fun generateDeviceKeyPair(): PublicKey {
+        val alias = IKeyManager.DEVICE_IDENTITY_KEY_ALIAS
+        val keyPair = generateEcKeyPair()
+        keyStoreMap[alias] = keyPair
+        return keyPair.public
+    }
+
     override fun getPublicKey(keyAlias: String): PublicKey? {
         return keyStoreMap[keyAlias]?.public
     }
