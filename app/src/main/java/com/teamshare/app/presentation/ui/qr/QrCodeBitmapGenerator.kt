@@ -1,4 +1,4 @@
-package com.teamshare.app.presentation.ui.team.qr
+package com.teamshare.app.presentation.ui.qr
 
 import android.graphics.Bitmap
 import android.graphics.Color

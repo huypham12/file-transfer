@@ -21,7 +21,7 @@ func NewSafeConn(conn *websocket.Conn) *SafeConn {
 func (sc *SafeConn) WriteMessage(messageType int, data []byte) error {
 	sc.writeMu.Lock()
 	defer sc.writeMu.Unlock()
-	_ = sc.Conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
+	_ = sc.Conn.SetWriteDeadline(time.Now().Add(4 * time.Second))
 	return sc.Conn.WriteMessage(messageType, data)
 }
 

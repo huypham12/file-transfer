@@ -20,9 +20,19 @@ class StorageDirectoryManager(private val context: Context) {
     val keystoreMetaDir: File get() = File(rootFilesDir, ".keystore_meta").apply { mkdirs() }
 
     /**
-     * Lấy thư mục chứa các tệp đã tải hoàn chỉnh của một nhóm cụ thể.
+     * Lấy thư mục chứa các tệp đã nhận hoàn chỉnh theo phiên.
+     */
+    fun getSessionCompletedDir(sessionId: String = ""): File {
+        if (sessionId.isBlank()) return completedRootDir
+        val sanitizedSessionId = sessionId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        return File(completedRootDir, "session_$sanitizedSessionId").apply { mkdirs() }
+    }
+
+    /**
+     * Lấy thư mục chứa các tệp đã tải hoàn chỉnh của một nhóm cụ thể (tương thích ngược).
      */
     fun getTeamCompletedDir(teamId: String): File {
+        if (teamId.isBlank()) return completedRootDir
         val sanitizedTeamId = teamId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         return File(completedRootDir, "team_$sanitizedTeamId").apply { mkdirs() }
     }
@@ -30,7 +40,7 @@ class StorageDirectoryManager(private val context: Context) {
     /**
      * Tạo đường dẫn tệp đích hoàn chỉnh sau khi tải xong.
      */
-    fun getCompletedFile(teamId: String, fileName: String): File {
+    fun getCompletedFile(teamId: String = "", fileName: String): File {
         return File(getTeamCompletedDir(teamId), fileName)
     }
 
@@ -53,4 +63,3 @@ class StorageDirectoryManager(private val context: Context) {
         keystoreMetaDir
     }
 }
-

@@ -2,25 +2,16 @@ package com.teamshare.app.data.local.db.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
-import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * Thực thể CSDL bảng 'security_audit_logs' lưu nhật ký hoạt động nhóm và kiểm toán an ninh bất biến.
+ * Thực thể CSDL bảng 'security_audit_logs' lưu nhật ký kiểm toán an ninh bất biến.
  */
 @Entity(
     tableName = "security_audit_logs",
-    foreignKeys = [
-        ForeignKey(
-            entity = TeamEntity::class,
-            parentColumns = ["team_id"],
-            childColumns = ["team_id"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
     indices = [
-        Index(name = "idx_audit_team_time", value = ["team_id", "timestamp"])
+        Index(name = "idx_audit_timestamp", value = ["timestamp"])
     ]
 )
 data class AuditEntity(
@@ -29,10 +20,10 @@ data class AuditEntity(
     val logId: Long = 0L,
 
     @ColumnInfo(name = "team_id")
-    val teamId: String,
+    val teamId: String = "",
 
     @ColumnInfo(name = "actor_id")
-    val actorId: String,
+    val actorId: String = "",
 
     @ColumnInfo(name = "timestamp")
     val timestamp: Long = System.currentTimeMillis(),
@@ -52,4 +43,3 @@ data class AuditEntity(
     @ColumnInfo(name = "signature")
     val signature: String = ""
 )
-

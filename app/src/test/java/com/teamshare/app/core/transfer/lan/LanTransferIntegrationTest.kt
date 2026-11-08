@@ -2,9 +2,6 @@ package com.teamshare.app.core.transfer.lan
 
 import com.teamshare.app.core.network.tls.TlsSocketFactory
 import com.teamshare.app.core.security.crypto.Sha256StreamCalculator
-import com.teamshare.app.domain.model.Team
-import com.teamshare.app.domain.model.TeamMember
-import com.teamshare.app.domain.repository.ITeamRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -201,26 +198,8 @@ class LanTransferIntegrationTest {
         val targetDir = tempFolder.newFolder("revoked_member_dir")
         val sourceFile = createDummyFile(sizeBytes = 10 * 1024, name = "file_revoked.txt")
 
-        // Mock ITeamRepository trả về thành viên đã bị thu hồi quyền
-        val mockTeamRepo = object : ITeamRepository {
-            override suspend fun createTeam(team: Team): Result<Team> = Result.success(team)
-            override fun getTeamById(teamId: String): Flow<Team?> = flowOf(null)
-            override fun getAllTeams(): Flow<List<Team>> = flowOf(emptyList())
-            override suspend fun disbandTeam(teamId: String): Result<Unit> = Result.success(Unit)
-            override suspend fun addMember(member: TeamMember): Result<Unit> = Result.success(Unit)
-            override suspend fun revokeMember(teamId: String, memberId: String): Result<Unit> = Result.success(Unit)
-            override fun getMembersByTeam(teamId: String): Flow<List<TeamMember>> = flowOf(emptyList())
-            override suspend fun isMemberActive(teamId: String, memberId: String): Boolean = false // Bị thu hồi!
-            override suspend fun recordRevocation(revocation: com.teamshare.app.data.local.db.entity.RevocationEntity): Result<Unit> = Result.success(Unit)
-            override suspend fun recordRevocations(revocations: List<com.teamshare.app.data.local.db.entity.RevocationEntity>): Result<Unit> = Result.success(Unit)
-            override fun getRevocationsByTeam(teamId: String): Flow<List<com.teamshare.app.data.local.db.entity.RevocationEntity>> = flowOf(emptyList())
-            override suspend fun isMemberRevoked(teamId: String, memberId: String): Boolean = true
-            override suspend fun isTeamDisbanded(teamId: String): Boolean = false
-            override suspend fun getAllRevocationsList(teamId: String): List<com.teamshare.app.data.local.db.entity.RevocationEntity> = emptyList()
-        }
-
         val port = TlsSocketFactory.findAvailablePort()
-        val receiverEngine = LanTransferEngine(teamRepository = mockTeamRepo)
+        val receiverEngine = LanTransferEngine()
         val senderEngine = LanTransferEngine()
 
         val receiverReady = CompletableDeferred<Unit>()
@@ -231,7 +210,8 @@ class LanTransferIntegrationTest {
                 port = port,
                 targetDirectory = targetDir,
                 expectedTeamId = "team-test",
-                useTls = false
+                useTls = false,
+                peerValidator = { false } // Từ chối peer không hợp lệ
             )
         }
 
@@ -252,7 +232,7 @@ class LanTransferIntegrationTest {
         )
 
         val receiveResult = receiverJob.await()
-        assertTrue("Receiver phải từ chối thành viên đã bị thu hồi quyền (CRL check)", receiveResult.isFailure)
+        assertTrue("Receiver phải từ chối khi peerValidator trả về false", receiveResult.isFailure)
     }
 
     @Test

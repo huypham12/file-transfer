@@ -2,7 +2,6 @@ package com.teamshare.app.data.local.db.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
-import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -11,22 +10,8 @@ import androidx.room.PrimaryKey
  */
 @Entity(
     tableName = "transfer_sessions",
-    foreignKeys = [
-        ForeignKey(
-            entity = DocumentEntity::class,
-            parentColumns = ["doc_id"],
-            childColumns = ["doc_id"],
-            onDelete = ForeignKey.CASCADE
-        ),
-        ForeignKey(
-            entity = MemberEntity::class,
-            parentColumns = ["member_id"],
-            childColumns = ["peer_member_id"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
     indices = [
-        Index(name = "idx_sessions_doc_status", value = ["doc_id", "status"]),
+        Index(name = "idx_sessions_status", value = ["status"]),
         Index(name = "idx_sessions_peer_member", value = ["peer_member_id"])
     ]
 )
@@ -36,10 +21,10 @@ data class SessionEntity(
     val sessionId: String,
 
     @ColumnInfo(name = "doc_id")
-    val docId: String,
+    val docId: String = "",
 
     @ColumnInfo(name = "peer_member_id")
-    val peerMemberId: String,
+    val peerMemberId: String = "",
 
     @ColumnInfo(name = "direction")
     val direction: String,
@@ -54,7 +39,7 @@ data class SessionEntity(
     val confirmedOffset: Long = 0L,
 
     @ColumnInfo(name = "temp_file_path")
-    val tempFilePath: String,
+    val tempFilePath: String = "",
 
     @ColumnInfo(name = "status")
     val status: String = "TRANSFERRING",
@@ -68,4 +53,3 @@ data class SessionEntity(
     @ColumnInfo(name = "completed_at")
     val completedAt: Long? = null
 )
-

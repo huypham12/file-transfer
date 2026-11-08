@@ -18,7 +18,6 @@ import com.teamshare.app.core.storage.saf.SafeFileDeleter
 import com.teamshare.app.core.transfer.buffer.BufferPoolManager
 import com.teamshare.app.core.transfer.checkpoint.CheckpointTracker
 import com.teamshare.app.data.local.db.dao.TransferSessionDao
-import com.teamshare.app.domain.repository.ITeamRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -50,7 +49,6 @@ class LanTransferEngine(
     private val serializer: FrameSerializer = FrameSerializer(),
     private val parser: BinaryFrameParser = BinaryFrameParser(),
     private val keyManager: IKeyManager? = null,
-    private val teamRepository: ITeamRepository? = null,
     private val sessionDao: TransferSessionDao? = null
 ) {
     companion object {
@@ -186,16 +184,6 @@ class LanTransferEngine(
                 val err = "TeamId không khớp: nhận ${authPayload.teamId}, dự kiến $expectedTeamId"
                 callback?.onError("TEAM_MISMATCH", err)
                 throw SecurityException(err)
-            }
-
-            // Thẩm định thành viên chưa bị thu hồi quyền (CRL check)
-            if (teamRepository != null) {
-                val isActive = teamRepository.isMemberActive(authPayload.teamId, authPayload.memberId)
-                if (!isActive) {
-                    val err = "Thành viên ${authPayload.memberId} đã bị thu hồi quyền truy cập"
-                    callback?.onError("MEMBER_REVOKED", err)
-                    throw SecurityException(err)
-                }
             }
 
             // Thẩm định chữ ký số của Owner trên Credential nếu có yêu cầu ownerPublicKey

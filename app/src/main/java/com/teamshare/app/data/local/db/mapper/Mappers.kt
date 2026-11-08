@@ -1,130 +1,19 @@
 package com.teamshare.app.data.local.db.mapper
 
 import com.teamshare.app.data.local.db.entity.AuditEntity
-import com.teamshare.app.data.local.db.entity.DocumentEntity
-import com.teamshare.app.data.local.db.entity.MemberEntity
 import com.teamshare.app.data.local.db.entity.SessionEntity
-import com.teamshare.app.data.local.db.entity.TeamEntity
 import com.teamshare.app.domain.model.AuditLog
 import com.teamshare.app.domain.model.AuditSeverity
 import com.teamshare.app.domain.model.AuditEventType
-import com.teamshare.app.domain.model.DownloadStatus
-import com.teamshare.app.domain.model.MemberRole
 import com.teamshare.app.domain.model.SessionStatus
-import com.teamshare.app.domain.model.SharedDocument
-import com.teamshare.app.domain.model.Team
-import com.teamshare.app.domain.model.TeamMember
-import com.teamshare.app.domain.model.TeamStatus
 import com.teamshare.app.domain.model.TransferChannel
 import com.teamshare.app.domain.model.TransferDirection
 import com.teamshare.app.domain.model.TransferSession
 
 /**
  * Các hàm tiện ích chuyển đổi giữa Room Entity (Data Layer) và Domain Model (Domain Layer).
- * Tuân thủ nguyên lý Clean Architecture: Tách biệt ranh giới dữ liệu và nghiệp vụ.
+ * Tinh gọn cho 2 thực thể cốt lõi: TransferSession và SecurityAuditLog.
  */
-
-// Team Mappings
-fun TeamEntity.toDomain(): Team = Team(
-    teamId = teamId,
-    teamName = teamName,
-    description = description,
-    ownerFingerprint = ownerFingerprint,
-    status = runCatching { TeamStatus.valueOf(status) }.getOrDefault(TeamStatus.ACTIVE),
-    createdAt = createdAt,
-    updatedAt = updatedAt
-)
-
-fun Team.toEntity(): TeamEntity = TeamEntity(
-    teamId = teamId,
-    teamName = teamName,
-    description = description,
-    ownerFingerprint = ownerFingerprint,
-    status = status.name,
-    createdAt = createdAt,
-    updatedAt = updatedAt
-)
-
-// Member Mappings
-fun MemberEntity.toDomain(): TeamMember = TeamMember(
-    memberId = memberId,
-    teamId = teamId,
-    memberName = memberName,
-    deviceFingerprint = deviceFingerprint,
-    role = runCatching { MemberRole.valueOf(role) }.getOrDefault(MemberRole.MEMBER),
-    credentialData = credentialData,
-    isActive = isActive,
-    joinedAt = joinedAt
-)
-
-fun TeamMember.toEntity(): MemberEntity = MemberEntity(
-    memberId = memberId,
-    teamId = teamId,
-    memberName = memberName,
-    deviceFingerprint = deviceFingerprint,
-    role = role.name,
-    credentialData = credentialData,
-    isActive = isActive,
-    joinedAt = joinedAt
-)
-
-// Document Mappings
-fun DocumentEntity.toDomain(): SharedDocument = SharedDocument(
-    docId = docId,
-    teamId = teamId,
-    publisherId = publisherId,
-    folderId = folderId,
-    fileName = fileName,
-    fileSize = fileSize,
-    mimeType = mimeType,
-    expectedSha256 = expectedSha256,
-    requireBiometric = requireBiometric,
-    localUri = localUri,
-    downloadStatus = runCatching { DownloadStatus.valueOf(downloadStatus) }.getOrDefault(DownloadStatus.NOT_DOWNLOADED),
-    createdAt = createdAt,
-    publisherHost = publisherHost,
-    publisherPort = publisherPort
-)
-
-fun SharedDocument.toEntity(): DocumentEntity = DocumentEntity(
-    docId = docId,
-    teamId = teamId,
-    publisherId = publisherId,
-    folderId = folderId,
-    fileName = fileName,
-    fileSize = fileSize,
-    mimeType = mimeType,
-    expectedSha256 = expectedSha256,
-    requireBiometric = requireBiometric,
-    localUri = localUri,
-    downloadStatus = downloadStatus.name,
-    createdAt = createdAt,
-    publisherHost = publisherHost,
-    publisherPort = publisherPort
-)
-
-// Folder Mappings
-fun com.teamshare.app.data.local.db.entity.TeamFolderEntity.toDomain(): com.teamshare.app.domain.model.TeamFolder =
-    com.teamshare.app.domain.model.TeamFolder(
-        folderId = folderId,
-        teamId = teamId,
-        parentFolderId = parentFolderId,
-        folderName = folderName,
-        createdBy = createdBy,
-        createdAt = createdAt,
-        isDeleted = isDeleted
-    )
-
-fun com.teamshare.app.domain.model.TeamFolder.toEntity(): com.teamshare.app.data.local.db.entity.TeamFolderEntity =
-    com.teamshare.app.data.local.db.entity.TeamFolderEntity(
-        folderId = folderId,
-        teamId = teamId,
-        parentFolderId = parentFolderId,
-        folderName = folderName,
-        createdBy = createdBy,
-        createdAt = createdAt,
-        isDeleted = isDeleted
-    )
 
 // Session Mappings
 fun SessionEntity.toDomain(): TransferSession = TransferSession(
@@ -178,4 +67,3 @@ fun AuditLog.toEntity(): AuditEntity = AuditEntity(
     severity = severity.name,
     details = details
 )
-

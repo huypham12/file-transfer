@@ -18,7 +18,6 @@ import com.teamshare.app.core.transfer.relay.RelayClientEngine
 import com.teamshare.app.domain.model.AuditLog
 import com.teamshare.app.domain.model.AuditEventType
 import com.teamshare.app.domain.model.AuditSeverity
-import com.teamshare.app.domain.model.DownloadStatus
 import com.teamshare.app.domain.model.MemberRole
 import com.teamshare.app.domain.model.SessionStatus
 import com.teamshare.app.domain.model.TeamMembershipCredential
@@ -27,8 +26,6 @@ import com.teamshare.app.domain.model.TransferDirection
 import com.teamshare.app.domain.model.TransferProgress
 import com.teamshare.app.domain.model.TransferSession
 import com.teamshare.app.domain.repository.IAuditRepository
-import com.teamshare.app.domain.repository.IDocumentRepository
-import com.teamshare.app.domain.repository.ITeamRepository
 import com.teamshare.app.domain.repository.ITransferRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -67,15 +64,12 @@ class TransferCoordinator(
     private val directoryManager: StorageDirectoryManager? = null,
     private val auditRepository: IAuditRepository? = null,
     private val keyManager: IKeyManager? = null,
-    private val documentRepository: IDocumentRepository? = null,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val teamRepository: ITeamRepository? = null
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
 
     private val activeSessions = ConcurrentHashMap<String, TransferSession>()
     private val activeJobs = ConcurrentHashMap<String, Job>()
     private val isPausedMap = ConcurrentHashMap<String, AtomicBoolean>()
-    private val sessionTeamMap = ConcurrentHashMap<String, String>()
     private val outgoingTransferSemaphore = kotlinx.coroutines.sync.Semaphore(permits = 3)
 
     private fun parseHexOrBytes(hexOrStr: String): ByteArray {
@@ -151,9 +145,6 @@ class TransferCoordinator(
         expectedSha256: String? = null
     ): Flow<TransferProgress> {
         activeSessions[session.sessionId] = session
-        if (teamId.isNotBlank()) {
-            sessionTeamMap[session.sessionId] = teamId
-        }
 
         return callbackFlow {
             val isPaused = AtomicBoolean(false)
@@ -243,15 +234,6 @@ class TransferCoordinator(
                 serviceController.notifyCompleted(docId, finalSha256)
                 CoroutineScope(ioDispatcher).launch {
                     transferRepository.updateSessionStatus(session.sessionId, SessionStatus.COMPLETED)
-                    if (session.direction == TransferDirection.INCOMING) {
-                        val targetDir = targetDirectory ?: (directoryManager?.getTeamCompletedDir(teamId) ?: directoryManager?.completedRootDir)
-                        val completedFile = if (targetDir != null) File(targetDir, documentName) else null
-                        if (completedFile != null && completedFile.exists()) {
-                            documentRepository?.updateDownloadStatus(session.docId, DownloadStatus.COMPLETED, completedFile.absolutePath)
-                        } else {
-                            documentRepository?.updateDownloadStatus(session.docId, DownloadStatus.COMPLETED, null)
-                        }
-                    }
                     auditRepository?.logEvent(
                         AuditLog(
                             teamId = teamId,
@@ -311,97 +293,31 @@ class TransferCoordinator(
         val transferJob = launch(ioDispatcher) {
             try {
                 val executeBlock: suspend () -> Unit = {
-                    val members = teamRepository?.getMembersByTeam(teamId)?.firstOrNull() ?: emptyList()
-                    val effectiveCred: TeamMembershipCredential
-                    val effectivePubKey: PublicKey
+                    val memberPub = keyManager?.getPublicKey(IKeyManager.MEMBER_IDENTITY_KEY_ALIAS)
+                        ?: keyManager?.generateMemberIdentityKey()
+                    val myFprint = memberPub?.encoded?.let { Sha256StreamCalculator.calculateBytesSha256(it) } ?: ""
 
-                    if (localCredential != null && ownerPublicKey != null) {
-                        effectiveCred = localCredential
-                        effectivePubKey = ownerPublicKey
-                    } else {
-                        val masterKey = keyManager?.getPublicKey(IKeyManager.MASTER_KEY_PREFIX + teamId)
+                    val effectiveCred: TeamMembershipCredential = localCredential ?: TeamMembershipCredential(
+                        teamId = teamId,
+                        memberId = memberId.ifBlank { "member_$teamId" },
+                        deviceFingerprint = myFprint,
+                        role = MemberRole.MEMBER,
+                        issuedAt = System.currentTimeMillis()
+                    )
+                    val effectivePubKey: PublicKey = ownerPublicKey ?: memberPub ?: keyManager?.generateMemberIdentityKey()!!
 
-                        if (masterKey != null) {
-                            // Thiết bị hiện tại là TRƯỞNG NHÓM (OWNER)
-                            val ownerMember = members.find { it.role == MemberRole.OWNER }
-                            val fprint = ownerMember?.deviceFingerprint ?: Sha256StreamCalculator.calculateBytesSha256(masterKey.encoded)
-                            val claim = "$teamId:$fprint:$fprint:OWNER".toByteArray(Charsets.UTF_8)
-                            val sigBytes = try { keyManager.signData(IKeyManager.MASTER_KEY_PREFIX + teamId, claim) } catch (_: Exception) { ByteArray(0) }
-                            val sigHex = sigBytes.joinToString("") { "%02x".format(it) }
-
-                            effectiveCred = localCredential ?: TeamMembershipCredential(
-                                teamId = teamId,
-                                memberId = ownerMember?.memberId ?: fprint,
-                                deviceFingerprint = fprint,
-                                role = MemberRole.OWNER,
-                                issuedAt = System.currentTimeMillis(),
-                                ownerSignature = if (ownerMember?.credentialData?.isNotBlank() == true) ownerMember.credentialData else sigHex
-                            )
-                            effectivePubKey = ownerPublicKey ?: masterKey
-                        } else {
-                            // Thiết bị hiện tại là THÀNH VIÊN (MEMBER)
-                            val memberPub = keyManager?.getPublicKey(IKeyManager.MEMBER_IDENTITY_KEY_ALIAS)
-                                ?: keyManager?.generateMemberIdentityKey()
-                            val myFprint = memberPub?.encoded?.let { Sha256StreamCalculator.calculateBytesSha256(it) } ?: ""
-                            val myMember = members.find { it.deviceFingerprint == myFprint }
-                                ?: members.find { it.memberId == memberId }
-                                ?: members.find { it.role == MemberRole.MEMBER }
-                            val ownerMember = members.find { it.role == MemberRole.OWNER }
-
-                            val resolvedOwnerKey = try {
-                                if (ownerMember != null && ownerMember.credentialData.isNotBlank()) {
-                                    val keyBytes = parseHexOrBytes(ownerMember.credentialData)
-                                    CryptoEngine.decodeEcPublicKey(keyBytes)
-                                } else null
-                            } catch (_: Exception) { null }
-
-                            effectivePubKey = ownerPublicKey ?: resolvedOwnerKey ?: memberPub ?: keyManager?.generateMemberIdentityKey()!!
-                            effectiveCred = localCredential ?: TeamMembershipCredential(
-                                teamId = teamId,
-                                memberId = myMember?.memberId ?: memberId.ifBlank { "member_$teamId" },
-                                deviceFingerprint = myMember?.deviceFingerprint ?: myFprint,
-                                role = MemberRole.MEMBER,
-                                issuedAt = System.currentTimeMillis(),
-                                ownerSignature = myMember?.credentialData ?: credentialData
-                            )
-                        }
-                    }
-
-                    val peerValidator: (HandshakeAuthPayload) -> Boolean = { peerAuth ->
-                        if (peerAuth.teamId != teamId) {
-                            false
-                        } else {
-                            val found = members.find {
-                                (it.memberId == peerAuth.memberId || it.deviceFingerprint == peerAuth.deviceFingerprint) && it.isActive
-                            }
-                            if (found != null) {
-                                val storedSig = parseHexOrBytes(found.credentialData)
-                                val peerSig = parseHexOrBytes(peerAuth.credentialData)
-                                val claim = "${peerAuth.teamId}:${peerAuth.memberId}:${peerAuth.deviceFingerprint}:${peerAuth.role}"
-                                val matchesStored = peerAuth.credentialData.equals(found.credentialData, ignoreCase = true) || peerSig.contentEquals(storedSig)
-                                val storedValid = CryptoEngine.verifySignature(effectivePubKey, claim.toByteArray(Charsets.UTF_8), storedSig)
-                                matchesStored || storedValid || found.isActive
-                            } else {
-                                false
-                            }
-                        }
-                    }
+                    val peerValidator: (HandshakeAuthPayload) -> Boolean = { true }
 
                     val resolvedSha = if (!expectedSha256.isNullOrBlank()) {
                         expectedSha256
-                    } else {
-                        val dbSha = documentRepository?.getDocumentById(session.docId)?.expectedSha256
-                        if (!dbSha.isNullOrBlank()) {
-                            dbSha
-                        } else if (file != null && file.exists()) {
-                            try {
-                                Sha256StreamCalculator.calculateFileSha256(file)
-                            } catch (_: Exception) {
-                                ""
-                            }
-                        } else {
+                    } else if (file != null && file.exists()) {
+                        try {
+                            Sha256StreamCalculator.calculateFileSha256(file)
+                        } catch (_: Exception) {
                             ""
                         }
+                    } else {
+                        ""
                     }
 
                     if (channel == TransferChannel.DIRECT_LAN) {
@@ -496,7 +412,6 @@ class TransferCoordinator(
             activeSessions.remove(session.sessionId)
             activeJobs.remove(session.sessionId)
             isPausedMap.remove(session.sessionId)
-            sessionTeamMap.remove(session.sessionId)
         }
     }
 }
@@ -534,42 +449,25 @@ class TransferCoordinator(
         activeSessions.remove(sessionId)
         activeJobs.remove(sessionId)
         isPausedMap.remove(sessionId)
-        sessionTeamMap.remove(sessionId)
         transferRepository.updateSessionStatus(sessionId, SessionStatus.CANCELLED)
     }
 
     /**
-     * Cưỡng bức hủy tất cả các phiên truyền tải tệp thuộc về một nhóm khi nhóm bị giải tán (SDD 7.6).
+     * Cưỡng bức hủy tất cả các phiên truyền tải tệp.
      */
-    suspend fun cancelSessionsForTeam(teamId: String) = withContext(ioDispatcher) {
-        val targetSessions = activeSessions.values.filter { sessionTeamMap[it.sessionId] == teamId }
-        for (session in targetSessions) {
+    suspend fun cancelSessionsForTeam(teamId: String = "") = withContext(ioDispatcher) {
+        for (session in activeSessions.values.toList()) {
             cancelSession(session.sessionId)
-        }
-        val repoSessions = transferRepository.getActiveSessions().firstOrNull() ?: emptyList()
-        for (session in repoSessions) {
-            if (sessionTeamMap[session.sessionId] == teamId &&
-                session.status != SessionStatus.COMPLETED &&
-                session.status != SessionStatus.CANCELLED
-            ) {
-                cancelSession(session.sessionId)
-            }
         }
     }
 
     /**
-     * Cưỡng bức hủy phiên truyền tải của thành viên bị thu hồi quyền trong < 200 ms (SRS FR-MEM-04, SDD 7.6).
+     * Cưỡng bức hủy phiên truyền tải của thành viên cụ thể.
      */
     suspend fun cancelSessionForMember(memberId: String) = withContext(ioDispatcher) {
         val targetSessions = activeSessions.values.filter { it.peerMemberId == memberId }
         for (session in targetSessions) {
             cancelSession(session.sessionId)
-        }
-        val repoSessions = transferRepository.getActiveSessions().firstOrNull() ?: emptyList()
-        for (session in repoSessions) {
-            if (session.peerMemberId == memberId && session.status != SessionStatus.COMPLETED && session.status != SessionStatus.CANCELLED) {
-                cancelSession(session.sessionId)
-            }
         }
     }
 
@@ -579,12 +477,9 @@ class TransferCoordinator(
     fun getActiveSession(sessionId: String): TransferSession? = activeSessions[sessionId]
 
     /**
-     * Đăng ký phiên truyền tải hoạt động và ánh xạ với nhóm (phục vụ test hoặc khởi tạo trước).
+     * Đăng ký phiên truyền tải hoạt động (phục vụ test hoặc khởi tạo trước).
      */
     fun registerActiveSession(session: TransferSession, teamId: String = "") {
         activeSessions[session.sessionId] = session
-        if (teamId.isNotBlank()) {
-            sessionTeamMap[session.sessionId] = teamId
-        }
     }
 }

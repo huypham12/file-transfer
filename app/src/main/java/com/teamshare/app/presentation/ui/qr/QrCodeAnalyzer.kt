@@ -1,4 +1,4 @@
-package com.teamshare.app.presentation.ui.team.qr
+package com.teamshare.app.presentation.ui.qr
 
 import androidx.annotation.OptIn
 import androidx.camera.core.ExperimentalGetImage

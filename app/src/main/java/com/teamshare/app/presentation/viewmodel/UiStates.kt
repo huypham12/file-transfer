@@ -1,66 +1,9 @@
 package com.teamshare.app.presentation.viewmodel
 
-import android.graphics.Bitmap
 import com.teamshare.app.core.transfer.lan.TransferEngineState
 import com.teamshare.app.domain.model.AuditLog
-import com.teamshare.app.domain.model.QrInvitePayload
-import com.teamshare.app.domain.model.SharedDocument
-import com.teamshare.app.domain.model.Team
-import com.teamshare.app.domain.model.TeamMember
 import com.teamshare.app.domain.model.TransferChannel
 import com.teamshare.app.domain.model.TransferProgress
-
-/**
- * Trạng thái giao diện Màn hình Danh sách Nhóm (TeamListScreen).
- */
-data class TeamListUiState(
-    val teams: List<Team> = emptyList(),
-    val isLoading: Boolean = false,
-    val errorMessage: String? = null,
-    val newlyCreatedTeam: Team? = null
-)
-
-/**
- * Trạng thái giao diện Không gian làm việc Nhóm (WorkspaceScreen).
- */
-data class TeamWorkspaceUiState(
-    val team: Team? = null,
-    val members: List<TeamMember> = emptyList(),
-    val isOwner: Boolean = false,
-    val currentMemberId: String? = null,
-    val isLoading: Boolean = false,
-    val errorMessage: String? = null,
-    val actionSuccessMessage: String? = null,
-    val isDisbanded: Boolean = false
-)
-
-/**
- * Trạng thái giao diện Màn hình Lời mời QR (QrInviteScreen).
- */
-data class QrInviteUiState(
-    val payload: QrInvitePayload? = null,
-    val qrBitmap: Bitmap? = null,
-    val remainingSeconds: Long = 0L,
-    val isExpired: Boolean = false,
-    val isLoading: Boolean = false,
-    val errorMessage: String? = null
-)
-
-/**
- * Trạng thái giao diện Tab Danh mục Tài liệu (DocumentCatalogTab).
- */
-data class DocumentCatalogUiState(
-    val documents: List<SharedDocument> = emptyList(),
-    val folders: List<com.teamshare.app.domain.model.TeamFolder> = emptyList(),
-    val currentFolderId: String? = null,
-    val folderPath: List<com.teamshare.app.domain.model.TeamFolder> = emptyList(),
-    val isLoading: Boolean = false,
-    val isPublishing: Boolean = false,
-    val errorMessage: String? = null,
-    val actionMessage: String? = null,
-    val openedDocumentUri: String? = null,
-    val openedDocumentMimeType: String? = null
-)
 
 /**
  * Trạng thái giao diện Màn hình Tiến trình Truyền tải (TransferProgressScreen).
@@ -78,10 +21,11 @@ data class TransferUiState(
     val sasCode: String? = null,
     val errorCode: String? = null,
     val errorMessage: String? = null,
-    val etaSeconds: Long = 0L
+    val etaSeconds: Long = 0L,
+    val durationText: String = ""
 ) {
     companion object {
-        fun fromProgress(progress: TransferProgress, fileName: String = ""): TransferUiState {
+        fun fromProgress(progress: TransferProgress, fileName: String = "", durationText: String = ""): TransferUiState {
             val remainingBytes = (progress.totalBytes - progress.bytesTransferred).coerceAtLeast(0L)
             val eta = if (progress.speedBytesPerSec > 0L) remainingBytes / progress.speedBytesPerSec else 0L
             return TransferUiState(
@@ -96,18 +40,18 @@ data class TransferUiState(
                 sasCode = progress.sasCode,
                 errorCode = progress.errorCode,
                 errorMessage = progress.errorMessage,
-                etaSeconds = eta
+                etaSeconds = eta,
+                durationText = durationText
             )
         }
     }
 }
 
 /**
- * Trạng thái giao diện Tab Nhật ký Hoạt động & Kiểm toán (ActivityLogTab).
+ * Trạng thái giao diện Màn hình Nhật ký Hoạt động & Kiểm toán An ninh (AuditScreen).
  */
 data class AuditUiState(
     val logs: List<AuditLog> = emptyList(),
     val isLoading: Boolean = false,
     val errorMessage: String? = null
 )
-

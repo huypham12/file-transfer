@@ -2,7 +2,6 @@ package com.teamshare.app.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.teamshare.app.core.network.sync.PeerSyncManager
 import com.teamshare.app.core.platform.network.NetworkAddressHelper
 import com.teamshare.app.core.transfer.TransferCoordinator
 import com.teamshare.app.core.transfer.lan.TransferEngineState
@@ -31,7 +30,6 @@ import kotlinx.coroutines.launch
 class TransferViewModel(
     private val controlSessionUseCase: ControlSessionUseCase,
     private val transferCoordinator: TransferCoordinator? = null,
-    private val peerSyncManager: PeerSyncManager? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
@@ -42,6 +40,7 @@ class TransferViewModel(
 
     private var progressJob: Job? = null
     private var lastEmitTime = 0L
+    private var sessionStartTime = System.currentTimeMillis()
 
     companion object {
         const val THROTTLE_INTERVAL_MS = 100L
@@ -66,7 +65,7 @@ class TransferViewModel(
                     state = TransferEngineState.TRANSFERRING
                 )
             }
-        } else if (_uiState.value.sessionId != sessionId) {
+        } else {
             _uiState.update {
                 it.copy(
                     sessionId = sessionId,
@@ -77,49 +76,13 @@ class TransferViewModel(
     }
 
     /**
-     * Lắng nghe dòng dữ liệu tiến độ thời gian thực với cơ chế điều tiết 100ms.
-     */
-    fun observeProgress(
-        progressFlow: Flow<TransferProgress>,
-        fileName: String = "",
-        onCompleted: (() -> Unit)? = null
-    ) {
-        progressJob?.cancel()
-        lastEmitTime = 0L
-        progressJob = scope.launch {
-            progressFlow.collect { progress ->
-                val now = System.currentTimeMillis()
-                val isTerminalOrCritical = progress.isCompleted ||
-                        progress.isFailed ||
-                        progress.isPaused ||
-                        progress.state == TransferEngineState.CANCELLED ||
-                        progress.state == TransferEngineState.IDLE
-
-                if (isTerminalOrCritical || (now - lastEmitTime >= THROTTLE_INTERVAL_MS)) {
-                    lastEmitTime = now
-                    _uiState.update {
-                        TransferUiState.fromProgress(
-                            progress = progress,
-                            fileName = if (fileName.isNotBlank()) fileName else it.fileName
-                        )
-                    }
-                }
-
-                if (progress.isCompleted) {
-                    onCompleted?.invoke()
-                }
-            }
-        }
-    }
-
-    /**
-     * Khởi chạy phiên tải tệp từ một thành viên trong nhóm (UC-11, UC-12, UC-13).
+     * Bắt đầu phiên tải dữ liệu tệp từ thiết bị đối tác qua Coordinator.
      */
     fun startDownload(
         docId: String,
         fileName: String,
         fileSize: Long,
-        teamId: String,
+        teamId: String = "",
         requesterId: String = "",
         requesterName: String = "",
         publisherId: String = "",
@@ -131,15 +94,10 @@ class TransferViewModel(
     ): String {
         val coordinator = transferCoordinator ?: return "session_dl_$docId"
         val cleanRequesterId = requesterId.ifBlank { "client_${System.currentTimeMillis() % 100000}" }
-        val cleanRequesterName = requesterName.ifBlank { peerSyncManager?.myMemberName ?: "Thành viên" }
         val sessionId = "session_dl_${docId}_$cleanRequesterId"
-        val relayStreamUrl = relayUrl
-            ?: peerSyncManager?.getRelayUrlForTeam(teamId)?.replace("v1/sync", "v1/stream")
-            ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/stream")
-        val targetPeer = publisherId.ifBlank { peerHost ?: "" }
-        val peerInfo = peerSyncManager?.getPeerHostAndPort(targetPeer)
-        val effectivePeerHost = peerInfo?.first ?: peerHost
-        val effectivePeerPort = peerInfo?.second ?: 0
+        val relayStreamUrl = relayUrl ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/stream")
+        val effectivePeerHost = peerHost
+        val effectivePeerPort = peerPort
         val channel = coordinator.selectTransferChannel(effectivePeerHost, effectivePeerPort)
 
         val session = TransferSession(
@@ -166,77 +124,14 @@ class TransferViewModel(
             )
         }
 
-        // Bắt đầu luồng kiểm tra Probe và Bắt tay xác nhận ACK trước khi mở Relay Bridge hoặc LAN Socket
         scope.launch {
-            val targetPeer = publisherId.ifBlank { peerHost ?: "" }
             val isLan = channel == TransferChannel.DIRECT_LAN
             val lanPort = if (isLan) {
                 com.teamshare.app.core.network.tls.TlsSocketFactory.findAvailablePort()
             } else {
                 0
             }
-            val localIp = if (isLan) NetworkAddressHelper.getLocalIpv4Address() else null
-            val preferredChannelStr = if (isLan) "DIRECT_LAN" else "RELAY"
 
-            if (targetPeer.isNotBlank() && peerSyncManager != null) {
-                // 1. Pre-flight Probe: Thăm dò tính khả dụng của file nguồn
-                val probeResult = peerSyncManager.probeFileAvailability(
-                    teamId = teamId,
-                    docId = docId,
-                    targetPeerId = targetPeer,
-                    requesterId = cleanRequesterId,
-                    timeoutMs = 3000L
-                )
-                val probe = probeResult.getOrNull()
-                if (probe?.status == "FILE_MISSING") {
-                    _uiState.update {
-                        it.copy(
-                            state = TransferEngineState.FAILED,
-                            errorMessage = "Tệp nguồn không còn tồn tại trên máy người chia sẻ."
-                        )
-                    }
-                    return@launch
-                }
-
-                // 2. Bắt tay 2 pha có ACK: Gửi FILE_REQUEST và chờ FILE_REQUEST_ACK
-                val ackResult = peerSyncManager.requestFileDownloadWithAck(
-                    teamId = teamId,
-                    docId = docId,
-                    targetPeerId = targetPeer,
-                    streamId = sessionId,
-                    requesterId = cleanRequesterId,
-                    requesterName = cleanRequesterName,
-                    preferredChannel = preferredChannelStr,
-                    requesterHost = localIp,
-                    requesterPort = lanPort
-                )
-                if (ackResult.isFailure) {
-                    _uiState.update {
-                        it.copy(
-                            state = TransferEngineState.FAILED,
-                            errorMessage = ackResult.exceptionOrNull()?.message
-                                ?: "Không nhận được phản hồi xác nhận từ người chia sẻ tệp"
-                        )
-                    }
-                    return@launch
-                }
-            } else {
-                // Dự phòng nếu không có publisherId: phát FILE_REQUEST broadcast thông thường
-                peerSyncManager?.requestFileDownload(
-                    teamId = teamId,
-                    docId = docId,
-                    streamId = sessionId,
-                    requesterId = cleanRequesterId,
-                    requesterName = cleanRequesterName,
-                    preferredChannel = preferredChannelStr,
-                    requesterHost = localIp,
-                    requesterPort = lanPort,
-                    relayUrl = peerSyncManager.getRelayUrlForTeam(teamId)
-                        ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/sync")
-                )
-            }
-
-            // 3. Khởi chạy luồng truyền tải thực tế sau khi bắt tay thành công
             val progressFlow = coordinator.startTransfer(
                 session = session,
                 peerIp = peerHost,
@@ -255,52 +150,136 @@ class TransferViewModel(
     }
 
     /**
-     * Tạm dừng phiên truyền tải (UC-15 - FR-TRF-05).
+     * Bắt đầu phiên gửi tệp dữ liệu.
      */
-    fun pauseSession(sessionId: String) {
-        scope.launch {
-            controlSessionUseCase(sessionId, SessionCmd.PAUSE).collect { result ->
-                result.onFailure { error ->
-                    _uiState.update { it.copy(errorMessage = error.message ?: "Không thể tạm dừng phiên") }
-                }
-            }
+    fun startUpload(
+        file: File,
+        docId: String,
+        fileName: String = file.name,
+        targetPeerIp: String? = null,
+        targetPort: Int = 0,
+        relayUrl: String? = null,
+        teamId: String = "",
+        expectedSha256: String? = null,
+        onCompleted: (() -> Unit)? = null
+    ): String {
+        val coordinator = transferCoordinator ?: return "session_ul_$docId"
+        val channel = coordinator.selectTransferChannel(targetPeerIp, targetPort)
+        val sessionId = "session_ul_${docId}_${System.currentTimeMillis() % 100000}"
+        val relayStreamUrl = relayUrl ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/stream")
+
+        val session = TransferSession(
+            sessionId = sessionId,
+            docId = docId,
+            peerMemberId = targetPeerIp ?: "relay",
+            direction = TransferDirection.OUTGOING,
+            channel = channel,
+            status = SessionStatus.TRANSFERRING,
+            totalBytes = file.length(),
+            bytesTransferred = 0L
+        )
+
+        _uiState.update {
+            it.copy(
+                sessionId = sessionId,
+                fileName = fileName,
+                totalBytes = file.length(),
+                transferredBytes = 0L,
+                progressPercent = 0f,
+                channel = channel,
+                state = TransferEngineState.CONNECTING,
+                errorMessage = null
+            )
         }
-    }
 
-    /**
-     * Tiếp tục phiên truyền tải từ Checkpoint đã lưu (UC-15 - FR-TRF-05).
-     */
-    fun resumeSession(sessionId: String) {
         scope.launch {
-            controlSessionUseCase(sessionId, SessionCmd.RESUME).collect { result ->
-                result.onFailure { error ->
-                    _uiState.update { it.copy(errorMessage = error.message ?: "Không thể tiếp tục phiên") }
-                }
-            }
+            val progressFlow = coordinator.startTransfer(
+                session = session,
+                file = file,
+                peerIp = targetPeerIp,
+                port = targetPort,
+                relayUrl = relayStreamUrl,
+                streamId = sessionId,
+                documentName = fileName,
+                teamId = teamId,
+                expectedSha256 = expectedSha256
+            )
+
+            observeProgress(progressFlow, fileName, onCompleted)
         }
+
+        return sessionId
     }
 
-    /**
-     * Hủy bỏ phiên truyền tải (UC-15 - FR-TRF-05).
-     */
-    fun cancelSession(sessionId: String) {
-        scope.launch {
-            controlSessionUseCase(sessionId, SessionCmd.CANCEL).collect { result ->
-                result.onFailure { error ->
-                    _uiState.update { it.copy(errorMessage = error.message ?: "Không thể hủy phiên") }
-                }
-            }
-        }
-    }
-
-    fun clearError() {
-        _uiState.update { it.copy(errorMessage = null) }
-    }
-
-    fun reset() {
+    fun observeProgress(
+        progressFlow: Flow<TransferProgress>,
+        fileName: String,
+        onCompleted: (() -> Unit)? = null
+    ) {
         progressJob?.cancel()
-        _uiState.value = TransferUiState()
+        sessionStartTime = System.currentTimeMillis()
+        lastEmitTime = 0L
+
+        progressJob = scope.launch {
+            progressFlow.collect { progress ->
+                val now = System.currentTimeMillis()
+                val isTerminal = progress.isCompleted || progress.isFailed || progress.state == TransferEngineState.CANCELLED
+
+                if (isTerminal || (now - lastEmitTime) >= THROTTLE_INTERVAL_MS) {
+                    lastEmitTime = now
+                    val elapsedSec = (now - sessionStartTime) / 1000.0
+                    val speed = if (elapsedSec > 0 && progress.bytesTransferred > 0) {
+                        (progress.bytesTransferred / elapsedSec).toLong()
+                    } else {
+                        0L
+                    }
+
+                    _uiState.update { current ->
+                        current.copy(
+                            sessionId = progress.sessionId,
+                            fileName = fileName,
+                            transferredBytes = progress.bytesTransferred,
+                            totalBytes = progress.totalBytes,
+                            progressPercent = progress.progressPercent,
+                            speedBytesPerSec = if (progress.speedBytesPerSec > 0L) progress.speedBytesPerSec else speed,
+                            state = progress.state,
+                            errorMessage = progress.errorMessage
+                        )
+                    }
+
+                    if (progress.isCompleted) {
+                        onCompleted?.invoke()
+                    }
+                }
+            }
+        }
     }
+
+    fun pauseTransfer(sessionId: String) {
+        scope.launch {
+            controlSessionUseCase(sessionId, SessionCmd.PAUSE)
+            _uiState.update { it.copy(state = TransferEngineState.PAUSED) }
+        }
+    }
+
+    fun resumeTransfer(sessionId: String) {
+        scope.launch {
+            controlSessionUseCase(sessionId, SessionCmd.RESUME)
+            _uiState.update { it.copy(state = TransferEngineState.TRANSFERRING) }
+        }
+    }
+
+    fun cancelTransfer(sessionId: String) {
+        scope.launch {
+            controlSessionUseCase(sessionId, SessionCmd.CANCEL)
+            _uiState.update { it.copy(state = TransferEngineState.CANCELLED) }
+            progressJob?.cancel()
+        }
+    }
+
+    fun pauseSession(sessionId: String) = pauseTransfer(sessionId)
+    fun resumeSession(sessionId: String) = resumeTransfer(sessionId)
+    fun cancelSession(sessionId: String) = cancelTransfer(sessionId)
 
     override fun onCleared() {
         super.onCleared()

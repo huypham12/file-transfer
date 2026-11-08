@@ -19,11 +19,9 @@ func main() {
 	}
 
 	hub := relay.NewHub()
-	syncHub := relay.NewSyncHub()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/stream", relay.HandleStream(hub))
-	mux.HandleFunc("/v1/sync", relay.HandleSync(syncHub))
 	mux.HandleFunc("/health", relay.HandleHealth(hub))
 
 	server := &http.Server{
@@ -41,7 +39,7 @@ func main() {
 		log.Printf("[TeamShare Relay] Máy chủ chuyển tiếp Zero-Knowledge đang lắng nghe trên cổng :%s", port)
 		log.Println("[TeamShare Relay] CAM KẾT BẢO MẬT: Chuyển tiếp luồng byte thuần túy trong RAM, KHÔNG LƯU TRỮ ĐĨA.")
 		if hostIP := relay.GetHostLanIP(); hostIP != "" {
-			log.Printf("[TeamShare Relay] Đã phát hiện IP Wi-Fi máy tính: %s (Endpoint: ws://%s:%s/v1/sync)", hostIP, hostIP, port)
+			log.Printf("[TeamShare Relay] Đã phát hiện IP Wi-Fi máy tính: %s (Stream Endpoint: ws://%s:%s/v1/stream)", hostIP, hostIP, port)
 		}
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("[TeamShare Relay] Lỗi máy chủ: %v", err)

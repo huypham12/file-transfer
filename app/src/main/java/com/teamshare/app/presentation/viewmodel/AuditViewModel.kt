@@ -12,12 +12,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel quản lý truy vấn và hiển thị dòng thời gian nhật ký kiểm toán nhóm (UC-20 - FR-AUD-01).
+ * ViewModel quản lý truy vấn và hiển thị nhật ký kiểm toán an ninh cục bộ (FR-AUD-01).
  */
 class AuditViewModel(
     private val querySecurityAuditUseCase: QuerySecurityAuditUseCase,
-    private val customScope: CoroutineScope? = null,
-    private val peerSyncManager: com.teamshare.app.core.network.sync.PeerSyncManager? = null
+    private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
     private val scope: CoroutineScope get() = customScope ?: viewModelScope
@@ -28,18 +27,12 @@ class AuditViewModel(
     private var auditJob: Job? = null
 
     /**
-     * Tải và liên tục quan sát nhật ký kiểm toán của nhóm sắp xếp theo thời gian mới nhất.
+     * Tải và liên tục quan sát nhật ký kiểm toán an ninh sắp xếp theo thời gian mới nhất.
      */
-    fun loadLogs(teamId: String) {
+    fun loadLogs(teamId: String = "") {
         auditJob?.cancel()
         auditJob = scope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-            launch {
-                try {
-                    val maxTimestamp = _uiState.value.logs.maxOfOrNull { it.timestamp } ?: 0L
-                    peerSyncManager?.queryAuditLogs(teamId, maxTimestamp)
-                } catch (_: Exception) {}
-            }
             querySecurityAuditUseCase(teamId).collect { logs ->
                 _uiState.update {
                     it.copy(logs = logs, isLoading = false, errorMessage = null)

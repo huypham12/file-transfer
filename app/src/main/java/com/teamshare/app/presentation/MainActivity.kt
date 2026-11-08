@@ -56,8 +56,6 @@ class MainActivity : FragmentActivity() {
 
                     AppNavHost(
                         navController = navController,
-                        teamViewModel = viewModelFactory.teamViewModel,
-                        documentViewModel = viewModelFactory.documentViewModel,
                         transferViewModel = viewModelFactory.transferViewModel,
                         auditViewModel = viewModelFactory.auditViewModel
                     )
@@ -90,7 +88,7 @@ class MainActivity : FragmentActivity() {
                 intent.getParcelableArrayListExtra(ShareIntentHandlerActivity.EXTRA_SHARED_URIS)
             }
             if (!sharedUris.isNullOrEmpty()) {
-                viewModelFactory.documentViewModel.setPendingSharedUris(sharedUris)
+                android.util.Log.i("MainActivity", "Tiếp nhận ${sharedUris.size} tệp từ Sharesheet (sẵn sàng cho Stage 5 Sender Flow)")
             }
         }
     }

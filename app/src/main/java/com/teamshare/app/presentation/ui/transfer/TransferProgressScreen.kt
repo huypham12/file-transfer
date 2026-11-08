@@ -61,7 +61,7 @@ import com.teamshare.app.domain.model.TransferChannel
 import com.teamshare.app.presentation.ui.theme.LanBadgeColor
 import com.teamshare.app.presentation.ui.theme.RelayBadgeColor
 import com.teamshare.app.presentation.ui.theme.SecurityWarningColor
-import com.teamshare.app.presentation.ui.workspace.formatFileSize
+import com.teamshare.app.presentation.ui.components.formatFileSize
 import com.teamshare.app.presentation.viewmodel.TransferViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -100,6 +100,13 @@ fun TransferProgressScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
+            // Huy hiệu kênh truyền LAN hoặc Relay
+            val (channelColor, channelTitle, channelIcon) = if (uiState.channel == TransferChannel.DIRECT_LAN) {
+                Triple(LanBadgeColor, "Direct LAN (P2P Socket TLS 1.3)", Icons.Default.Lan)
+            } else {
+                Triple(RelayBadgeColor, "Zero-Knowledge Relay (E2EE Internet)", Icons.Default.Hub)
+            }
+
             // Phần 1: Tên tệp & Kênh truyền
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -114,13 +121,6 @@ fun TransferProgressScreen(
                     textAlign = TextAlign.Center
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-
-                // Huy hiệu kênh truyền LAN hoặc Relay
-                val (channelColor, channelTitle, channelIcon) = if (uiState.channel == TransferChannel.DIRECT_LAN) {
-                    Triple(LanBadgeColor, "Direct LAN (P2P Socket TLS 1.3)", Icons.Default.Lan)
-                } else {
-                    Triple(RelayBadgeColor, "Zero-Knowledge Relay (E2EE Internet)", Icons.Default.Hub)
-                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -308,6 +308,42 @@ fun TransferProgressScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }
+                    } else if (uiState.state == TransferEngineState.COMPLETED && uiState.durationText.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Tổng thời gian truyền:",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = uiState.durationText,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = LanBadgeColor
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Kênh truyền:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = if (uiState.channel == TransferChannel.DIRECT_LAN) "Direct LAN (P2P TLS)" else "Zero-Knowledge Relay (E2EE)",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = channelColor
+                        )
                     }
 
                     if (!uiState.errorMessage.isNullOrBlank()) {
