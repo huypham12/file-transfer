@@ -16,12 +16,16 @@ import com.teamshare.app.core.protocol.ManifestResponsePayload
 import com.teamshare.app.core.protocol.RequestStreamPayload
 import com.teamshare.app.core.protocol.TransferManifestPayload
 import com.teamshare.app.core.protocol.VerifyResultPayload
+import com.teamshare.app.core.platform.storage.IStorageAuditor
+import com.teamshare.app.core.platform.storage.StatFsStorageAuditor
 import com.teamshare.app.core.security.crypto.Sha256StreamCalculator
 import com.teamshare.app.core.security.keystore.IKeyManager
 import com.teamshare.app.core.security.sanitizer.FilenameSanitizer
 import com.teamshare.app.core.storage.saf.SafeFileDeleter
 import com.teamshare.app.core.transfer.buffer.BufferPoolManager
 import com.teamshare.app.core.transfer.checkpoint.CheckpointTracker
+import com.teamshare.app.core.transfer.zip.SafeStreamExtractor
+import com.teamshare.app.core.transfer.zip.ZipStreamPacker
 import com.teamshare.app.data.local.db.dao.TransferSessionDao
 import com.teamshare.app.domain.model.ApprovalMode
 import com.teamshare.app.domain.model.DeviceProfile
@@ -39,6 +43,8 @@ import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.IOException
+import java.io.PipedInputStream
+import java.io.PipedOutputStream
 import java.io.RandomAccessFile
 import java.net.ServerSocket
 import java.net.Socket
@@ -57,7 +63,8 @@ class LanTransferEngine(
     private val serializer: FrameSerializer = FrameSerializer(),
     private val parser: BinaryFrameParser = BinaryFrameParser(),
     private val keyManager: IKeyManager? = null,
-    private val sessionDao: TransferSessionDao? = null
+    private val sessionDao: TransferSessionDao? = null,
+    private val storageAuditor: IStorageAuditor = StatFsStorageAuditor()
 ) {
     companion object {
         const val DEFAULT_SERVER_TIMEOUT_MS = 60_000 // 60 giây chờ kết nối
@@ -127,7 +134,7 @@ class LanTransferEngine(
         serverTimeoutMs: Int = DEFAULT_SERVER_TIMEOUT_MS,
         callback: TransferProgressCallback? = null
     ): Result<String> = withContext(Dispatchers.IO) {
-        require(file.exists() && file.isFile) { "Tệp nguồn không tồn tại: ${file.absolutePath}" }
+        require(file.exists() && (file.isFile || file.isDirectory)) { "Tệp hoặc thư mục nguồn không tồn tại: ${file.absolutePath}" }
 
         isCancelled.set(false)
         isPaused.set(false)
@@ -198,8 +205,8 @@ class LanTransferEngine(
                 fingerprint = connectReq.deviceFingerprint
             )
 
-            if (approvalMode == ApprovalMode.MANUAL_APPROVAL && onDeviceApproval != null) {
-                val isApproved = onDeviceApproval.invoke(peerProfile)
+            if (approvalMode == ApprovalMode.MANUAL_APPROVAL) {
+                val isApproved = onDeviceApproval?.invoke(peerProfile) ?: false
                 if (!isApproved) {
                     val rejectFrame = serializer.buildConnectAcceptedFrame(
                         streamId,
@@ -216,16 +223,24 @@ class LanTransferEngine(
             }
 
             // 2. Gửi 0x02 CONNECT_ACCEPTED kèm Manifest
-            val calculatedSha = if (!expectedSha256.isNullOrBlank()) {
-                expectedSha256
+            val isFolder = file.isDirectory
+            val transferType = if (isFolder) "FOLDER_ZIP" else "SINGLE_FILE"
+            val (calculatedSha, totalFileSize) = if (isFolder) {
+                val zipMeta = ZipStreamPacker.calculateZipMetadata(file, bufferPool)
+                Pair(zipMeta.sha256, zipMeta.totalCompressedBytes)
             } else {
-                Sha256StreamCalculator.calculateFileSha256(file)
+                val sha = if (!expectedSha256.isNullOrBlank()) {
+                    expectedSha256
+                } else {
+                    Sha256StreamCalculator.calculateFileSha256(file)
+                }
+                Pair(sha, file.length())
             }
 
             val manifestItem = ManifestItemPayload(
                 relativePath = file.name,
-                fileSize = file.length(),
-                mimeType = "application/octet-stream",
+                fileSize = totalFileSize,
+                mimeType = if (isFolder) "application/zip" else "application/octet-stream",
                 sha256 = calculatedSha
             )
 
@@ -233,7 +248,7 @@ class LanTransferEngine(
                 streamId,
                 ConnectAcceptedPayload(
                     status = ConnectAcceptedPayload.STATUS_APPROVED,
-                    transferType = "SINGLE_FILE",
+                    transferType = transferType,
                     manifest = listOf(manifestItem)
                 )
             )
@@ -249,15 +264,33 @@ class LanTransferEngine(
 
             val streamReq = RequestStreamPayload.fromBytes(requestStreamFrame.payload)
             var currentOffset = streamReq.startOffset
-            val totalFileSize = file.length()
 
             // 4. Bắt đầu truyền luồng DATA_CHUNK (0x04)
             currentState = TransferEngineState.TRANSFERRING
             callback?.onStateChanged(currentState)
 
-            val raf = RandomAccessFile(file, "r")
-            raf.seek(currentOffset)
-            val fileChannel = raf.channel
+            val pipedOut = if (isFolder) PipedOutputStream() else null
+            val pipedIn = if (isFolder) PipedInputStream(pipedOut, 256 * 1024) else null
+            val folderPackJob = if (isFolder) {
+                launch(Dispatchers.IO) {
+                    try {
+                        ZipStreamPacker.packDirectoryToStream(file, pipedOut!!, bufferPool)
+                    } finally {
+                        try { pipedOut?.close() } catch (_: Exception) {}
+                    }
+                }
+            } else null
+
+            val raf = if (!isFolder) {
+                RandomAccessFile(file, "r").also {
+                    it.seek(currentOffset)
+                }
+            } else null
+            val fileChannel = raf?.channel
+
+            if (isFolder && currentOffset > 0) {
+                pipedIn?.skip(currentOffset)
+            }
 
             var chunkSeq = (currentOffset / bufferPool.bufferSize).toInt()
             var lastSpeedTimestamp = System.currentTimeMillis()
@@ -312,8 +345,12 @@ class LanTransferEngine(
 
                     val buffer = bufferPool.acquire()
                     val dataToSend = try {
-                        val byteBuffer = ByteBuffer.wrap(buffer)
-                        val bytesRead = fileChannel.read(byteBuffer)
+                        val bytesRead = if (isFolder) {
+                            pipedIn!!.read(buffer)
+                        } else {
+                            val byteBuffer = ByteBuffer.wrap(buffer)
+                            fileChannel!!.read(byteBuffer)
+                        }
                         if (bytesRead > 0) {
                             buffer.copyOfRange(0, bytesRead)
                         } else null
@@ -370,8 +407,11 @@ class LanTransferEngine(
                 }
             } finally {
                 receiverJob.cancel()
-                try { fileChannel.close() } catch (_: Exception) {}
-                try { raf.close() } catch (_: Exception) {}
+                folderPackJob?.cancel()
+                try { fileChannel?.close() } catch (_: Exception) {}
+                try { raf?.close() } catch (_: Exception) {}
+                try { pipedIn?.close() } catch (_: Exception) {}
+                try { pipedOut?.close() } catch (_: Exception) {}
             }
         } catch (e: Exception) {
             currentState = if (isCancelled.get()) TransferEngineState.CANCELLED else TransferEngineState.FAILED
@@ -460,6 +500,22 @@ class LanTransferEngine(
 
             val manifestItem = acceptedPayload.manifest.firstOrNull()
                 ?: throw IOException("Manifest rỗng từ máy gửi")
+
+            // Kiểm toán dung lượng đĩa trống thực tế (StatFs) theo SDD 8.5 & FR-RCV-02
+            val isSpaceSufficient = storageAuditor.hasSufficientSpace(manifestItem.fileSize, targetDirectory)
+            if (!isSpaceSufficient) {
+                val errFrame = serializer.buildErrorAlertFrame(
+                    streamId = streamId,
+                    payload = ErrorAlertPayload(
+                        errorCode = "0x302",
+                        errorMessage = "ERR_INSUFFICIENT_STORAGE: Thiết bị nhận không đủ bộ nhớ trống"
+                    )
+                )
+                try { serializer.serializeTo(errFrame, outputStream) } catch (_: Exception) {}
+                val err = "0x302: Thiết bị không đủ bộ nhớ trống (cần ${manifestItem.fileSize} bytes kèm 50MB an toàn)"
+                callback?.onError("0x302", err)
+                throw IOException(err)
+            }
 
             val sanitizedName = FilenameSanitizer.sanitize(manifestItem.relativePath)
             val finalTargetFile = File(targetDirectory, sanitizedName)
@@ -562,10 +618,27 @@ class LanTransferEngine(
                 val isVerified = calculatedSha256.equals(manifestItem.sha256, ignoreCase = true)
 
                 if (isVerified) {
-                    if (finalTargetFile.exists()) finalTargetFile.delete()
-                    val renameSuccess = tempTargetFile.renameTo(finalTargetFile)
-                    if (!renameSuccess) {
-                        throw IOException("Không thể đổi tên tệp tạm thành: ${finalTargetFile.absolutePath}")
+                    val finalResultFile: File
+                    if (acceptedPayload.transferType == "FOLDER_ZIP") {
+                        val extractDir = File(targetDirectory, sanitizedName)
+                        extractDir.mkdirs()
+                        try {
+                            SafeStreamExtractor.extractZipFile(
+                                zipFile = tempTargetFile,
+                                destinationDir = extractDir,
+                                bufferPool = bufferPool
+                            )
+                            finalResultFile = extractDir
+                        } finally {
+                            SafeFileDeleter.wipeAndSanitizeFile(tempTargetFile)
+                        }
+                    } else {
+                        if (finalTargetFile.exists()) finalTargetFile.delete()
+                        val renameSuccess = tempTargetFile.renameTo(finalTargetFile)
+                        if (!renameSuccess) {
+                            throw IOException("Không thể đổi tên tệp tạm thành: ${finalTargetFile.absolutePath}")
+                        }
+                        finalResultFile = finalTargetFile
                     }
 
                     val verifyFrame = serializer.buildVerifyResultFrame(
@@ -578,7 +651,7 @@ class LanTransferEngine(
                     callback?.onStateChanged(currentState)
                     callback?.onCompleted(sessionId, calculatedSha256)
 
-                    Result.success(finalTargetFile)
+                    Result.success(finalResultFile)
                 } else {
                     val verifyFrame = serializer.buildVerifyResultFrame(
                         streamId = streamId,
@@ -913,7 +986,7 @@ class LanTransferEngine(
         expectedSha256: String? = null,
         callback: TransferProgressCallback? = null
     ): Result<String> = withContext(Dispatchers.IO) {
-        require(file.exists() && file.isFile) { "Tệp nguồn không tồn tại: ${file.absolutePath}" }
+        require(file.exists() && (file.isFile || file.isDirectory)) { "Tệp hoặc thư mục nguồn không tồn tại: ${file.absolutePath}" }
 
         isCancelled.set(false)
         isPaused.set(false)

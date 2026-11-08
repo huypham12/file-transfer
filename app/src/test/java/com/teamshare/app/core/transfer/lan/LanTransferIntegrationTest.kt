@@ -699,5 +699,121 @@ class LanTransferIntegrationTest {
         val senderResult = senderJob.await()
         assertTrue("Sender phải ghi nhận từ chối kết nối", senderResult.isFailure)
     }
+
+    @Test
+    fun testFolderTransferOverLanSocket() = runBlocking {
+        val targetDir = tempFolder.newFolder("lan_folder_received")
+        val sourceDir = tempFolder.newFolder("lan_source_folder")
+
+        // Tạo cấu trúc thư mục con và tệp
+        val sub1 = File(sourceDir, "docs").apply { mkdirs() }
+        val sub2 = File(sourceDir, "src/main").apply { mkdirs() }
+
+        val f1 = File(sub1, "spec.md").apply { writeText("Security Specification v4") }
+        val f2 = File(sub2, "App.kt").apply { writeText("class App { fun run() = true }") }
+        val f3 = File(sourceDir, "root.txt").apply { writeText("Root file content") }
+
+        val port = TlsSocketFactory.findAvailablePort()
+        val token = "folder-token-999"
+
+        val senderEngine = LanTransferEngine()
+        val receiverEngine = LanTransferEngine()
+
+        val serverReady = CompletableDeferred<Unit>()
+
+        val senderJob = async(Dispatchers.IO) {
+            serverReady.complete(Unit)
+            senderEngine.startSenderServer(
+                port = port,
+                sessionToken = token,
+                file = sourceDir,
+                sessionId = "session-folder-transfer",
+                approvalMode = ApprovalMode.AUTO_ACCEPT,
+                useTls = false
+            )
+        }
+
+        serverReady.await()
+        kotlinx.coroutines.delay(100)
+
+        val receiverResult = receiverEngine.connectReceiver(
+            host = "127.0.0.1",
+            port = port,
+            sessionToken = token,
+            sessionId = "session-folder-transfer",
+            targetDirectory = targetDir,
+            useTls = false
+        )
+
+        assertTrue("Quá trình nhận thư mục phải thành công", receiverResult.isSuccess)
+        val senderResult = senderJob.await()
+        assertTrue("Quá trình gửi thư mục phải thành công", senderResult.isSuccess)
+
+        val extractedDir = receiverResult.getOrThrow()
+        assertTrue("Đích đến phải là thư mục", extractedDir.isDirectory)
+
+        // Kiểm tra tính toàn vẹn của các tệp đã giải nén
+        val extF1 = File(extractedDir, "docs/spec.md")
+        val extF2 = File(extractedDir, "src/main/App.kt")
+        val extF3 = File(extractedDir, "root.txt")
+
+        assertTrue(extF1.exists())
+        assertEquals("Security Specification v4", extF1.readText())
+
+        assertTrue(extF2.exists())
+        assertEquals("class App { fun run() = true }", extF2.readText())
+
+        assertTrue(extF3.exists())
+        assertEquals("Root file content", extF3.readText())
+    }
+
+    @Test
+    fun testReceiverRejectsWhenStorageInsufficient() = runBlocking {
+        val targetDir = tempFolder.newFolder("lan_insufficient_space")
+        val sourceFile = createDummyFile(sizeBytes = 10 * 1024, name = "data.bin")
+
+        val port = TlsSocketFactory.findAvailablePort()
+        val token = "storage-token-302"
+
+        val senderEngine = LanTransferEngine()
+
+        // Receiver được cấu hình với storageAuditor giả lập đĩa đầy
+        val mockAuditor = com.teamshare.app.core.platform.storage.StatFsStorageAuditor()
+        mockAuditor.simulateStorage(availableBytes = 1024L) // Chỉ có 1KB trống, nhỏ hơn 10KB + 50MB
+        val receiverEngine = LanTransferEngine(storageAuditor = mockAuditor)
+
+        val serverReady = CompletableDeferred<Unit>()
+
+        val senderJob = async(Dispatchers.IO) {
+            serverReady.complete(Unit)
+            senderEngine.startSenderServer(
+                port = port,
+                sessionToken = token,
+                file = sourceFile,
+                sessionId = "session-storage-test",
+                approvalMode = ApprovalMode.AUTO_ACCEPT,
+                useTls = false
+            )
+        }
+
+        serverReady.await()
+        kotlinx.coroutines.delay(100)
+
+        val receiverResult = receiverEngine.connectReceiver(
+            host = "127.0.0.1",
+            port = port,
+            sessionToken = token,
+            sessionId = "session-storage-test",
+            targetDirectory = targetDir,
+            useTls = false
+        )
+
+        assertTrue("Receiver phải từ chối khi bộ nhớ không đủ", receiverResult.isFailure)
+        assertTrue(
+            "Lỗi phải chứa mã 0x302",
+            receiverResult.exceptionOrNull()?.message?.contains("0x302") == true
+        )
+        senderJob.cancel()
+    }
 }
 

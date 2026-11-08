@@ -6,15 +6,18 @@ import com.teamshare.app.core.platform.network.AndroidNetworkMonitorTest
 import com.teamshare.app.core.platform.service.NotificationManagerHelperTest
 import com.teamshare.app.core.platform.service.TransferForegroundServiceTest
 import com.teamshare.app.core.platform.share.ShareIntentParserTest
+import com.teamshare.app.core.platform.storage.StatFsAuditorTest
 import com.teamshare.app.core.security.crypto.CryptoEngineTest
 import com.teamshare.app.core.security.crypto.E2EEncryptionManagerTest
 import com.teamshare.app.core.security.crypto.SasVerificationHelperTest
 import com.teamshare.app.core.security.crypto.Sha256StreamCalculatorTest
 import com.teamshare.app.core.security.keystore.SoftwareKeyManagerTest
 import com.teamshare.app.core.security.sanitizer.FilenameSanitizerTest
+import com.teamshare.app.core.security.sanitizer.ZipSlipVulnerabilityTest
 import com.teamshare.app.core.storage.saf.SafeFileDeleterTest
 import com.teamshare.app.core.transfer.buffer.BufferPoolManagerTest
 import com.teamshare.app.core.transfer.checkpoint.CheckpointTrackerTest
+import com.teamshare.app.core.transfer.zip.ZipStreamIntegrationTest
 import com.teamshare.app.security.AntiForensicsWipeVerificationTest
 import com.teamshare.app.security.KeystoreHardwareSecurityTest
 import org.junit.runner.RunWith
@@ -22,14 +25,15 @@ import org.junit.runners.Suite
 
 /**
  * Bộ kiểm thử cơ sở (Core Baseline Test Suite) cho Stage 0.
- * Tập hợp 17 bài Unit Test độc lập kiểm chứng các thành phần kỹ thuật cốt lõi:
- * Buffer Pool, Checkpoint, Cryptography, Anti-Forensics Wipe, Sanitizer, Network Monitor.
+ * Tập hợp 20 bài Unit Test độc lập kiểm chứng các thành phần kỹ thuật cốt lõi:
+ * Buffer Pool, Checkpoint, Cryptography, Anti-Forensics Wipe, Sanitizer, Network Monitor, Zip Stream, Zip Slip, StatFs.
  * Đóng vai trò chốt chặn kiểm thử hồi quy (Regression Barrier) cho toàn bộ quá trình tái cấu trúc Stage V2.
  */
 @RunWith(Suite::class)
 @Suite.SuiteClasses(
     BufferPoolManagerTest::class,
     FilenameSanitizerTest::class,
+    ZipSlipVulnerabilityTest::class,
     SafeFileDeleterTest::class,
     Sha256StreamCalculatorTest::class,
     CryptoEngineTest::class,
@@ -41,6 +45,8 @@ import org.junit.runners.Suite
     TransferForegroundServiceTest::class,
     ShareIntentParserTest::class,
     SoftwareKeyManagerTest::class,
+    StatFsAuditorTest::class,
+    ZipStreamIntegrationTest::class,
     AntiForensicsWipeVerificationTest::class,
     KeystoreHardwareSecurityTest::class,
     BufferPoolMemoryBenchmarkTest::class,
