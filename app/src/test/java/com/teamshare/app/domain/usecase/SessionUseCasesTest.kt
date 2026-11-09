@@ -283,4 +283,31 @@ class SessionUseCasesTest {
         assertEquals(AuditEventType.DEVICE_CONNECTED, match?.eventType)
         assertEquals("Xiaomi Redmi Turbo 4 Pro", match?.actorDevice)
     }
+
+    @Test
+    fun testCreateSenderSessionWithFolderAndMultipleFiles() = runBlocking {
+        val file1 = createSampleFile("photo1.jpg", 1024)
+        val folder = tempFolder.newFolder("subfolder_batch")
+        File(folder, "child.txt").apply { writeText("hello from child") }
+
+        val useCase = CreateSenderSessionUseCase(
+            transferRepository = transferRepository,
+            deviceIdentityManager = deviceIdentityManager,
+            auditRepository = auditRepository
+        )
+
+        val result = useCase.execute(
+            files = listOf(file1, folder),
+            senderIp = "192.168.1.100",
+            senderPort = 8888,
+            approvalMode = ApprovalMode.AUTO_ACCEPT,
+            channel = TransferChannel.DIRECT_LAN
+        )
+
+        assertTrue("Khởi tạo phiên chia sẻ có thư mục hỗn hợp phải thành công không ném EISDIR", result.isSuccess)
+        val (session, qrPayload) = result.getOrThrow()
+        assertEquals(TransferType.BATCH_FILES, session.transferType)
+        assertTrue(session.totalBytes > 1024L)
+        assertEquals(2, qrPayload.itemCount)
+    }
 }

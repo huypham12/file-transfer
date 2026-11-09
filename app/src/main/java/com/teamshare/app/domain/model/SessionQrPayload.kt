@@ -36,6 +36,7 @@ data class SessionQrPayload(
     val senderDeviceModel: String = "",
     val relayUrl: String = "",
     val streamId: String = "",
+    val fileName: String = "",
     val expiresAt: Long = System.currentTimeMillis() + DEFAULT_TTL_MS,
     val signature: String = ""
 ) {
@@ -105,6 +106,7 @@ data class SessionQrPayload(
             val model = json.optString("model", json.optString("senderDeviceModel", ""))
             val relayUrl = json.optString("relay", json.optString("relayUrl", ""))
             val streamId = json.optString("streamId", "")
+            val fileName = json.optString("fn", json.optString("fileName", ""))
             val exp = if (json.has("exp")) json.optLong("exp", 0L) else json.optLong("expiresAt", 0L)
             val sig = json.optString("sig", json.optString("signature", ""))
 
@@ -120,6 +122,7 @@ data class SessionQrPayload(
                 senderDeviceModel = model,
                 relayUrl = relayUrl,
                 streamId = streamId,
+                fileName = fileName,
                 expiresAt = if (exp > 0L) exp else System.currentTimeMillis() + DEFAULT_TTL_MS,
                 signature = sig
             )
@@ -147,6 +150,7 @@ data class SessionQrPayload(
             put("model", senderDeviceModel)
             if (relayUrl.isNotBlank()) put("relay", relayUrl)
             if (streamId.isNotBlank()) put("streamId", streamId)
+            if (fileName.isNotBlank()) put("fn", fileName)
             put("exp", expiresAt)
             if (signature.isNotBlank()) put("sig", signature)
         }.toString()

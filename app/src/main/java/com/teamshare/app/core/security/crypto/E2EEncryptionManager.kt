@@ -1,5 +1,6 @@
 package com.teamshare.app.core.security.crypto
 
+import com.teamshare.app.core.constant.AppConstants
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.security.KeyPair
@@ -128,7 +129,7 @@ class E2EEncryptionManager {
         val key = checkNotNull(sessionKey) { "Kênh E2EE chưa được thiết lập khóa phiên" }
 
         // Sinh IV 12 bytes: 4 bytes ngẫu nhiên + 8 bytes chunkIndex Big-Endian
-        val iv = ByteArray(12)
+        val iv = ByteArray(AppConstants.Crypto.GCM_IV_LENGTH_BYTES)
         val randomPrefix = CryptoEngine.generateRandomBytes(4)
         System.arraycopy(randomPrefix, 0, iv, 0, 4)
         ByteBuffer.wrap(iv, 4, 8).putLong(chunkIndex)
@@ -168,12 +169,13 @@ class E2EEncryptionManager {
      */
     fun decryptChunk(chunkIndex: Long, encryptedPacket: ByteArray): ByteArray {
         val key = checkNotNull(sessionKey) { "Kênh E2EE chưa được thiết lập khóa phiên" }
-        require(encryptedPacket.size >= 12 + 16) {
-            "Gói tin mã hóa không hợp lệ (kích thước ${encryptedPacket.size} < 28 bytes)"
+        val minPacketSize = AppConstants.Crypto.GCM_IV_LENGTH_BYTES + AppConstants.Crypto.GCM_TAG_LENGTH_BYTES
+        require(encryptedPacket.size >= minPacketSize) {
+            "Gói tin mã hóa không hợp lệ (kích thước ${encryptedPacket.size} < $minPacketSize bytes)"
         }
 
-        val iv = ByteArray(12)
-        System.arraycopy(encryptedPacket, 0, iv, 0, 12)
+        val iv = ByteArray(AppConstants.Crypto.GCM_IV_LENGTH_BYTES)
+        System.arraycopy(encryptedPacket, 0, iv, 0, AppConstants.Crypto.GCM_IV_LENGTH_BYTES)
 
         // Kiểm tra xem 8 bytes cuối của IV có khớp với chunkIndex mong đợi không
         val ivChunkIndex = ByteBuffer.wrap(iv, 4, 8).long
@@ -181,8 +183,8 @@ class E2EEncryptionManager {
             "Phát hiện tấn công hoán đổi khối (IV ChunkIndex: $ivChunkIndex != Kỳ vọng: $chunkIndex)"
         }
 
-        val ciphertextWithTag = ByteArray(encryptedPacket.size - 12)
-        System.arraycopy(encryptedPacket, 12, ciphertextWithTag, 0, ciphertextWithTag.size)
+        val ciphertextWithTag = ByteArray(encryptedPacket.size - AppConstants.Crypto.GCM_IV_LENGTH_BYTES)
+        System.arraycopy(encryptedPacket, AppConstants.Crypto.GCM_IV_LENGTH_BYTES, ciphertextWithTag, 0, ciphertextWithTag.size)
 
         val aad = ByteBuffer.allocate(8).putLong(chunkIndex).array()
 

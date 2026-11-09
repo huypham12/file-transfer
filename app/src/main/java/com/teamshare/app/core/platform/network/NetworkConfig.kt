@@ -98,8 +98,8 @@ object NetworkConfig {
         try {
             val url = URL("http://$EMULATOR_LOOPBACK_HOST:$DEFAULT_RELAY_PORT/$RELAY_HEALTH_ENDPOINT")
             val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 1500
-            conn.readTimeout = 1500
+            conn.connectTimeout = AppConstants.Timeout.HTTP_PROBE_TIMEOUT_MS
+            conn.readTimeout = AppConstants.Timeout.HTTP_PROBE_TIMEOUT_MS
             if (conn.responseCode == 200) {
                 val text = conn.inputStream.bufferedReader().use { it.readText() }
                 val json = JSONObject(text)

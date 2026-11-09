@@ -37,7 +37,7 @@ class RelayWebSocketConnection(
      * @param wsUrl Đường dẫn WebSocket (ws:// hoặc wss://)
      * @param timeoutMs Thời gian chờ tối đa để thiết lập kết nối (mặc định 15s)
      */
-    suspend fun connect(wsUrl: String, timeoutMs: Long = 15_000L) {
+    suspend fun connect(wsUrl: String, timeoutMs: Long = AppConstants.Timeout.SOCKET_CONNECT_TIMEOUT_MS.toLong()) {
         val request = Request.Builder().url(wsUrl).build()
 
         val listener = object : WebSocketListener() {
@@ -101,7 +101,7 @@ class RelayWebSocketConnection(
     /**
      * Đọc tin nhắn văn bản tiếp theo với thời gian chờ [timeoutMs].
      */
-    suspend fun receiveText(timeoutMs: Long = 30_000L): String {
+    suspend fun receiveText(timeoutMs: Long = AppConstants.Timeout.WS_STREAM_TIMEOUT_MS): String {
         return withTimeout(timeoutMs) {
             textChannel.receive()
         }
@@ -110,7 +110,7 @@ class RelayWebSocketConnection(
     /**
      * Đọc tin nhắn nhị phân tiếp theo với thời gian chờ [timeoutMs].
      */
-    suspend fun receiveBinary(timeoutMs: Long = 30_000L): ByteArray {
+    suspend fun receiveBinary(timeoutMs: Long = AppConstants.Timeout.WS_STREAM_TIMEOUT_MS): ByteArray {
         return withTimeout(timeoutMs) {
             binaryChannel.receive()
         }

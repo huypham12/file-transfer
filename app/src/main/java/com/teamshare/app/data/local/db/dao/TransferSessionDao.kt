@@ -34,6 +34,9 @@ interface TransferSessionDao {
     @Query("UPDATE transfer_sessions SET peer_device_model = :peerModel, peer_fingerprint = :peerFingerprint WHERE session_id = :sessionId")
     suspend fun updatePeerInfo(sessionId: String, peerModel: String, peerFingerprint: String): Int
 
+    @Query("UPDATE transfer_sessions SET temp_file_path = :filePath WHERE session_id = :sessionId")
+    suspend fun updateSessionFile(sessionId: String, filePath: String): Int
+
     @Query("UPDATE transfer_sessions SET status = :status, completed_at = :completedAt, error_code = :errorCode WHERE session_id = :sessionId")
     suspend fun updateSessionStatus(
         sessionId: String,

@@ -280,6 +280,29 @@ class BinaryFrameProtocolTest {
     }
 
     @Test
+    fun testHandshakeAuthPayloadWithDeviceManufacturerAndModel() {
+        val payload = HandshakeAuthPayload(
+            teamId = "team-alpha-001",
+            memberId = "mem-alice-99",
+            deviceFingerprint = "fingerprint-xyz",
+            role = "MEMBER",
+            credentialData = "raw-cert-pem-base64",
+            clientNonce = "nonce-123456",
+            deviceManufacturer = "Xiaomi",
+            deviceModel = "Redmi Turbo 4 Pro"
+        )
+        val frame = serializer.buildHandshakeAuthFrame(streamId = 101, payload = payload)
+        val serializedBytes = serializer.serialize(frame)
+
+        val parsedFrame = parser.parseNextFrame(ByteArrayInputStream(serializedBytes))
+        assertNotNull(parsedFrame)
+
+        val deserializedPayload = HandshakeAuthPayload.fromBytes(parsedFrame!!.payload)
+        assertEquals("Xiaomi", deserializedPayload.deviceManufacturer)
+        assertEquals("Redmi Turbo 4 Pro", deserializedPayload.deviceModel)
+    }
+
+    @Test
     fun testMultipleSequentialFramesInSingleStream() {
         val baos = ByteArrayOutputStream()
         val frame1 = ChunkFrame(ChunkFrame.TYPE_CHUNK_ACK, 1, ChunkAckPayload(1024L).toBytes())

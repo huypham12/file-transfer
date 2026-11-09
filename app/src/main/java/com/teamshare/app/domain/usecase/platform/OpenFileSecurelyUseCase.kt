@@ -41,8 +41,8 @@ class OpenFileSecurelyUseCase(
         requireBiometric: Boolean = true,
         activity: FragmentActivity? = null
     ): Result<Intent> {
-        if (!file.exists() || !file.isFile) {
-            return Result.failure(FileNotFoundException("Tệp tin cần mở không tồn tại: ${file.absolutePath}"))
+        if (!file.exists()) {
+            return Result.failure(FileNotFoundException("Đối tượng cần mở không tồn tại: ${file.absolutePath}"))
         }
 
         if (requireBiometric) {
@@ -81,8 +81,13 @@ class OpenFileSecurelyUseCase(
         }
 
         return try {
-            val viewIntent = fileProviderGateway.createViewIntent(file, mimeType)
-            logAudit(file.name, AuditSeverity.INFO, "Đã mở tệp an toàn qua FileProvider với quyền đọc tạm thời")
+            val viewIntent = if (file.isDirectory) {
+                logAudit(file.name, AuditSeverity.INFO, "Đã mở thư mục an toàn qua trình quản lý tệp hệ thống")
+                fileProviderGateway.createOpenDirectoryIntent(file)
+            } else {
+                logAudit(file.name, AuditSeverity.INFO, "Đã mở tệp an toàn qua FileProvider với quyền đọc tạm thời")
+                fileProviderGateway.createViewIntent(file, mimeType)
+            }
             Result.success(viewIntent)
         } catch (e: Exception) {
             Result.failure(e)

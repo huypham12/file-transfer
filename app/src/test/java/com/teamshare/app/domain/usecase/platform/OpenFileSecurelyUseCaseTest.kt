@@ -120,4 +120,19 @@ class OpenFileSecurelyUseCaseTest {
         val logs = auditRepository.getRecentLogs().first()
         assertTrue(logs.any { it.severity == AuditSeverity.SECURITY_ALERT && it.details.contains("0x401") })
     }
+
+    @Test
+    fun testOpenDirectorySuccessfully() = runBlocking {
+        val useCase = OpenFileSecurelyUseCase(mockBiometric, fileProviderGateway, auditRepository)
+        val directory = tempFolder.newFolder("extracted_folder")
+
+        val result = useCase.execute(directory, requireBiometric = false)
+        assertTrue("Mở thư mục phải thành công không quăng FileNotFoundException", result.isSuccess)
+
+        val intent = result.getOrThrow()
+        assertNotNull(intent)
+
+        val logs = auditRepository.getRecentLogs().first()
+        assertTrue(logs.any { it.severity == AuditSeverity.INFO && it.details.contains("thư mục") })
+    }
 }

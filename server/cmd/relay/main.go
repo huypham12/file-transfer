@@ -32,8 +32,8 @@ func main() {
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      mux,
-		ReadTimeout:  cfg.ReadTimeout,
-		WriteTimeout: cfg.WriteTimeout,
+		ReadTimeout:  0, // Không đặt timeout toàn cục để tránh đóng kết nối WebSocket streaming
+		WriteTimeout: 0, // Thời gian chờ từng gói tin được quản lý riêng trong SafeConn.WriteMessage
 		IdleTimeout:  cfg.IdleTimeout,
 	}
 

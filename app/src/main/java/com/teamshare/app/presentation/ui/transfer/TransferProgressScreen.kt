@@ -21,8 +21,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -67,6 +69,7 @@ import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.transfer.lan.TransferEngineState
 import com.teamshare.app.domain.model.TransferChannel
 import com.teamshare.app.presentation.ui.components.formatFileSize
+import com.teamshare.app.presentation.ui.components.getFileIcon
 import com.teamshare.app.presentation.ui.mapper.UiErrorMapper
 import com.teamshare.app.presentation.ui.theme.LanBadgeColor
 import com.teamshare.app.presentation.ui.theme.RelayBadgeColor
@@ -392,113 +395,254 @@ fun TransferProgressScreen(
                 }
             }
 
-            // Phần 4: Nút Mở tệp an toàn hoặc Lưu vào Downloads (Khi đã Hoàn tất)
+            // Phần 4: Nút Mở tệp an toàn hoặc Duyệt danh sách tệp (Khi đã Hoàn tất)
             if (uiState.state == TransferEngineState.COMPLETED) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                val activity = context as? FragmentActivity
+                val targetFilePath = uiState.completedFilePath
+                val targetFile = if (!targetFilePath.isNullOrBlank()) File(targetFilePath) else File(context.filesDir, "${AppConstants.StorageDirectory.TRANSFERS}/${AppConstants.StorageDirectory.COMPLETED}/${uiState.fileName}")
+
+                if (uiState.isDirectoryOrBatch || targetFile.isDirectory) {
+                    // TRƯỜNG HỢP NHIỀU TỆP (BATCH) HOẶC THƯ MỤC (FOLDER)
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
-                        Text(
-                            text = "Tệp tin đã được lưu an toàn trong Sandbox",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            textAlign = TextAlign.Center
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Folder,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = uiState.fileName.ifBlank { "Danh sách tệp đã nhận" },
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "${uiState.receivedFileList.size} tệp tin • ${formatFileSize(uiState.totalBytes)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Text(
+                                text = "Chạm vào từng tệp dưới đây để xác thực vân tay và mở:",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            // Danh sách các tệp con
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                uiState.receivedFileList.forEach { item ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(10.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                        )
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = getFileIcon(item.name),
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = item.name,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = formatFileSize(item.sizeBytes),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            FilledTonalButton(
+                                                onClick = {
+                                                    if (activity != null) {
+                                                        viewModel.openFileSecurely(activity, File(item.absolutePath)) { success, err ->
+                                                            if (!success) {
+                                                                biometricFeedbackMessage = err ?: "Xác thực không thành công"
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Fingerprint,
+                                                    contentDescription = "Mở",
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Mở", style = MaterialTheme.typography.labelMedium)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Nút lưu tất cả / giải nén vào Downloads
+                            val isFolder = targetFile.isDirectory && !uiState.fileName.startsWith(AppConstants.StorageDirectory.BATCH_DIR_PREFIX)
+                            val actionBtnText = if (isFolder) {
+                                stringResource(R.string.btn_extract_folder)
+                            } else {
+                                stringResource(R.string.btn_save_all_to_downloads)
+                            }
+                            Button(
+                                onClick = {
+                                    viewModel.exportFileToDownloads(context, targetFile) { success, msg ->
+                                        exportFeedbackMessage = msg
+                                    }
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    imageVector = if (isFolder) Icons.Default.Folder else Icons.Default.Download,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(actionBtnText, fontWeight = FontWeight.Bold)
+                            }
+
+                            if (biometricFeedbackMessage != null) {
+                                Text(
+                                    text = biometricFeedbackMessage ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
+                            if (exportFeedbackMessage != null) {
+                                Text(
+                                    text = exportFeedbackMessage ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = LanBadgeColor,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // TRƯỜNG HỢP 1 TỆP PHẲNG (SINGLE FILE)
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        
-                        // Nút 1: Xác thực vân tay mở tệp (Bảo mật cao)
-                        Button(
-                            onClick = {
-                                val activity = context as? FragmentActivity
-                                val targetFilePath = uiState.completedFilePath
-                                val file = if (!targetFilePath.isNullOrBlank()) File(targetFilePath) else File(context.filesDir, "${AppConstants.StorageDirectory.TRANSFERS}/${AppConstants.StorageDirectory.COMPLETED}/${uiState.fileName}")
-
-                                if (activity != null) {
-                                    viewModel.openFileSecurely(activity, file) { success, err ->
-                                        if (!success) {
-                                            biometricFeedbackMessage = err ?: "Xác thực không thành công"
-                                        }
-                                    }
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Fingerprint,
-                                contentDescription = "Sinh trắc học",
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Xác thực vân tay để mở tệp")
-                        }
-
-                        // Nút 2: Mở tệp trực tiếp (Không bắt buộc vân tay)
-                        FilledTonalButton(
-                            onClick = {
-                                val activity = context as? FragmentActivity
-                                val targetFilePath = uiState.completedFilePath
-                                val file = if (!targetFilePath.isNullOrBlank()) File(targetFilePath) else File(context.filesDir, "${AppConstants.StorageDirectory.TRANSFERS}/${AppConstants.StorageDirectory.COMPLETED}/${uiState.fileName}")
-
-                                if (activity != null) {
-                                    viewModel.openFileDirectly(activity, file) { success, err ->
-                                        if (!success) {
-                                            biometricFeedbackMessage = err ?: "Không thể mở tệp"
-                                        }
-                                    }
-                                }
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Mở tệp trực tiếp (Ứng dụng ngoài)")
-                        }
-
-                        // Nút 3: Lưu vào thư mục Downloads của máy
-                        OutlinedButton(
-                            onClick = {
-                                val targetFilePath = uiState.completedFilePath
-                                val file = if (!targetFilePath.isNullOrBlank()) File(targetFilePath) else File(context.filesDir, "${AppConstants.StorageDirectory.TRANSFERS}/${AppConstants.StorageDirectory.COMPLETED}/${uiState.fileName}")
-                                viewModel.exportFileToDownloads(context, file) { success, msg ->
-                                    exportFeedbackMessage = msg
-                                }
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Lưu vào thư mục Tải về (Downloads)")
-                        }
-
-                        if (biometricFeedbackMessage != null) {
                             Text(
-                                text = biometricFeedbackMessage ?: "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
+                                text = "Tệp tin đã được lưu an toàn trong Sandbox",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 textAlign = TextAlign.Center
                             )
-                        }
+                            Spacer(modifier = Modifier.height(4.dp))
 
-                        if (exportFeedbackMessage != null) {
-                            Text(
-                                text = exportFeedbackMessage ?: "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = LanBadgeColor,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center
-                            )
+                            // Nút 1: Xác thực vân tay mở tệp (Bảo mật cao)
+                            Button(
+                                onClick = {
+                                    if (activity != null) {
+                                        viewModel.openFileSecurely(activity, targetFile) { success, err ->
+                                            if (!success) {
+                                                biometricFeedbackMessage = err ?: "Xác thực không thành công"
+                                            }
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Fingerprint,
+                                    contentDescription = "Sinh trắc học",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Xác thực vân tay để mở tệp")
+                            }
+
+                            // Nút 2: Lưu vào thư mục Downloads của máy
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.exportFileToDownloads(context, targetFile) { success, msg ->
+                                        exportFeedbackMessage = msg
+                                    }
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Lưu vào thư mục Tải về (Downloads)")
+                            }
+
+                            if (biometricFeedbackMessage != null) {
+                                Text(
+                                    text = biometricFeedbackMessage ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+
+                            if (exportFeedbackMessage != null) {
+                                Text(
+                                    text = exportFeedbackMessage ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = LanBadgeColor,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
                     }
                 }

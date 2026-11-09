@@ -2,6 +2,7 @@ package com.teamshare.app.domain.usecase.transfer
 
 import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.platform.network.NetworkConfig
+import com.teamshare.app.core.security.sanitizer.FilenameSanitizer
 import com.teamshare.app.core.transfer.lan.TransferProgressCallback
 import com.teamshare.app.core.transfer.lan.LanTransferEngine
 import com.teamshare.app.core.transfer.relay.RelayClientEngine
@@ -111,6 +112,10 @@ class RequestConnectionUseCase(
         )
 
         if (transferResult.isSuccess) {
+            val downloadedFile = transferResult.getOrNull()
+            if (downloadedFile != null) {
+                transferRepository.updateSessionFile(payload.sessionId, downloadedFile.absolutePath)
+            }
             transferRepository.updateSessionStatus(payload.sessionId, SessionStatus.COMPLETED)
             auditRepository?.logEvent(
                 AuditLog(
@@ -206,11 +211,20 @@ class RequestConnectionUseCase(
             )
         )
 
-        val isZip = payload.transferType == TransferType.FOLDER_ZIP
+        val isArchive = payload.transferType == TransferType.FOLDER_ZIP || payload.transferType == TransferType.BATCH_FILES
         val targetFileName = when (payload.transferType) {
-            TransferType.FOLDER_ZIP -> "folder_${payload.sessionId.take(8)}.zip"
-            TransferType.BATCH_FILES -> "batch_${payload.sessionId.take(8)}.zip"
-            else -> "file_${payload.sessionId.take(8)}"
+            TransferType.FOLDER_ZIP -> {
+                if (payload.fileName.isNotBlank()) "${FilenameSanitizer.sanitize(payload.fileName)}${AppConstants.StorageDirectory.ZIP_EXTENSION}"
+                else "${AppConstants.StorageDirectory.FOLDER_PREFIX}${payload.sessionId.take(8)}${AppConstants.StorageDirectory.ZIP_EXTENSION}"
+            }
+            TransferType.BATCH_FILES -> "${AppConstants.StorageDirectory.BATCH_DIR_PREFIX}${payload.sessionId.take(8)}${AppConstants.StorageDirectory.ZIP_EXTENSION}"
+            else -> {
+                if (payload.fileName.isNotBlank()) {
+                    FilenameSanitizer.sanitize(payload.fileName)
+                } else {
+                    "${AppConstants.StorageDirectory.FILE_PREFIX}${payload.sessionId.take(8)}"
+                }
+            }
         }
         val targetFile = File(targetDirectory, targetFileName)
 
@@ -219,7 +233,7 @@ class RequestConnectionUseCase(
         )
 
         return try {
-            val success = relayEngine.receiveFileViaRelayWithRetry(
+            val downloadedFile = relayEngine.receiveFileViaRelayWithRetry(
                 relayWsUrl = targetRelayUrl,
                 session = relaySession,
                 targetFile = targetFile,
@@ -227,24 +241,35 @@ class RequestConnectionUseCase(
                 callback = callback
             )
 
-            if (success && targetFile.exists()) {
-                // Nếu là tệp Zip nén thư mục, tự động giải nén an toàn
-                val finalFile = if (isZip) {
-                    val extractDir = File(targetDirectory, "folder_${payload.sessionId.take(8)}")
+            if (downloadedFile != null && downloadedFile.exists()) {
+                // Nếu là tệp Zip nén thư mục hoặc gói nhiều tệp (batch), tự động giải nén an toàn
+                val finalFile = if (isArchive) {
+                    val folderPrefix = if (payload.transferType == TransferType.FOLDER_ZIP) {
+                        AppConstants.StorageDirectory.FOLDER_PREFIX
+                    } else {
+                        AppConstants.StorageDirectory.BATCH_DIR_PREFIX
+                    }
+                    val targetFolderName = if (payload.fileName.isNotBlank()) {
+                        FilenameSanitizer.sanitize(payload.fileName)
+                    } else {
+                        "$folderPrefix${payload.sessionId.take(8)}"
+                    }
+                    val extractDir = File(targetDirectory, targetFolderName)
                     try {
                         SafeStreamExtractor.extractZipFile(
-                            zipFile = targetFile,
+                            zipFile = downloadedFile,
                             destinationDir = extractDir
                         )
-                        targetFile.delete()
+                        downloadedFile.delete()
                         extractDir
                     } catch (_: Exception) {
-                        targetFile
+                        downloadedFile
                     }
                 } else {
-                    targetFile
+                    downloadedFile
                 }
 
+                transferRepository.updateSessionFile(payload.sessionId, finalFile.absolutePath)
                 transferRepository.updateSessionStatus(payload.sessionId, SessionStatus.COMPLETED)
                 auditRepository?.logEvent(
                     AuditLog(
@@ -257,7 +282,7 @@ class RequestConnectionUseCase(
                 )
                 Result.success(finalFile)
             } else {
-                transferRepository.updateSessionStatus(payload.sessionId, SessionStatus.FAILED, errorCode = "RELAY_RECEIVE_FAILED")
+                transferRepository.updateSessionStatus(payload.sessionId, SessionStatus.FAILED, errorCode = ErrorCode.ERR_RELAY_UNAVAILABLE)
                 Result.failure(IOException("Không thể nhận tệp qua Relay Server (kết nối thất bại hoặc tệp lỗi)"))
             }
         } catch (e: Exception) {

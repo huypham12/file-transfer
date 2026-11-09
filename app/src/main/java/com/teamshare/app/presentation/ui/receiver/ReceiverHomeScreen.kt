@@ -127,7 +127,13 @@ fun ReceiverHomeScreen(
                         onClick = {
                             val targetDir = File(context.filesDir, "${AppConstants.StorageDirectory.TRANSFERS}/${AppConstants.StorageDirectory.COMPLETED}").apply { mkdirs() }
                             val sId = uiState.pendingSessionId ?: payload?.sessionId ?: "session_recv"
-                            val fileName = if (payload != null && payload.itemCount > 1) {
+                            val fileName = if (payload != null && payload.fileName.isNotBlank()) {
+                                if (payload.itemCount > 1 && payload.transferType == TransferType.BATCH_FILES) {
+                                    "${payload.itemCount} tệp (${payload.fileName}...)"
+                                } else {
+                                    payload.fileName
+                                }
+                            } else if (payload != null && payload.itemCount > 1) {
                                 "batch_${sId.take(8)}.zip"
                             } else if (payload?.transferType == TransferType.FOLDER_ZIP) {
                                 "folder_${sId.take(8)}.zip"

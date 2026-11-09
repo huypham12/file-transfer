@@ -39,9 +39,12 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -78,6 +81,7 @@ class LanTransferEngine(
 
     private var activeServerSocket: ServerSocket? = null
     private var activeSocket: Socket? = null
+    private val activeSockets = java.util.concurrent.ConcurrentHashMap<String, Socket>()
     private val isPaused = AtomicBoolean(false)
     private val isCancelled = AtomicBoolean(false)
 
@@ -102,6 +106,8 @@ class LanTransferEngine(
         try {
             activeSocket?.close()
         } catch (_: Exception) {}
+        activeSockets.values.forEach { try { it.close() } catch (_: Exception) {} }
+        activeSockets.clear()
         try {
             activeServerSocket?.close()
         } catch (_: Exception) {}
@@ -138,6 +144,7 @@ class LanTransferEngine(
         onPeerConnected: ((DeviceProfile) -> Unit)? = null,
         useTls: Boolean = false,
         serverTimeoutMs: Int = DEFAULT_SERVER_TIMEOUT_MS,
+        maxReceivers: Int = 1,
         callback: TransferProgressCallback? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         require(file.exists() && (file.isFile || file.isDirectory)) { "Tệp hoặc thư mục nguồn không tồn tại: ${file.absolutePath}" }
@@ -163,15 +170,111 @@ class LanTransferEngine(
                 serverSocket.soTimeout = serverTimeoutMs
             }
 
-            val socket = try {
-                serverSocket.accept().also { activeSocket = it }
-            } catch (e: java.net.SocketTimeoutException) {
-                currentState = TransferEngineState.FAILED
-                callback?.onStateChanged(currentState)
-                callback?.onError(ErrorCode.ERR_SERVER_TIMEOUT, DomainError.ServerTimeout.technicalMessage)
-                return@withContext Result.failure(e)
-            }
+            if (maxReceivers <= 1) {
+                val socket = try {
+                    serverSocket.accept().also { activeSocket = it }
+                } catch (e: java.net.SocketTimeoutException) {
+                    currentState = TransferEngineState.FAILED
+                    callback?.onStateChanged(currentState)
+                    callback?.onError(ErrorCode.ERR_SERVER_TIMEOUT, DomainError.ServerTimeout.technicalMessage)
+                    return@withContext Result.failure(e)
+                }
 
+                return@withContext handleSenderClient(
+                    socket = socket,
+                    sessionToken = sessionToken,
+                    file = file,
+                    sessionId = sessionId,
+                    expectedSha256 = expectedSha256,
+                    approvalMode = approvalMode,
+                    onDeviceApproval = onDeviceApproval,
+                    onPeerConnected = onPeerConnected,
+                    callback = callback
+                )
+            } else {
+                // Chế độ 1-N Đa người nhận (SDD Mục 8.1 & SRS FR-TRN-03)
+                val clientSemaphore = Semaphore(permits = maxReceivers)
+                val completedCount = java.util.concurrent.atomic.AtomicInteger(0)
+                val lastSuccessSha = java.util.concurrent.atomic.AtomicReference<String?>(null)
+                val lastError = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+
+                coroutineScope {
+                    while (isActive && !isCancelled.get() && completedCount.get() < maxReceivers) {
+                        val clientSocket = try {
+                            serverSocket.accept()
+                        } catch (e: Exception) {
+                            if (completedCount.get() > 0 || isCancelled.get()) break
+                            currentState = TransferEngineState.FAILED
+                            callback?.onStateChanged(currentState)
+                            lastError.set(e)
+                            break
+                        }
+
+                        val clientId = java.util.UUID.randomUUID().toString()
+                        activeSockets[clientId] = clientSocket
+
+                        launch(Dispatchers.IO) {
+                            clientSemaphore.withPermit {
+                                try {
+                                    val res = handleSenderClient(
+                                        socket = clientSocket,
+                                        sessionToken = sessionToken,
+                                        file = file,
+                                        sessionId = sessionId,
+                                        expectedSha256 = expectedSha256,
+                                        approvalMode = approvalMode,
+                                        onDeviceApproval = onDeviceApproval,
+                                        onPeerConnected = onPeerConnected,
+                                        callback = callback
+                                    )
+                                    if (res.isSuccess) {
+                                        completedCount.incrementAndGet()
+                                        lastSuccessSha.set(res.getOrNull())
+                                    } else {
+                                        lastError.set(res.exceptionOrNull())
+                                    }
+                                } finally {
+                                    activeSockets.remove(clientId)
+                                    try { clientSocket.close() } catch (_: Exception) {}
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val finalSha = lastSuccessSha.get()
+                if (finalSha != null) {
+                    Result.success(finalSha)
+                } else {
+                    Result.failure(lastError.get() ?: IOException("Không có máy nhận nào hoàn tất truyền tải"))
+                }
+            }
+        } catch (e: Exception) {
+            currentState = if (isCancelled.get()) TransferEngineState.CANCELLED else TransferEngineState.FAILED
+            callback?.onStateChanged(currentState)
+            Result.failure(e)
+        } finally {
+            try { activeSocket?.close() } catch (_: Exception) {}
+            activeSockets.values.forEach { try { it.close() } catch (_: Exception) {} }
+            activeSockets.clear()
+            try { serverSocket.close() } catch (_: Exception) {}
+            activeSocket = null
+            activeServerSocket = null
+        }
+    }
+
+    private suspend fun handleSenderClient(
+        socket: Socket,
+        sessionToken: String,
+        file: File,
+        sessionId: String,
+        expectedSha256: String?,
+        approvalMode: ApprovalMode,
+        onDeviceApproval: (suspend (DeviceProfile) -> Boolean)?,
+        onPeerConnected: ((DeviceProfile) -> Unit)?,
+        callback: TransferProgressCallback?
+    ): Result<String> = coroutineScope {
+        try {
             val inputStream = BufferedInputStream(socket.getInputStream(), AppConstants.Buffer.STREAM_INPUT_BUFFER_BYTES)
             val outputStream = BufferedOutputStream(socket.getOutputStream(), AppConstants.Buffer.STREAM_INPUT_BUFFER_BYTES)
             val streamId = 1
@@ -358,7 +461,7 @@ class LanTransferEngine(
             try {
                 while (currentOffset < totalFileSize && !isCancelled.get()) {
                     while (isPaused.get() && !isCancelled.get()) {
-                        delay(200)
+                        delay(AppConstants.Timeout.PAUSE_POLL_INTERVAL_MS)
                     }
                     if (isCancelled.get()) break
 
@@ -437,10 +540,7 @@ class LanTransferEngine(
             callback?.onStateChanged(currentState)
             Result.failure(e)
         } finally {
-            try { activeSocket?.close() } catch (_: Exception) {}
-            try { serverSocket.close() } catch (_: Exception) {}
-            activeSocket = null
-            activeServerSocket = null
+            try { socket.close() } catch (_: Exception) {}
         }
     }
 
@@ -484,15 +584,15 @@ class LanTransferEngine(
         } catch (e: Exception) {
             currentState = TransferEngineState.FAILED
             callback?.onStateChanged(currentState)
-            callback?.onError("CONNECT_ERROR", "Không thể kết nối đến máy gửi $host:$port - ${e.message}")
+            callback?.onError(ErrorCode.ERR_SERVER_BIND_ERROR, "Không thể kết nối đến máy gửi $host:$port - ${e.message}")
             return@withContext Result.failure(e)
         }
 
         var tempFile: File? = null
 
         try {
-            val inputStream = BufferedInputStream(socket.getInputStream(), 128 * 1024)
-            val outputStream = BufferedOutputStream(socket.getOutputStream(), 128 * 1024)
+            val inputStream = BufferedInputStream(socket.getInputStream(), AppConstants.Buffer.STREAM_INPUT_BUFFER_BYTES)
+            val outputStream = BufferedOutputStream(socket.getOutputStream(), AppConstants.Buffer.STREAM_INPUT_BUFFER_BYTES)
             val streamId = 1
 
             // 1. Gửi 0x01 CONNECT_REQUEST tới Sender
@@ -591,7 +691,7 @@ class LanTransferEngine(
             try {
                 while (receivedBytesTotal < manifestItem.fileSize && !isCancelled.get()) {
                     while (isPaused.get() && !isCancelled.get()) {
-                        delay(200)
+                        delay(AppConstants.Timeout.PAUSE_POLL_INTERVAL_MS)
                     }
                     if (isCancelled.get()) break
 
@@ -655,7 +755,7 @@ class LanTransferEngine(
 
                 if (isVerified) {
                     val finalResultFile: File
-                    if (acceptedPayload.transferType == "FOLDER_ZIP") {
+                    if (acceptedPayload.transferType == "FOLDER_ZIP" || acceptedPayload.transferType == "BATCH_FILES") {
                         val extractDir = File(targetDirectory, sanitizedName)
                         extractDir.mkdirs()
                         try {
@@ -676,10 +776,11 @@ class LanTransferEngine(
                         }
                         finalResultFile = finalTargetFile
                     }
+                    sessionDao?.updateSessionFile(sessionId, finalResultFile.absolutePath)
 
                     val verifyFrame = serializer.buildVerifyResultFrame(
                         streamId = streamId,
-                        payload = VerifyResultPayload(sessionId, "SUCCESS", calculatedSha256)
+                        payload = VerifyResultPayload(sessionId, VerifyResultPayload.STATUS_SUCCESS, calculatedSha256)
                     )
                     serializer.serializeTo(verifyFrame, outputStream)
 
@@ -691,7 +792,7 @@ class LanTransferEngine(
                 } else {
                     val verifyFrame = serializer.buildVerifyResultFrame(
                         streamId = streamId,
-                        payload = VerifyResultPayload(sessionId, "CHECKSUM_FAILED", calculatedSha256)
+                        payload = VerifyResultPayload(sessionId, VerifyResultPayload.STATUS_CHECKSUM_FAILED, calculatedSha256)
                     )
                     serializer.serializeTo(verifyFrame, outputStream)
 
@@ -800,7 +901,7 @@ class LanTransferEngine(
                 }
             } else if (expectedTeamId != null && receivedTeamId != expectedTeamId) {
                 val err = "TeamId không khớp: nhận $receivedTeamId, dự kiến $expectedTeamId"
-                callback?.onError("TEAM_MISMATCH", err)
+                callback?.onError(ErrorCode.ERR_DEVICE_REJECTED, err)
                 throw SecurityException(err)
             }
 
@@ -808,14 +909,14 @@ class LanTransferEngine(
 
             if (peerValidator != null && !peerValidator.invoke(authPayload)) {
                 val err = "Peer bị từ chối bởi chính sách thẩm định (vd: thành viên đã bị thu hồi quyền)"
-                callback?.onError("PEER_VALIDATION_FAILED", err)
+                callback?.onError(ErrorCode.ERR_DEVICE_REJECTED, err)
                 throw SecurityException(err)
             }
 
             if (ownerPublicKey != null) {
                 if (keyManager == null || authPayload.credentialData.isBlank()) {
                     val err = "Thiếu KeyManager hoặc Credential để thẩm định chữ ký Owner"
-                    callback?.onError("INVALID_CREDENTIAL", err)
+                    callback?.onError(ErrorCode.ERR_INVALID_CREDENTIAL, err)
                     throw SecurityException(err)
                 }
                 val memberClaim = "${authPayload.teamId}:${authPayload.memberId}:${authPayload.deviceFingerprint}:${authPayload.role}".toByteArray(Charsets.UTF_8)
@@ -830,7 +931,7 @@ class LanTransferEngine(
                 }
                 if (!verified) {
                     val err = "Chữ ký số của Owner trên Credential không hợp lệ"
-                    callback?.onError("SIGNATURE_VERIFICATION_FAILED", err)
+                    callback?.onError(ErrorCode.ERR_INVALID_CREDENTIAL, err)
                     throw SecurityException(err)
                 }
             }
@@ -892,7 +993,7 @@ class LanTransferEngine(
             try {
                 while (receivedBytesTotal < totalSize && !isCancelled.get()) {
                     while (isPaused.get() && !isCancelled.get()) {
-                        delay(200)
+                        delay(AppConstants.Timeout.PAUSE_POLL_INTERVAL_MS)
                     }
                     if (isCancelled.get()) break
 
@@ -962,7 +1063,7 @@ class LanTransferEngine(
 
                     val verifyFrame = serializer.buildVerifyResultFrame(
                         streamId = manifestFrame.streamId,
-                        payload = VerifyResultPayload(docId, "SUCCESS", calculatedSha256)
+                        payload = VerifyResultPayload(docId, VerifyResultPayload.STATUS_SUCCESS, calculatedSha256)
                     )
                     serializer.serializeTo(verifyFrame, outputStream)
 
@@ -974,7 +1075,7 @@ class LanTransferEngine(
                 } else {
                     val verifyFrame = serializer.buildVerifyResultFrame(
                         streamId = manifestFrame.streamId,
-                        payload = VerifyResultPayload(docId, "CHECKSUM_FAILED", calculatedSha256)
+                        payload = VerifyResultPayload(docId, VerifyResultPayload.STATUS_CHECKSUM_FAILED, calculatedSha256)
                     )
                     serializer.serializeTo(verifyFrame, outputStream)
 
@@ -982,7 +1083,7 @@ class LanTransferEngine(
                     currentState = TransferEngineState.FAILED
                     callback?.onStateChanged(currentState)
                     val err = "Sai lệch mã băm SHA-256: kỳ vọng $expectedSha256, thực tế $calculatedSha256"
-                    callback?.onError("CHECKSUM_MISMATCH", err)
+                    callback?.onError(ErrorCode.ERR_CHECKSUM_MISMATCH, err)
                     Result.failure(SecurityException(err))
                 }
             } finally {
@@ -1036,13 +1137,13 @@ class LanTransferEngine(
         } catch (e: Exception) {
             currentState = TransferEngineState.FAILED
             callback?.onStateChanged(currentState)
-            callback?.onError("CONNECT_ERROR", "Không thể kết nối đến máy chủ $host:$port - ${e.message}")
+            callback?.onError(ErrorCode.ERR_SERVER_BIND_ERROR, "Không thể kết nối đến máy chủ $host:$port - ${e.message}")
             return@withContext Result.failure(e)
         }
 
         try {
-            val inputStream = BufferedInputStream(socket.getInputStream(), 128 * 1024)
-            val outputStream = BufferedOutputStream(socket.getOutputStream(), 128 * 1024)
+            val inputStream = BufferedInputStream(socket.getInputStream(), AppConstants.Buffer.STREAM_INPUT_BUFFER_BYTES)
+            val outputStream = BufferedOutputStream(socket.getOutputStream(), AppConstants.Buffer.STREAM_INPUT_BUFFER_BYTES)
             val streamId = 1
 
             // 1. Gửi gói 0x01
@@ -1088,7 +1189,7 @@ class LanTransferEngine(
             val response = ManifestResponsePayload.fromBytes(responseFrame.payload)
             if (!response.accepted) {
                 val reason = response.rejectionReason ?: "Bị từ chối bởi máy nhận"
-                callback?.onError("TRANSFER_REJECTED", reason)
+                callback?.onError(ErrorCode.ERR_DEVICE_REJECTED, reason)
                 throw IOException("Phiên truyền bị từ chối: $reason")
             }
 
@@ -1148,7 +1249,7 @@ class LanTransferEngine(
             try {
                 while (currentOffset < totalFileSize && !isCancelled.get()) {
                     while (isPaused.get() && !isCancelled.get()) {
-                        delay(200)
+                        delay(AppConstants.Timeout.PAUSE_POLL_INTERVAL_MS)
                     }
                     if (isCancelled.get()) break
 
@@ -1179,7 +1280,7 @@ class LanTransferEngine(
 
                     val now = System.currentTimeMillis()
                     val delta = now - lastSpeedTimestamp
-                    if (delta >= 500) {
+                    if (delta >= AppConstants.Timeout.PROGRESS_THROTTLE_INTERVAL_MS) {
                         val speed = (bytesSinceLastSpeed * 1000L) / maxOf(delta, 1L)
                         callback?.onProgress(currentOffset, totalFileSize, speed)
                         lastSpeedTimestamp = now
@@ -1188,7 +1289,7 @@ class LanTransferEngine(
                 }
 
                 if (isCancelled.get()) {
-                    val cancelSignal = ControlSignalPayload(command = "CANCEL")
+                    val cancelSignal = ControlSignalPayload(command = ControlSignalPayload.CMD_CANCEL)
                     serializer.serializeTo(serializer.buildControlSignalFrame(streamId, cancelSignal), outputStream)
                     throw CancellationException("Phiên gửi đã bị hủy bởi người dùng")
                 }
@@ -1206,7 +1307,7 @@ class LanTransferEngine(
                     currentState = TransferEngineState.FAILED
                     callback?.onStateChanged(currentState)
                     val err = "Máy nhận thông báo thất bại: mã băm thực tế ${verifyResult.actualSha256}"
-                    callback?.onError("CHECKSUM_FAILED", err)
+                    callback?.onError(ErrorCode.ERR_CHECKSUM_MISMATCH, err)
                     Result.failure(SecurityException(err))
                 }
             } finally {

@@ -49,8 +49,11 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
     private val dirManager by lazy { StorageDirectoryManager(context) }
     private val networkMonitor by lazy { AndroidNetworkMonitor(context) }
 
-    private val lanEngine by lazy { LanTransferEngine() }
-    private val relayEngine by lazy { RelayClientEngine() }
+    private val lanEngine by lazy { LanTransferEngine(sessionDao = database.transferSessionDao()) }
+    private val relayEngine by lazy { RelayClientEngine(sessionDao = database.transferSessionDao()) }
+    private val serviceLauncher by lazy {
+        com.teamshare.app.core.platform.service.TransferForegroundServiceLauncherImpl(context)
+    }
 
     private val deviceIdentityManager by lazy { DeviceIdentityManager(keyManager) }
     private val biometricAuthManager by lazy { BiometricAuthManager(context) }
@@ -63,6 +66,7 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
             networkMonitor = networkMonitor,
             transferRepository = transferRepo,
             serviceController = TransferServiceController,
+            serviceLauncher = serviceLauncher,
             directoryManager = dirManager,
             auditRepository = auditRepo,
             keyManager = keyManager
@@ -86,7 +90,8 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
                 auditRepository = auditRepo
             ),
             lanEngine = lanEngine,
-            relayEngine = relayEngine
+            relayEngine = relayEngine,
+            authenticateBiometricUseCase = com.teamshare.app.domain.usecase.platform.AuthenticateBiometricUseCase(biometricAuthManager)
         )
     }
 

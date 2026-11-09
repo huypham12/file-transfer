@@ -1,5 +1,6 @@
 package com.teamshare.app.domain.usecase.transfer
 
+import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.platform.device.IDeviceIdentityManager
 import com.teamshare.app.core.platform.network.NetworkConfig
 import com.teamshare.app.core.security.crypto.Sha256StreamCalculator
@@ -87,21 +88,34 @@ class CreateSenderSessionUseCase(
                 manifestArray.put(itemJson)
             } else {
                 for (file in files) {
-                    val size = file.length()
-                    totalBytes += size
-                    val sha = Sha256StreamCalculator.calculateFileSha256(file)
-                    val itemJson = JSONObject().apply {
-                        put("relativePath", file.name)
-                        put("fileSize", size)
-                        put("mimeType", "application/octet-stream")
-                        put("sha256", sha)
+                    if (file.isDirectory) {
+                        val zipMeta = ZipStreamPacker.calculateZipMetadata(file)
+                        totalBytes += zipMeta.totalCompressedBytes
+                        val itemJson = JSONObject().apply {
+                            put("relativePath", file.name)
+                            put("fileSize", zipMeta.totalCompressedBytes)
+                            put("mimeType", "application/zip")
+                            put("sha256", zipMeta.sha256)
+                        }
+                        manifestArray.put(itemJson)
+                    } else {
+                        val size = file.length()
+                        totalBytes += size
+                        val sha = Sha256StreamCalculator.calculateFileSha256(file)
+                        val itemJson = JSONObject().apply {
+                            put("relativePath", file.name)
+                            put("fileSize", size)
+                            put("mimeType", "application/octet-stream")
+                            put("sha256", sha)
+                        }
+                        manifestArray.put(itemJson)
                     }
-                    manifestArray.put(itemJson)
                 }
             }
 
             val deviceProfile = deviceIdentityManager.getDeviceProfile()
             val expiresAt = System.currentTimeMillis() + (ttlSeconds * 1000L)
+            val primaryFileName = if (files.isNotEmpty()) files.first().name else ""
 
             val qrPayload = SessionQrPayload(
                 sessionId = sessionId,
@@ -115,6 +129,7 @@ class CreateSenderSessionUseCase(
                 senderDeviceModel = deviceProfile.model,
                 relayUrl = relayUrl,
                 streamId = streamId,
+                fileName = primaryFileName,
                 expiresAt = expiresAt
             )
 
@@ -155,7 +170,7 @@ class CreateSenderSessionUseCase(
     }
 
     private fun generateSecureToken(): String {
-        val bytes = ByteArray(16)
+        val bytes = ByteArray(AppConstants.Crypto.SESSION_TOKEN_BYTES)
         secureRandom.nextBytes(bytes)
         return bytes.joinToString("") { "%02x".format(it) }
     }

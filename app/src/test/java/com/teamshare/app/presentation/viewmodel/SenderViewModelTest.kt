@@ -251,6 +251,22 @@ class SenderViewModelTest {
     }
 
     @Test
+    fun testApprovalCache_clearedOnStopSharingSession() = runBlocking {
+        viewModel.setApprovalMode(ApprovalMode.MANUAL_APPROVAL)
+        val device = DeviceProfile(
+            manufacturer = "Xiaomi",
+            model = "Redmi Turbo 4 Pro",
+            fingerprint = "fp_turbo_4"
+        )
+        viewModel.onDeviceConnectionRequested(device)
+        viewModel.approvePendingDevice(device, accept = true)
+        assertEquals(1, viewModel.uiState.value.connectedDevices.size)
+
+        viewModel.stopSharingSession().join()
+        assertTrue(viewModel.uiState.value.connectedDevices.isEmpty())
+    }
+
+    @Test
     fun testStopSharingSession_cleansUpState() = runBlocking {
         val file = createSampleFile("temp.bin", 1024)
         viewModel.onFilesSelected(listOf(file))

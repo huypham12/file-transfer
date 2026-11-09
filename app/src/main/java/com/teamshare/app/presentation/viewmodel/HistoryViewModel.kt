@@ -113,8 +113,24 @@ class HistoryViewModel(
 
     /**
      * Mở tệp trực tiếp thông qua ứng dụng tương thích.
+     * @deprecated Sử dụng [openFileSecurely] để bảo vệ tài liệu bằng sinh trắc học theo SRS FR-DOC-03 & BR-05.
      */
+    @Deprecated(
+        message = "Sử dụng openFileSecurely để bảo đảm tuân thủ xác thực sinh trắc học",
+        replaceWith = ReplaceWith("openFileSecurely(activity, session, onResult)")
+    )
     fun openFileDirectly(
+        activity: FragmentActivity,
+        session: TransferSession,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        openFileSecurely(activity, session, onResult)
+    }
+
+    /**
+     * Mở tệp an toàn kèm xác thực sinh trắc học vân tay từ TransferSession.
+     */
+    fun openFileSecurely(
         activity: FragmentActivity,
         session: TransferSession,
         onResult: (Boolean, String?) -> Unit
@@ -124,38 +140,18 @@ class HistoryViewModel(
             onResult(false, "Không tìm thấy tệp tin trên bộ nhớ thiết bị")
             return
         }
-
-        val useCase = openFileSecurelyUseCase
-        if (useCase == null) {
-            onResult(false, "Chức năng mở tệp chưa được khởi tạo")
-            return
-        }
-
-        scope.launch {
-            try {
-                val result = useCase.execute(file = file, requireBiometric = false, activity = activity)
-                result.onSuccess { intent ->
-                    activity.startActivity(intent)
-                    onResult(true, null)
-                }.onFailure { err ->
-                    onResult(false, err.message ?: "Không thể mở tệp")
-                }
-            } catch (e: Exception) {
-                onResult(false, e.message ?: "Không thể mở tệp")
-            }
-        }
+        openFileSecurely(activity, file, onResult)
     }
 
     /**
-     * Mở tệp an toàn kèm xác thực sinh trắc học vân tay.
+     * Mở tệp an toàn kèm xác thực sinh trắc học vân tay từ đối tượng File cụ thể.
      */
     fun openFileSecurely(
         activity: FragmentActivity,
-        session: TransferSession,
+        file: File,
         onResult: (Boolean, String?) -> Unit
     ) {
-        val file = resolveSessionFile(activity, session)
-        if (file == null || !file.exists()) {
+        if (!file.exists()) {
             onResult(false, "Không tìm thấy tệp tin trên bộ nhớ thiết bị")
             return
         }
@@ -182,7 +178,8 @@ class HistoryViewModel(
     }
 
     /**
-     * Xuất tệp tin ra thư mục Downloads/TeamShare của máy.
+     * Xuất tệp hoặc thư mục ra thư mục công cộng Downloads/TeamShare của máy.
+     * Tự động nhận diện tệp đơn lẻ hoặc thư mục để trích xuất trực tiếp thay vì nén .zip.
      */
     fun exportFileToDownloads(
         context: Context,
@@ -196,51 +193,56 @@ class HistoryViewModel(
         }
 
         scope.launch(Dispatchers.IO) {
+            val exporter = com.teamshare.app.core.storage.saf.PublicStorageExporter(context)
             try {
-                val displayName = if (file.isDirectory) "${file.name}.zip" else file.name
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val contentValues = ContentValues().apply {
-                        put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
-                        put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/TeamShare")
-                    }
-                    val resolver = context.contentResolver
-                    val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                    if (uri != null) {
-                        resolver.openOutputStream(uri)?.use { out ->
-                            if (file.isDirectory) {
-                                com.teamshare.app.core.transfer.zip.ZipStreamPacker.packDirectoryToStream(file, out)
-                            } else {
-                                file.inputStream().use { input -> input.copyTo(out) }
-                            }
-                        }
-                        withContext(Dispatchers.Main) {
-                            onResult(true, "Đã lưu vào thư mục Downloads/TeamShare/$displayName")
-                        }
-                    } else {
-                        withContext(Dispatchers.Main) {
-                            onResult(false, "Không thể tạo tệp trong thư mục Downloads")
+                if (file.isDirectory) {
+                    val result = exporter.exportFolder(file)
+                    withContext(Dispatchers.Main) {
+                        result.onSuccess { count ->
+                            onResult(true, "Đã giải nén $count tệp vào Downloads/TeamShare/${file.name}")
+                        }.onFailure { err ->
+                            onResult(false, "Lỗi khi giải nén thư mục: ${err.message}")
                         }
                     }
                 } else {
-                    @Suppress("DEPRECATION")
-                    val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                    val teamShareDir = File(downloadsDir, "TeamShare").apply { mkdirs() }
-                    val destFile = File(teamShareDir, displayName)
-                    if (file.isDirectory) {
-                        destFile.outputStream().use { fos ->
-                            com.teamshare.app.core.transfer.zip.ZipStreamPacker.packDirectoryToStream(file, fos)
-                        }
-                    } else {
-                        file.copyTo(destFile, overwrite = true)
-                    }
+                    val result = exporter.exportSingleFile(file)
                     withContext(Dispatchers.Main) {
-                        onResult(true, "Đã lưu vào ${destFile.absolutePath}")
+                        result.onSuccess { path ->
+                            onResult(true, "Đã lưu tệp vào $path")
+                        }.onFailure { err ->
+                            onResult(false, "Lỗi khi lưu tệp: ${err.message}")
+                        }
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     onResult(false, "Lỗi khi lưu tệp: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Lưu một tệp con riêng lẻ trong thư mục hoặc gói tệp ra Downloads/TeamShare.
+     */
+    fun exportSingleChildFile(
+        context: Context,
+        childFile: File,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        if (!childFile.exists()) {
+            onResult(false, "Tệp nguồn không tồn tại")
+            return
+        }
+
+        scope.launch(Dispatchers.IO) {
+            val exporter = com.teamshare.app.core.storage.saf.PublicStorageExporter(context)
+            val result = exporter.exportSingleFile(childFile)
+            withContext(Dispatchers.Main) {
+                result.onSuccess { path ->
+                    onResult(true, "Đã lưu ${childFile.name} vào $path")
+                }.onFailure { err ->
+                    onResult(false, "Lỗi khi lưu tệp: ${err.message}")
                 }
             }
         }

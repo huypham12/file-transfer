@@ -8,6 +8,15 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	// DefaultWriteDeadline xác định thời gian chờ ghi tối đa cho mỗi gói tin chuyển tiếp
+	DefaultWriteDeadline = 20 * time.Second
+	// DefaultBridgeTTL là thời gian sống mặc định của kênh nếu không được chỉ định trong handshake
+	DefaultBridgeTTL = 300 * time.Second
+	// DefaultQueueCapacity là dung lượng hàng đợi đệm RAM mặc định
+	DefaultQueueCapacity = 80
+)
+
 // SafeConn bọc websocket.Conn với Mutex để bảo đảm an toàn khi ghi đồng thời.
 type SafeConn struct {
 	*websocket.Conn
@@ -21,7 +30,7 @@ func NewSafeConn(conn *websocket.Conn) *SafeConn {
 func (sc *SafeConn) WriteMessage(messageType int, data []byte) error {
 	sc.writeMu.Lock()
 	defer sc.writeMu.Unlock()
-	_ = sc.Conn.SetWriteDeadline(time.Now().Add(4 * time.Second))
+	_ = sc.Conn.SetWriteDeadline(time.Now().Add(DefaultWriteDeadline))
 	return sc.Conn.WriteMessage(messageType, data)
 }
 
@@ -56,7 +65,7 @@ type ChannelBridge struct {
 
 // NewChannelBridge khởi tạo một cầu nối chuyển tiếp mới cho streamId.
 func NewChannelBridge(streamId string, config *ServerConfig, onClosed func(streamId string)) *ChannelBridge {
-	queueSize := 80
+	queueSize := DefaultQueueCapacity
 	if config != nil && config.ChannelQueueSize > 0 {
 		queueSize = config.ChannelQueueSize
 	}
@@ -68,7 +77,7 @@ func NewChannelBridge(streamId string, config *ServerConfig, onClosed func(strea
 		receiverReady: make(chan struct{}),
 		done:          make(chan struct{}),
 		CreatedAt:     time.Now(),
-		TtlDuration:   300 * time.Second,
+		TtlDuration:   DefaultBridgeTTL,
 		onClosed:      onClosed,
 	}
 }
@@ -119,13 +128,12 @@ func (b *ChannelBridge) AttachReceiver(conn *websocket.Conn) bool {
 	}
 
 	if b.ReceiverConn != nil {
-		log.Printf("[Bridge %s] Thay thế kết nối RECEIVER cũ bằng kết nối mới (Client Retry)", b.StreamId)
-		oldConn := b.ReceiverConn
-		b.ReceiverConn = NewSafeConn(conn)
-		_ = oldConn.Close()
-	} else {
-		b.ReceiverConn = NewSafeConn(conn)
+		// ADR-01 (Phương án 2A): Zero-Knowledge Relay chuẩn hóa Point-to-Point 1-1.
+		// Nếu kênh đã có một bên nhận đang truyền dữ liệu, từ chối bên nhận mới để không làm gián đoạn bên nhận cũ.
+		log.Printf("[Bridge %s] Từ chối RECEIVER mới vì kênh đã có RECEIVER đang hoạt động (1-1 Conflict)", b.StreamId)
+		return false
 	}
+	b.ReceiverConn = NewSafeConn(conn)
 
 	b.receiverOnce.Do(func() {
 		close(b.receiverReady)

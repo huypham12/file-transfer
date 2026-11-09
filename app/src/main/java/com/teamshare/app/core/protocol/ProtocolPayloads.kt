@@ -351,7 +351,9 @@ data class HandshakeAuthPayload(
     val deviceFingerprint: String = "",
     val role: String = "",
     val credentialData: String = "",
-    val clientNonce: String = ""
+    val clientNonce: String = "",
+    val deviceManufacturer: String = "",
+    val deviceModel: String = ""
 ) {
     fun toBytes(): ByteArray {
         val json = JSONObject().apply {
@@ -361,6 +363,8 @@ data class HandshakeAuthPayload(
             put("role", role)
             put("credentialData", credentialData)
             put("clientNonce", clientNonce)
+            put("deviceManufacturer", deviceManufacturer)
+            put("deviceModel", deviceModel)
         }
         return json.toString().toByteArray(Charsets.UTF_8)
     }
@@ -374,7 +378,9 @@ data class HandshakeAuthPayload(
                 deviceFingerprint = json.optString("deviceFingerprint", ""),
                 role = json.optString("role", ""),
                 credentialData = json.optString("credentialData", ""),
-                clientNonce = json.optString("clientNonce", "")
+                clientNonce = json.optString("clientNonce", ""),
+                deviceManufacturer = json.optString("deviceManufacturer", ""),
+                deviceModel = json.optString("deviceModel", "")
             )
         }
     }

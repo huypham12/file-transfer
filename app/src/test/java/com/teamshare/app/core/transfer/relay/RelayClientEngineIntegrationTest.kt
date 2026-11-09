@@ -30,6 +30,8 @@ import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -38,6 +40,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.nio.charset.StandardCharsets
 import java.security.KeyPair
@@ -292,7 +295,7 @@ class RelayClientEngineIntegrationTest {
         val receiverResult = receiverJob.await()
 
         assertTrue("Bên gửi phải hoàn tất thành công", senderResult)
-        assertTrue("Bên nhận phải hoàn tất thành công", receiverResult)
+        assertTrue("Bên nhận phải hoàn tất thành công", receiverResult != null)
         assertTrue("Tệp đích phải tồn tại", targetFile.exists())
         assertEquals("Kích thước tệp phải bằng nhau", sourceFile.length(), targetFile.length())
 
@@ -463,7 +466,7 @@ class RelayClientEngineIntegrationTest {
         val senderSuccess = senderJob.await()
         val receiverSuccess = receiverJob.await()
 
-        assertFalse("Bên nhận phải từ chối khi sai SHA-256", receiverSuccess)
+        assertNull("Bên nhận phải từ chối khi sai SHA-256", receiverSuccess)
         assertFalse("Bên gửi phải ghi nhận thất bại từ verify result", senderSuccess)
         assertFalse("Tệp đích chính thức không được phép tồn tại", targetFile.exists())
 
@@ -647,6 +650,7 @@ class RelayClientEngineIntegrationTest {
             }
             override suspend fun updateApprovalMode(sessionId: String, mode: String): Int = 1
             override suspend fun updatePeerInfo(sessionId: String, peerModel: String, peerFingerprint: String): Int = 1
+            override suspend fun updateSessionFile(sessionId: String, filePath: String): Int = 1
             override suspend fun updateSessionStatus(sessionId: String, status: String, completedAt: Long?, errorCode: String?): Int = 1
             override suspend fun getSessionById(sessionId: String): com.teamshare.app.data.local.db.entity.TransferSessionEntity? {
                 return com.teamshare.app.data.local.db.entity.TransferSessionEntity(
@@ -719,7 +723,7 @@ class RelayClientEngineIntegrationTest {
         val rRes = receiverJob.await()
 
         assertTrue("Sender phải hoàn tất thành công", sRes)
-        assertTrue("Receiver phải hoàn tất thành công", rRes)
+        assertTrue("Receiver phải hoàn tất thành công", rRes != null)
         assertTrue("Tệp đích phải tồn tại", targetFile.exists())
         assertEquals("Kích thước tệp hoàn chỉnh phải là 128KB", totalSize.toLong(), targetFile.length())
         assertEquals("Mã băm hoàn chỉnh phải khớp 100%", expectedSha256, Sha256StreamCalculator.calculateFileSha256(targetFile))
@@ -787,9 +791,235 @@ class RelayClientEngineIntegrationTest {
         val rRes = receiverJob.await()
 
         assertTrue("Sender không dùng Team credential phải hoàn tất thành công", sRes)
-        assertTrue("Receiver không dùng Team credential phải hoàn tất thành công", rRes)
+        assertTrue("Receiver không dùng Team credential phải hoàn tất thành công", rRes != null)
         assertTrue("Tệp đích nhận qua Relay phải tồn tại", targetFile.exists())
         assertEquals(sourceFile.length(), targetFile.length())
         assertEquals(expectedSha256, Sha256StreamCalculator.calculateFileSha256(targetFile))
+    }
+
+    @Test
+    fun testPeerValidatorAndOnPeerConnectedCalledInRelaySessionTokenMode() = runBlocking {
+        setupMockRelayServer()
+        val relayUrl = mockWebServer.url("/v1/stream").toString()
+
+        val token = "secret-token-xyz-123"
+        val sessionId = UUID.randomUUID().toString()
+
+        val sourceFile = tempFolder.newFile("pv_source.dat")
+        val content = "Peer validator and onPeerConnected test content".toByteArray()
+        FileOutputStream(sourceFile).use { it.write(content) }
+        val expectedSha256 = Sha256StreamCalculator.calculateFileSha256(sourceFile)
+        val targetFile = File(tempFolder.root, "pv_target.dat")
+
+        val senderSession = TransferSession(
+            sessionId = sessionId,
+            sessionToken = token,
+            direction = TransferDirection.OUTGOING,
+            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            totalBytes = sourceFile.length(),
+            confirmedOffset = 0L
+        )
+
+        val receiverSession = TransferSession(
+            sessionId = sessionId,
+            sessionToken = token,
+            direction = TransferDirection.INCOMING,
+            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            totalBytes = sourceFile.length(),
+            confirmedOffset = 0L
+        )
+
+        val senderEngine = RelayClientEngine()
+        val receiverEngine = RelayClientEngine()
+
+        var peerValidatorCalled = false
+        var onPeerConnectedCalled = false
+        var connectedPeerFingerprint = ""
+
+        val senderJob = async {
+            FileInputStream(sourceFile).channel.use { channel ->
+                senderEngine.sendFileViaRelay(
+                    relayWsUrl = relayUrl,
+                    session = senderSession,
+                    fileChannel = channel,
+                    expectedSha256 = expectedSha256,
+                    peerValidator = { authPayload ->
+                        peerValidatorCalled = true
+                        true // Approve
+                    },
+                    onPeerConnected = { peerProfile ->
+                        onPeerConnectedCalled = true
+                        connectedPeerFingerprint = peerProfile.fingerprint
+                    }
+                )
+            }
+        }
+
+        val receiverJob = async {
+            receiverEngine.receiveFileViaRelay(
+                relayWsUrl = relayUrl,
+                session = receiverSession,
+                targetFile = targetFile,
+                expectedSha256 = expectedSha256
+            )
+        }
+
+        val sRes = senderJob.await()
+        val rRes = receiverJob.await()
+
+        assertTrue("Sender phải hoàn tất thành công khi được phê duyệt", sRes)
+        assertTrue("Receiver phải hoàn tất thành công", rRes != null)
+        assertTrue("peerValidator phải được kích hoạt ngay cả khi sessionToken khớp", peerValidatorCalled)
+        assertTrue("onPeerConnected phải được gọi lên UI", onPeerConnectedCalled)
+    }
+
+    @Test
+    fun testReceiveFileViaRelayUsesManifestFileSizeInsteadOfSessionTotalBytes() = runBlocking {
+        setupMockRelayServer()
+        val relayUrl = mockWebServer.url("/v1/stream").toString()
+
+        val token = "token-batch-diff-size"
+        val sessionId = UUID.randomUUID().toString()
+
+        val sourceFile = tempFolder.newFile("manifest_size_source.zip")
+        val content = "Simulated compressed batch zip stream".toByteArray()
+        FileOutputStream(sourceFile).use { it.write(content) }
+        val compressedLength = sourceFile.length() // e.g. 37 bytes
+        val uncompressedRawSum = 2_000_000L // Giả lập tổng thô từ QR code lớn hơn rất nhiều!
+        val expectedSha256 = Sha256StreamCalculator.calculateFileSha256(sourceFile)
+        val targetFile = File(tempFolder.root, "manifest_size_target.zip")
+
+        val senderSession = TransferSession(
+            sessionId = sessionId,
+            sessionToken = token,
+            direction = TransferDirection.OUTGOING,
+            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            totalBytes = compressedLength, // Sender gửi payload nén thực tế
+            confirmedOffset = 0L
+        )
+
+        val receiverSession = TransferSession(
+            sessionId = sessionId,
+            sessionToken = token,
+            direction = TransferDirection.INCOMING,
+            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            totalBytes = uncompressedRawSum, // Receiver mang session.totalBytes từ QR lớn hơn
+            confirmedOffset = 0L
+        )
+
+        val senderEngine = RelayClientEngine()
+        val receiverEngine = RelayClientEngine()
+
+        val senderJob = async {
+            FileInputStream(sourceFile).channel.use { channel ->
+                senderEngine.sendFileViaRelay(
+                    relayWsUrl = relayUrl,
+                    session = senderSession,
+                    fileChannel = channel,
+                    expectedSha256 = expectedSha256
+                )
+            }
+        }
+
+        val receiverJob = async {
+            receiverEngine.receiveFileViaRelay(
+                relayWsUrl = relayUrl,
+                session = receiverSession,
+                targetFile = targetFile,
+                expectedSha256 = expectedSha256
+            )
+        }
+
+        val sRes = senderJob.await()
+        val rRes = receiverJob.await()
+
+        assertTrue("Sender phải hoàn tất", sRes)
+        assertTrue("Receiver phải hoàn tất dựa trên manifest.fileSize mà không bị treo deadlock", rRes != null)
+        assertTrue(targetFile.exists())
+        assertEquals(compressedLength, targetFile.length())
+    }
+
+    @Test
+    fun testRelayPeerRejectionSendsErrorAlertToReceiver() = runBlocking {
+        setupMockRelayServer()
+        val relayUrl = mockWebServer.url("/v1/stream").toString()
+
+        val token = "reject-token-123"
+        val sessionId = UUID.randomUUID().toString()
+
+        val sourceFile = tempFolder.newFile("rej_source.dat")
+        FileOutputStream(sourceFile).use { it.write("secret content".toByteArray()) }
+        val targetFile = File(tempFolder.root, "rej_target.dat")
+
+        val senderSession = TransferSession(
+            sessionId = sessionId,
+            sessionToken = token,
+            direction = TransferDirection.OUTGOING,
+            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            totalBytes = sourceFile.length(),
+            confirmedOffset = 0L
+        )
+
+        val receiverSession = TransferSession(
+            sessionId = sessionId,
+            sessionToken = token,
+            direction = TransferDirection.INCOMING,
+            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            totalBytes = sourceFile.length(),
+            confirmedOffset = 0L
+        )
+
+        val senderEngine = RelayClientEngine()
+        val receiverEngine = RelayClientEngine()
+
+        var receiverErrorMessage = ""
+        val receiverCallback = object : TransferProgressCallback {
+            override fun onProgress(bytesTransferred: Long, totalBytes: Long, speedBytesPerSec: Long) {}
+            override fun onStateChanged(newState: TransferEngineState) {}
+            override fun onError(errorCode: String, errorMessage: String) {
+                receiverErrorMessage = errorMessage
+            }
+        }
+
+        val senderJob = async {
+            try {
+                FileInputStream(sourceFile).channel.use { channel ->
+                    senderEngine.sendFileViaRelay(
+                        relayWsUrl = relayUrl,
+                        session = senderSession,
+                        fileChannel = channel,
+                        expectedSha256 = "",
+                        peerValidator = { false } // REJECT!
+                    )
+                }
+            } catch (e: Exception) {
+                e
+            }
+        }
+
+        val receiverJob = async {
+            try {
+                receiverEngine.receiveFileViaRelay(
+                    relayWsUrl = relayUrl,
+                    session = receiverSession,
+                    targetFile = targetFile,
+                    expectedSha256 = "",
+                    callback = receiverCallback
+                )
+            } catch (e: Exception) {
+                e
+            }
+        }
+
+        val senderEx = senderJob.await()
+        val receiverEx = receiverJob.await()
+
+        assertTrue("Sender phải ném SecurityException do từ chối peer", senderEx is SecurityException)
+        assertTrue("Receiver phải ném SecurityException chứa thông điệp từ chối", receiverEx is SecurityException)
+        assertTrue(
+            "Receiver phải nhận được thông báo từ chối",
+            receiverErrorMessage.contains("từ chối", ignoreCase = true) ||
+                (receiverEx as Exception).message?.contains("từ chối", ignoreCase = true) == true
+        )
     }
 }

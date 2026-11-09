@@ -11,16 +11,19 @@ import com.teamshare.app.core.transfer.relay.RelayClientEngine
 import com.teamshare.app.domain.model.ApprovalMode
 import com.teamshare.app.domain.model.DeviceProfile
 import com.teamshare.app.domain.model.DomainError
+import com.teamshare.app.domain.model.ErrorCode
 import com.teamshare.app.domain.model.SessionStatus
 import com.teamshare.app.domain.model.TransferChannel
 import com.teamshare.app.domain.model.TransferDirection
 import com.teamshare.app.domain.model.TransferSession
 import com.teamshare.app.domain.model.TransferType
+import com.teamshare.app.domain.usecase.platform.AuthenticateBiometricUseCase
 import com.teamshare.app.domain.usecase.transfer.CancelTransferSessionUseCase
 import com.teamshare.app.domain.usecase.transfer.CreateSenderSessionUseCase
 import com.teamshare.app.domain.usecase.transfer.ManageApprovalModeUseCase
 import com.teamshare.app.presentation.ui.mapper.UiErrorMapper
 import com.teamshare.app.presentation.ui.qr.QrCodeBitmapGenerator
+import androidx.fragment.app.FragmentActivity
 import java.io.File
 import java.io.RandomAccessFile
 import java.util.UUID
@@ -33,6 +36,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -45,6 +49,7 @@ class SenderViewModel(
     private val cancelTransferSessionUseCase: CancelTransferSessionUseCase,
     private val lanEngine: LanTransferEngine? = null,
     private val relayEngine: RelayClientEngine? = null,
+    private val authenticateBiometricUseCase: AuthenticateBiometricUseCase? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
@@ -57,6 +62,8 @@ class SenderViewModel(
     private var serverJob: Job? = null
     private var relayJob: Job? = null
     private var pendingApprovalDeferred: CompletableDeferred<Boolean>? = null
+    private val approvedPeerFingerprints = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val rejectedPeerFingerprints = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     /**
      * Cập nhật danh sách tệp hoặc thư mục được người dùng chọn qua SAF.
@@ -169,6 +176,7 @@ class SenderViewModel(
     fun startSharingSession(
         senderIp: String? = null,
         senderPort: Int = LanTransferEngine.DEFAULT_LAN_PORT,
+        activity: FragmentActivity? = null,
         onSessionCreated: ((String) -> Unit)? = null
     ): Job {
         val files = _uiState.value.selectedFiles
@@ -185,6 +193,28 @@ class SenderViewModel(
         val isEmulator = NetworkConfig.isEmulator()
 
         return scope.launch {
+            if (authenticateBiometricUseCase != null && activity != null) {
+                val authResult = CompletableDeferred<Boolean>()
+                authenticateBiometricUseCase(
+                    activity = activity,
+                    title = "Xác thực tạo phiên chia sẻ bảo mật",
+                    subtitle = "Vui lòng quét vân tay để phát mã chia sẻ"
+                ).collect { res ->
+                    res.onSuccess { authResult.complete(true) }
+                        .onFailure { authResult.completeExceptionally(it) }
+                }
+                try {
+                    val ok = authResult.await()
+                    if (!ok) {
+                        _uiState.update { it.copy(errorMessage = "Xác thực sinh trắc học không thành công") }
+                        return@launch
+                    }
+                } catch (e: Exception) {
+                    _uiState.update { it.copy(errorMessage = "Xác thực danh tính thất bại: ${e.message}") }
+                    return@launch
+                }
+            }
+
             if (isEmulator && NetworkConfig.detectedHostLanIp.isBlank()) {
                 NetworkConfig.autoDetectRelayHostFromEmulator()
             }
@@ -216,9 +246,11 @@ class SenderViewModel(
             )
 
             result.onSuccess { sessionData ->
+                approvedPeerFingerprints.clear()
+                rejectedPeerFingerprints.clear()
                 val rawQrText = sessionData.qrPayload.toQrString()
                 val qrBitmap = try {
-                    QrCodeBitmapGenerator.generateQrBitmap(rawQrText, 512)
+                    QrCodeBitmapGenerator.generateQrBitmap(rawQrText, AppConstants.UI.QR_CODE_SIZE_PX)
                 } catch (_: Throwable) {
                     null
                 }
@@ -276,11 +308,17 @@ class SenderViewModel(
             files[0]
         } else {
             val parentDir = files[0].parentFile ?: File(".")
-            val batchDir = File(parentDir, "batch_$sessionId").apply { mkdirs() }
+            val batchDir = File(parentDir, "${AppConstants.StorageDirectory.BATCH_DIR_PREFIX}$sessionId").apply { mkdirs() }
             files.forEach { src ->
                 val dest = File(batchDir, src.name)
                 if (!dest.exists()) {
-                    try { src.copyTo(dest, overwrite = true) } catch (_: Exception) {}
+                    try {
+                        if (src.isDirectory) {
+                            src.copyRecursively(dest, overwrite = true)
+                        } else {
+                            src.copyTo(dest, overwrite = true)
+                        }
+                    } catch (_: Exception) {}
                 }
             }
             batchDir
@@ -311,6 +349,7 @@ class SenderViewModel(
                 onPeerConnected = { peerProfile ->
                     onDeviceConnectionRequested(peerProfile)
                 },
+                maxReceivers = AppConstants.FlowControl.MAX_CONCURRENT_OUTGOING_TRANSFERS,
                 serverTimeoutMs = AppConstants.Timeout.SERVER_SOCKET_ACCEPT_TIMEOUT_MS
             )
         }
@@ -330,7 +369,7 @@ class SenderViewModel(
         relayJob = scope.launch(Dispatchers.IO) {
             val isFolder = fileToSend.isDirectory
             val actualFile = if (isFolder) {
-                val tempZip = File(fileToSend.parentFile ?: File("."), "${fileToSend.name}_tmp.zip")
+                val tempZip = File(fileToSend.parentFile ?: File("."), "${fileToSend.name}${AppConstants.StorageDirectory.TEMP_ZIP_SUFFIX}")
                 try {
                     tempZip.outputStream().use { fos ->
                         com.teamshare.app.core.transfer.zip.ZipStreamPacker.packDirectoryToStream(fileToSend, fos)
@@ -362,34 +401,52 @@ class SenderViewModel(
                 startedAt = System.currentTimeMillis()
             )
 
-            var raf: RandomAccessFile? = null
             try {
-                raf = RandomAccessFile(actualFile, "r")
-                val sha = com.teamshare.app.core.security.crypto.Sha256StreamCalculator.calculateFileSha256(actualFile)
-                relay.sendFileViaRelay(
-                    relayWsUrl = relayUrl,
-                    session = dummySession,
-                    fileChannel = raf.channel,
-                    expectedSha256 = sha,
-                    ttlSeconds = _uiState.value.selectedTtlSeconds.toInt(),
-                    peerValidator = { peerAuth ->
-                        val peerProfile = DeviceProfile(
-                            manufacturer = "Android",
-                            model = peerAuth.memberId,
-                            fingerprint = peerAuth.deviceFingerprint
+                while (isActive && _uiState.value.isSharing && _uiState.value.remainingTtlSeconds > 0) {
+                    var raf: RandomAccessFile? = null
+                    try {
+                        raf = RandomAccessFile(actualFile, "r")
+                        val sha = com.teamshare.app.core.security.crypto.Sha256StreamCalculator.calculateFileSha256(actualFile)
+                        val ttl = _uiState.value.remainingTtlSeconds.toInt().coerceAtLeast(10)
+                        relay.sendFileViaRelay(
+                            relayWsUrl = relayUrl,
+                            session = dummySession,
+                            fileChannel = raf.channel,
+                            expectedSha256 = sha,
+                            ttlSeconds = ttl,
+                            peerValidator = { peerAuth ->
+                                val peerProfile = DeviceProfile(
+                                    manufacturer = peerAuth.deviceManufacturer.ifBlank { "Android" },
+                                    model = peerAuth.deviceModel.ifBlank { peerAuth.memberId },
+                                    fingerprint = peerAuth.deviceFingerprint
+                                )
+                                handleDeviceApproval(peerProfile)
+                            },
+                            onPeerConnected = { peerProfile ->
+                                onDeviceConnectionRequested(peerProfile)
+                            }
                         )
-                        handleDeviceApproval(peerProfile)
+                    } catch (e: java.util.concurrent.CancellationException) {
+                        break
+                    } catch (e: Exception) {
+                        val isRejection = e.message?.contains(ErrorCode.ERR_DEVICE_REJECTED) == true ||
+                                e.message?.contains("0x102") == true ||
+                                e.message?.contains("từ chối", ignoreCase = true) == true
+                        if (!isRejection && _uiState.value.isSharing) {
+                            _uiState.update {
+                                it.copy(errorMessage = e.message)
+                            }
+                        }
+                    } finally {
+                        try { raf?.close() } catch (_: Exception) {}
                     }
-                )
-            } catch (e: java.util.concurrent.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(errorMessage = e.message)
+
+                    if (isActive && _uiState.value.isSharing && _uiState.value.remainingTtlSeconds > 0) {
+                        delay(500L)
+                    }
                 }
             } finally {
-                try { raf?.close() } catch (_: Exception) {}
-                if (isFolder && actualFile.name.endsWith("_tmp.zip")) {
+                if (isFolder && actualFile.name.endsWith(AppConstants.StorageDirectory.TEMP_ZIP_SUFFIX)) {
                     try { actualFile.delete() } catch (_: Exception) {}
                 }
             }
@@ -397,17 +454,38 @@ class SenderViewModel(
     }
 
     /**
-     * Xử lý phê duyệt thiết bị (Auto Accept hoặc Manual Dialog).
+     * Xử lý phê duyệt thiết bị (Auto Accept hoặc Manual Dialog có Session Cache chống lặp).
      */
     private suspend fun handleDeviceApproval(peerProfile: DeviceProfile): Boolean {
+        if (approvedPeerFingerprints.contains(peerProfile.fingerprint)) {
+            return true
+        }
+        if (rejectedPeerFingerprints.contains(peerProfile.fingerprint)) {
+            return false
+        }
         if (_uiState.value.approvalMode == ApprovalMode.AUTO_ACCEPT) {
+            approvedPeerFingerprints.add(peerProfile.fingerprint)
             onDeviceConnectionRequested(peerProfile)
             return true
         }
+
+        // Tránh trùng lặp khi cả LAN và Relay cùng kích hoạt phê duyệt cho cùng một thiết bị
+        val currentPending = _uiState.value.pendingApprovalDevice
+        val existingDeferred = pendingApprovalDeferred
+        if (currentPending?.fingerprint == peerProfile.fingerprint && existingDeferred != null) {
+            return existingDeferred.await()
+        }
+
         val deferred = CompletableDeferred<Boolean>()
         pendingApprovalDeferred = deferred
         _uiState.update { it.copy(pendingApprovalDevice = peerProfile) }
-        return deferred.await()
+        val approved = deferred.await()
+        if (approved) {
+            approvedPeerFingerprints.add(peerProfile.fingerprint)
+        } else {
+            rejectedPeerFingerprints.add(peerProfile.fingerprint)
+        }
+        return approved
     }
 
     /**
@@ -418,7 +496,7 @@ class SenderViewModel(
         ttlTimerJob = scope.launch {
             var timeLeft = _uiState.value.selectedTtlSeconds
             while (timeLeft > 0 && _uiState.value.isSharing) {
-                delay(1000L)
+                delay(AppConstants.Timeout.COUNTDOWN_TICK_INTERVAL_MS)
                 timeLeft--
                 _uiState.update { it.copy(remainingTtlSeconds = timeLeft) }
             }
@@ -459,6 +537,11 @@ class SenderViewModel(
             if (accept && updatedList.none { it.fingerprint == device.fingerprint }) {
                 updatedList.add(device)
             }
+            if (accept) {
+                approvedPeerFingerprints.add(device.fingerprint)
+            } else {
+                rejectedPeerFingerprints.add(device.fingerprint)
+            }
             _uiState.update {
                 it.copy(
                     pendingApprovalDevice = null,
@@ -484,6 +567,8 @@ class SenderViewModel(
         relayEngine?.cancel()
         pendingApprovalDeferred?.complete(false)
         pendingApprovalDeferred = null
+        approvedPeerFingerprints.clear()
+        rejectedPeerFingerprints.clear()
 
         _uiState.update {
             it.copy(

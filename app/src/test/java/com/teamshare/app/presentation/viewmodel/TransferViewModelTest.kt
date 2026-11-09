@@ -159,4 +159,25 @@ class TransferViewModelTest {
         viewModel.cancelSession("sess_cmd")
         assertEquals(TransferEngineState.CANCELLED, viewModel.uiState.value.state)
     }
+
+    @Test
+    fun testOnTransferFinished_withDirectory_populatesReceivedFileList() {
+        val tempDir = java.io.File.createTempFile("test_batch", "").apply {
+            delete()
+            mkdirs()
+        }
+        java.io.File(tempDir, "img1.png").apply { writeText("image 1") }
+        java.io.File(tempDir, "doc.pdf").apply { writeText("document text") }
+
+        viewModel.onTransferFinished(tempDir)
+
+        val state = viewModel.uiState.value
+        assertEquals(TransferEngineState.COMPLETED, state.state)
+        assertTrue(state.isDirectoryOrBatch)
+        assertEquals(2, state.receivedFileList.size)
+        assertEquals("doc.pdf", state.receivedFileList[0].name)
+        assertEquals("img1.png", state.receivedFileList[1].name)
+
+        tempDir.deleteRecursively()
+    }
 }

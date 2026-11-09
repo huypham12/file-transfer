@@ -222,6 +222,31 @@ class TransferViewModel(
      * Thông báo phiên tải tệp đã hoàn tất thành công và lưu đường dẫn tệp.
      */
     fun onTransferFinished(file: File) {
+        val isDir = file.isDirectory
+        val childFiles = if (isDir) {
+            val list = mutableListOf<ReceivedFileInfo>()
+            fun collectFiles(dir: File) {
+                dir.listFiles()?.filterNot { it.name.startsWith(".") }?.forEach { f ->
+                    if (f.isDirectory) {
+                        collectFiles(f)
+                    } else {
+                        list.add(
+                            ReceivedFileInfo(
+                                name = f.name,
+                                sizeBytes = f.length(),
+                                absolutePath = f.absolutePath,
+                                isDirectory = false
+                            )
+                        )
+                    }
+                }
+            }
+            collectFiles(file)
+            list.sortedBy { it.name }
+        } else {
+            emptyList()
+        }
+
         _uiState.update { current ->
             current.copy(
                 state = TransferEngineState.COMPLETED,
@@ -229,7 +254,9 @@ class TransferViewModel(
                 transferredBytes = if (current.totalBytes > 0L) current.totalBytes else file.length(),
                 totalBytes = if (current.totalBytes > 0L) current.totalBytes else file.length(),
                 progressPercent = 1f,
-                completedFilePath = file.absolutePath
+                completedFilePath = file.absolutePath,
+                isDirectoryOrBatch = isDir,
+                receivedFileList = childFiles
             )
         }
     }
@@ -498,30 +525,24 @@ class TransferViewModel(
                     return@launch
                 }
 
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    val contentValues = android.content.ContentValues().apply {
-                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, file.name)
-                        put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "${android.os.Environment.DIRECTORY_DOWNLOADS}/TeamShare")
-                    }
-                    val resolver = context.contentResolver
-                    val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-                    if (uri != null) {
-                        resolver.openOutputStream(uri)?.use { out ->
-                            file.inputStream().use { input -> input.copyTo(out) }
+                val exporter = com.teamshare.app.core.storage.saf.PublicStorageExporter(context)
+                if (file.isDirectory) {
+                    val result = exporter.exportFolder(file)
+                    withContext(Dispatchers.Main) {
+                        result.onSuccess { count ->
+                            onResult(true, "Đã giải nén $count tệp vào Downloads/TeamShare/${file.name}")
+                        }.onFailure { err ->
+                            onResult(false, "Lỗi khi giải nén thư mục: ${err.message}")
                         }
-                        withContext(Dispatchers.Main) {
-                            onResult(true, "Đã lưu vào thư mục Downloads/TeamShare/${file.name}")
-                        }
-                    } else {
-                        withContext(Dispatchers.Main) { onResult(false, "Không thể tạo tệp trong thư mục Downloads") }
                     }
                 } else {
-                    val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-                    val teamShareDir = File(downloadsDir, "TeamShare").apply { mkdirs() }
-                    val destFile = File(teamShareDir, file.name)
-                    file.copyTo(destFile, overwrite = true)
+                    val result = exporter.exportSingleFile(file)
                     withContext(Dispatchers.Main) {
-                        onResult(true, "Đã lưu vào ${destFile.absolutePath}")
+                        result.onSuccess { path ->
+                            onResult(true, "Đã lưu vào $path")
+                        }.onFailure { err ->
+                            onResult(false, "Lỗi khi lưu tệp: ${err.message}")
+                        }
                     }
                 }
             } catch (e: Exception) {

@@ -250,6 +250,13 @@ class InMemoryTransferSessionDao : TransferSessionDao {
         return 1
     }
 
+    override suspend fun updateSessionFile(sessionId: String, filePath: String): Int {
+        val current = sessions[sessionId] ?: return 0
+        sessions[sessionId] = current.copy(tempFilePath = filePath)
+        notifyChanged()
+        return 1
+    }
+
     override suspend fun updateSessionStatus(
         sessionId: String,
         status: String,

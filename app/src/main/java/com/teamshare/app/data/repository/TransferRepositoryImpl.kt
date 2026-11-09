@@ -59,6 +59,13 @@ class TransferRepositoryImpl(
         sessionDao.updatePeerInfo(sessionId, peerModel, peerFingerprint)
     }
 
+    override suspend fun updateSessionFile(
+        sessionId: String,
+        filePath: String
+    ): Unit = withContext(Dispatchers.IO) {
+        sessionDao.updateSessionFile(sessionId, filePath)
+    }
+
     override suspend fun updateSessionStatus(
         sessionId: String,
         status: SessionStatus,

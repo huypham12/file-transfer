@@ -5,6 +5,7 @@ import com.teamshare.app.core.platform.network.INetworkMonitor
 import com.teamshare.app.core.platform.network.NetworkAddressHelper
 import com.teamshare.app.core.platform.network.NetworkConfig
 import com.teamshare.app.core.platform.network.NetworkType
+import com.teamshare.app.core.platform.service.ITransferForegroundServiceLauncher
 import com.teamshare.app.core.platform.service.ITransferServiceController
 import com.teamshare.app.core.platform.service.TransferServiceController
 import com.teamshare.app.core.protocol.HandshakeAuthPayload
@@ -65,6 +66,7 @@ class TransferCoordinator(
     private val networkMonitor: INetworkMonitor,
     private val transferRepository: ITransferRepository,
     private val serviceController: ITransferServiceController = TransferServiceController,
+    private val serviceLauncher: ITransferForegroundServiceLauncher? = null,
     private val directoryManager: StorageDirectoryManager? = null,
     private val auditRepository: IAuditRepository? = null,
     private val keyManager: IKeyManager? = null,
@@ -169,6 +171,12 @@ class TransferCoordinator(
             totalBytes = session.totalBytes,
             isLan = (channel == TransferChannel.DIRECT_LAN)
         )
+        serviceLauncher?.startService(
+            sessionId = session.sessionId,
+            documentName = documentName,
+            totalBytes = session.totalBytes,
+            isLan = (channel == TransferChannel.DIRECT_LAN)
+        )
 
         // 3. Callback thông báo tiến trình
         val callback = object : TransferProgressCallback {
@@ -200,6 +208,12 @@ class TransferCoordinator(
 
             override fun onStateChanged(newState: TransferEngineState) {
                 serviceController.notifyStateChanged(newState)
+                if (newState == TransferEngineState.COMPLETED ||
+                    newState == TransferEngineState.FAILED ||
+                    newState == TransferEngineState.CANCELLED
+                ) {
+                    serviceLauncher?.stopService()
+                }
                 val mappedStatus = when (newState) {
                     TransferEngineState.TRANSFERRING -> SessionStatus.TRANSFERRING
                     TransferEngineState.PAUSED -> SessionStatus.PAUSED

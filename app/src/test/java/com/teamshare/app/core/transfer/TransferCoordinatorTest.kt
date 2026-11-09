@@ -94,6 +94,12 @@ class FakeTransferRepository : ITransferRepository {
         }
     }
 
+    override suspend fun updateSessionFile(sessionId: String, filePath: String) {
+        sessions[sessionId]?.let { current ->
+            sessions[sessionId] = current.copy(tempFilePath = filePath)
+        }
+    }
+
     override suspend fun deleteSession(sessionId: String) {
         sessions.remove(sessionId)
     }

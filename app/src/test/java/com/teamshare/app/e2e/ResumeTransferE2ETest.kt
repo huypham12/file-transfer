@@ -160,6 +160,7 @@ class ResumeTransferE2ETest {
             override suspend fun updateCheckpoint(sessionId: String, confirmedOffset: Long) {}
             override suspend fun updateApprovalMode(sessionId: String, mode: ApprovalMode) {}
             override suspend fun updatePeerInfo(sessionId: String, peerModel: String, peerFingerprint: String) {}
+            override suspend fun updateSessionFile(sessionId: String, filePath: String) {}
 
             override suspend fun updateSessionStatus(sessionId: String, status: SessionStatus, errorCode: String?) {
                 currentStatus = status

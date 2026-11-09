@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
+import com.teamshare.app.core.constant.AppConstants
 import java.io.File
 
 /**
@@ -31,12 +32,47 @@ open class FileProviderGateway(
 
     /**
      * Tạo Intent mở tệp với cờ cấp quyền đọc tạm thời FLAG_GRANT_READ_URI_PERMISSION.
+     * Tự động suy luận MIME type từ phần mở rộng tệp nếu mimeType là wildcard.
      */
-    open fun createViewIntent(file: File, mimeType: String): Intent {
+    open fun createViewIntent(file: File, mimeType: String = AppConstants.Mime.ALL): Intent {
         val uri = getShareableUri(file)
+        val resolvedMime = if (mimeType.isBlank() || mimeType == AppConstants.Mime.ALL) {
+            val ext = file.extension.lowercase()
+            if (ext.isNotEmpty()) {
+                try {
+                    android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: AppConstants.Mime.ALL
+                } catch (_: Throwable) {
+                    AppConstants.Mime.ALL
+                }
+            } else {
+                AppConstants.Mime.ALL
+            }
+        } else {
+            mimeType
+        }
         val intent = Intent(Intent.ACTION_VIEW)
         try {
-            intent.setDataAndType(uri, mimeType)
+            intent.setDataAndType(uri, resolvedMime)
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        } catch (_: Throwable) {
+            // Fallback an toàn trên môi trường Unit Test thuần JVM không có mock Android Intent
+        }
+        return intent
+    }
+
+    /**
+     * Tạo Intent mở thư mục an toàn (SRS FR-DOC-03 & CONF-01).
+     */
+    open fun createOpenDirectoryIntent(directory: File): Intent {
+        val intent = Intent(Intent.ACTION_VIEW)
+        try {
+            val uri = try {
+                Uri.fromFile(directory)
+            } catch (_: Throwable) {
+                Uri.parse("${AppConstants.Mime.SCHEME_FILE}${directory.absolutePath}")
+            }
+            intent.setDataAndType(uri, AppConstants.Mime.FOLDER)
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         } catch (_: Throwable) {

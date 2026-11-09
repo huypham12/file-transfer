@@ -81,6 +81,24 @@ object AppConstants {
 
         /** Thời gian tối đa giữ WakeLock của hệ điều hành (2 giờ) */
         const val MAX_WAKELOCK_TIMEOUT_MS = 2 * 60 * 60 * 1000L
+
+        /** Thời gian timeout nhận khung tin WebSocket Relay stream (90 giây) */
+        const val WS_STREAM_TIMEOUT_MS = 90_000L
+
+        /** Chu kỳ thăm dò khi tạm dừng phiên truyền tải (200 ms) */
+        const val PAUSE_POLL_INTERVAL_MS = 200L
+
+        /** Chu kỳ chờ giải tỏa Backpressure cửa sổ trượt (10 ms) */
+        const val BACKPRESSURE_POLL_INTERVAL_MS = 10L
+
+        /** Thời gian hoãn an toàn trước khi đóng socket để frame VERIFY_RESULT hoàn tất flush ra NIC (100 ms) */
+        const val VERIFY_FLUSH_DELAY_MS = 100L
+
+        /** Chu kỳ bước nhảy đếm ngược thời gian sống TTL trên UI (1000 ms) */
+        const val COUNTDOWN_TICK_INTERVAL_MS = 1000L
+
+        /** Thời gian timeout thăm dò HTTP nội bộ máy ảo (1.5 giây) */
+        const val HTTP_PROBE_TIMEOUT_MS = 1500
     }
 
     object Retry {
@@ -101,6 +119,11 @@ object AppConstants {
         const val BATCH_DIR_PREFIX = "batch_"
         const val SESSION_DIR_PREFIX = "session_"
         const val TEAM_DIR_PREFIX = "team_"
+        const val FILE_PREFIX = "file_"
+        const val FOLDER_PREFIX = "folder_"
+        const val ZIP_EXTENSION = ".zip"
+        const val TEMP_ZIP_SUFFIX = "_tmp.zip"
+        const val TEAM_SHARE_PUBLIC_FOLDER = "TeamShare"
     }
 
     object ServiceAction {
@@ -128,6 +151,19 @@ object AppConstants {
         const val KEY_SIZE_BITS = 256
         const val GCM_IV_LENGTH_BYTES = 12
         const val GCM_TAG_LENGTH_BITS = 128
+        const val GCM_TAG_LENGTH_BYTES = 16
+        const val SESSION_TOKEN_BYTES = 16
+    }
+
+    object UI {
+        /** Kích thước phân giải chuẩn của ảnh bitmap mã QR chia sẻ (512x512 px) */
+        const val QR_CODE_SIZE_PX = 512
+    }
+
+    object Mime {
+        const val ALL = "*/*"
+        const val FOLDER = "resource/folder"
+        const val SCHEME_FILE = "file://"
     }
 
     object Preferences {

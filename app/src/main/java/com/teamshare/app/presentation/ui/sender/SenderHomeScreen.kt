@@ -1,5 +1,7 @@
 package com.teamshare.app.presentation.ui.sender
 
+import android.os.Build
+import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -40,11 +43,15 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -74,6 +81,7 @@ fun SenderHomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    var showFolderGuideDialog by remember { mutableStateOf(false) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
@@ -89,6 +97,34 @@ fun SenderHomeScreen(
         if (treeUri != null) {
             viewModel.onUrisSelected(listOf(treeUri), context)
         }
+    }
+
+    val launchFolderPicker = {
+        val initialUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents", "primary:Documents")
+        } else null
+        folderPickerLauncher.launch(initialUri)
+    }
+
+    if (showFolderGuideDialog) {
+        AlertDialog(
+            onDismissRequest = { showFolderGuideDialog = false },
+            title = { Text(stringResource(R.string.dialog_folder_guide_title)) },
+            text = { Text(stringResource(R.string.dialog_folder_guide_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showFolderGuideDialog = false
+                    launchFolderPicker()
+                }) {
+                    Text(stringResource(R.string.action_continue))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFolderGuideDialog = false }) {
+                    Text(stringResource(R.string.btn_close))
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -180,7 +216,13 @@ fun SenderHomeScreen(
         },
         modifier = modifier
     ) { paddingValues ->
-        val activeError = uiState.errorResId?.let { stringResource(it) } ?: uiState.errorMessage
+        val activeError = uiState.errorResId?.let { resId ->
+            if (resId == R.string.err_unknown) {
+                stringResource(resId, uiState.errorMessage ?: "")
+            } else {
+                stringResource(resId)
+            }
+        } ?: uiState.errorMessage
 
         LazyColumn(
             modifier = Modifier
@@ -222,7 +264,7 @@ fun SenderHomeScreen(
                     }
 
                     OutlinedButton(
-                        onClick = { folderPickerLauncher.launch(null) },
+                        onClick = { showFolderGuideDialog = true },
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp),

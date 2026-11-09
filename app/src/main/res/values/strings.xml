@@ -81,6 +81,9 @@
     <!-- ========================================================================= -->
     <string name="btn_select_file">Chọn tệp</string>
     <string name="btn_select_folder">Chọn thư mục</string>
+    <string name="dialog_folder_guide_title">Chọn thư mục chia sẻ</string>
+    <string name="dialog_folder_guide_message">Theo chính sách bảo mật của Android (Scoped Storage), hệ thống không cho phép chọn toàn bộ thư mục gốc thiết bị.\n\nVui lòng mở vào một thư mục cụ thể (ví dụ trong Documents, DCIM, Pictures...) hoặc bấm \"Tạo thư mục mới\" (Create New Folder).</string>
+    <string name="action_continue">Tiếp tục</string>
     <string name="btn_accept">Chấp nhận</string>
     <string name="btn_reject">Từ chối</string>
     <string name="btn_close">Đóng</string>
@@ -226,4 +229,13 @@
     <string name="msg_waiting_approval_hint">Yêu cầu tải tệp đã được gửi. Vui lòng chờ người gửi nhấn Chấp nhận trên màn hình.</string>
     <string name="msg_sender_cancelled_session">Người gửi đã chủ động dừng phiên truyền này.</string>
     <string name="msg_relay_disconnected">Mất kết nối với máy chủ chuyển tiếp Relay.</string>
+    <string name="btn_extract_folder">Giải nén vào Tải về</string>
+    <string name="btn_save_all_to_downloads">Lưu tất cả vào Tải về</string>
+    <string name="btn_browse_files">Duyệt danh sách tệp</string>
+    <string name="msg_folder_extracted_success">Đã giải nén %1$d tệp vào Downloads/TeamShare/%2$s</string>
+    <string name="msg_batch_saved_success">Đã lưu %1$d tệp vào Downloads/TeamShare</string>
+    <string name="history_type_folder">Thư mục</string>
+    <string name="history_type_batch">%1$d tệp tin</string>
+    <string name="dialog_batch_files_title">Danh sách tệp tin (%1$d tệp)</string>
+    <string name="dialog_folder_files_title">Nội dung thư mục: %1$s</string>
 </resources>

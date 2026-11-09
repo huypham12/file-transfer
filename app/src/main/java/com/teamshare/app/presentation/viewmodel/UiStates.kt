@@ -59,6 +59,16 @@ data class ReceiverUiState(
 )
 
 /**
+ * Thông tin tệp tin con sau khi nhận và giải nén (phục vụ duyệt danh sách nhiều tệp / thư mục).
+ */
+data class ReceivedFileInfo(
+    val name: String,
+    val sizeBytes: Long,
+    val absolutePath: String,
+    val isDirectory: Boolean = false
+)
+
+/**
  * Trạng thái giao diện Màn hình Tiến trình Truyền tải (TransferProgressScreen).
  * Được điều tiết chu kỳ tối thiểu 100ms để bảo vệ luồng đồ họa Compose (NFR-PERF-03).
  */
@@ -77,7 +87,9 @@ data class TransferUiState(
     val errorMessage: String? = null,
     val etaSeconds: Long = 0L,
     val durationText: String = "",
-    val completedFilePath: String? = null
+    val completedFilePath: String? = null,
+    val isDirectoryOrBatch: Boolean = false,
+    val receivedFileList: List<ReceivedFileInfo> = emptyList()
 ) {
     companion object {
         fun fromProgress(

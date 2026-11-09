@@ -18,6 +18,7 @@ interface ITransferRepository {
     suspend fun updateCheckpoint(sessionId: String, confirmedOffset: Long)
     suspend fun updateApprovalMode(sessionId: String, mode: ApprovalMode)
     suspend fun updatePeerInfo(sessionId: String, peerModel: String, peerFingerprint: String)
+    suspend fun updateSessionFile(sessionId: String, filePath: String)
     suspend fun updateSessionStatus(sessionId: String, status: SessionStatus, errorCode: String? = null)
     suspend fun deleteSession(sessionId: String)
 }
