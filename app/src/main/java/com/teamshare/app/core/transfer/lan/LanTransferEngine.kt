@@ -145,7 +145,10 @@ class LanTransferEngine(
         useTls: Boolean = false,
         serverTimeoutMs: Int = DEFAULT_SERVER_TIMEOUT_MS,
         maxReceivers: Int = 1,
-        callback: TransferProgressCallback? = null
+        callback: TransferProgressCallback? = null,
+        onClientProgress: ((DeviceProfile, Long, Long, Long) -> Unit)? = null,
+        onClientCompleted: ((DeviceProfile) -> Unit)? = null,
+        onClientFailed: ((DeviceProfile, Throwable) -> Unit)? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         require(file.exists() && (file.isFile || file.isDirectory)) { "Tệp hoặc thư mục nguồn không tồn tại: ${file.absolutePath}" }
 
@@ -189,7 +192,10 @@ class LanTransferEngine(
                     approvalMode = approvalMode,
                     onDeviceApproval = onDeviceApproval,
                     onPeerConnected = onPeerConnected,
-                    callback = callback
+                    callback = callback,
+                    onClientProgress = onClientProgress,
+                    onClientCompleted = onClientCompleted,
+                    onClientFailed = onClientFailed
                 )
             } else {
                 // Chế độ 1-N Đa người nhận (SDD Mục 8.1 & SRS FR-TRN-03)
@@ -225,7 +231,10 @@ class LanTransferEngine(
                                         approvalMode = approvalMode,
                                         onDeviceApproval = onDeviceApproval,
                                         onPeerConnected = onPeerConnected,
-                                        callback = callback
+                                        callback = callback,
+                                        onClientProgress = onClientProgress,
+                                        onClientCompleted = onClientCompleted,
+                                        onClientFailed = onClientFailed
                                     )
                                     if (res.isSuccess) {
                                         completedCount.incrementAndGet()
@@ -272,8 +281,14 @@ class LanTransferEngine(
         approvalMode: ApprovalMode,
         onDeviceApproval: (suspend (DeviceProfile) -> Boolean)?,
         onPeerConnected: ((DeviceProfile) -> Unit)?,
-        callback: TransferProgressCallback?
+        callback: TransferProgressCallback?,
+        onClientProgress: ((DeviceProfile, Long, Long, Long) -> Unit)? = null,
+        onClientCompleted: ((DeviceProfile) -> Unit)? = null,
+        onClientFailed: ((DeviceProfile, Throwable) -> Unit)? = null
     ): Result<String> = coroutineScope {
+        var peerProfile: DeviceProfile? = null
+        val clientCancelled = AtomicBoolean(false)
+        val clientPaused = AtomicBoolean(false)
         try {
             val inputStream = BufferedInputStream(socket.getInputStream(), AppConstants.Buffer.STREAM_INPUT_BUFFER_BYTES)
             val outputStream = BufferedOutputStream(socket.getOutputStream(), AppConstants.Buffer.STREAM_INPUT_BUFFER_BYTES)
@@ -308,14 +323,15 @@ class LanTransferEngine(
             }
 
             // Phê duyệt thiết bị (Auto / Manual Dialog theo SDD 7.4 & 8.1)
-            val peerProfile = DeviceProfile(
+            val profile = DeviceProfile(
                 manufacturer = connectReq.deviceManufacturer,
                 model = connectReq.deviceModel,
                 fingerprint = connectReq.deviceFingerprint
             )
+            peerProfile = profile
 
             // Luôn thông báo thiết bị đã bắt tay thành công lên tầng UI
-            onPeerConnected?.invoke(peerProfile)
+            onPeerConnected?.invoke(profile)
 
             if (approvalMode == ApprovalMode.MANUAL_APPROVAL) {
                 // Gửi frame 0x09 CONNECT_PENDING báo cho Receiver biết đang chờ người duyệt
@@ -328,7 +344,7 @@ class LanTransferEngine(
                     serializer.serializeTo(pendingFrame, outputStream)
                 } catch (_: Exception) {}
 
-                val isApproved = onDeviceApproval?.invoke(peerProfile) ?: false
+                val isApproved = onDeviceApproval?.invoke(profile) ?: false
                 if (!isApproved) {
                     val rejectFrame = serializer.buildConnectAcceptedFrame(
                         streamId,
@@ -338,7 +354,7 @@ class LanTransferEngine(
                         )
                     )
                     serializer.serializeTo(rejectFrame, outputStream)
-                    val err = "Người gửi từ chối kết nối từ thiết bị ${peerProfile.model}"
+                    val err = "Người gửi từ chối kết nối từ thiết bị ${profile.model}"
                     callback?.onError(ErrorCode.ERR_DEVICE_REJECTED, err)
                     throw SecurityException(err)
                 }
@@ -438,9 +454,12 @@ class LanTransferEngine(
                             ChunkFrame.TYPE_CONTROL_SIGNAL -> {
                                 val signal = ControlSignalPayload.fromBytes(ackOrVerifyFrame.payload)
                                 when (signal.command) {
-                                    ControlSignalPayload.CMD_PAUSE -> pause()
-                                    ControlSignalPayload.CMD_RESUME -> resume()
-                                    ControlSignalPayload.CMD_CANCEL -> cancel()
+                                    ControlSignalPayload.CMD_PAUSE -> clientPaused.set(true)
+                                    ControlSignalPayload.CMD_RESUME -> clientPaused.set(false)
+                                    ControlSignalPayload.CMD_CANCEL -> {
+                                        clientCancelled.set(true)
+                                        break
+                                    }
                                 }
                             }
                         }
@@ -459,11 +478,11 @@ class LanTransferEngine(
             }
 
             try {
-                while (currentOffset < totalFileSize && !isCancelled.get()) {
-                    while (isPaused.get() && !isCancelled.get()) {
+                while (currentOffset < totalFileSize && !isCancelled.get() && !clientCancelled.get()) {
+                    while ((isPaused.get() || clientPaused.get()) && !isCancelled.get() && !clientCancelled.get()) {
                         delay(AppConstants.Timeout.PAUSE_POLL_INTERVAL_MS)
                     }
-                    if (isCancelled.get()) break
+                    if (isCancelled.get() || clientCancelled.get()) break
 
                     val buffer = bufferPool.acquire()
                     val dataToSend = try {
@@ -499,15 +518,19 @@ class LanTransferEngine(
                     if (delta >= AppConstants.Timeout.PROGRESS_THROTTLE_INTERVAL_MS) {
                         val speed = (bytesSinceLastSpeed * 1000L) / maxOf(delta, 1L)
                         callback?.onProgress(currentOffset, totalFileSize, speed)
+                        peerProfile?.let { prof -> onClientProgress?.invoke(prof, currentOffset, totalFileSize, speed) }
                         lastSpeedTimestamp = now
                         bytesSinceLastSpeed = 0L
                     }
                 }
 
-                if (isCancelled.get()) {
+                if (isCancelled.get() || clientCancelled.get()) {
                     val cancelSignal = ControlSignalPayload(command = ControlSignalPayload.CMD_CANCEL)
-                    serializer.serializeTo(serializer.buildControlSignalFrame(streamId, cancelSignal), outputStream)
-                    throw CancellationException("Phiên gửi đã bị hủy bởi người dùng")
+                    try {
+                        serializer.serializeTo(serializer.buildControlSignalFrame(streamId, cancelSignal), outputStream)
+                    } catch (_: Exception) {}
+                    val reason = if (clientCancelled.get()) "bởi máy nhận ${peerProfile?.model ?: ""}" else "bởi người dùng"
+                    throw CancellationException("Phiên gửi đã bị hủy $reason")
                 }
 
                 // Chờ kết quả VERIFY_RESULT từ Receiver
@@ -519,13 +542,16 @@ class LanTransferEngine(
                     currentState = TransferEngineState.COMPLETED
                     callback?.onStateChanged(currentState)
                     callback?.onCompleted(sessionId, verifyResult.actualSha256)
+                    peerProfile?.let { prof -> onClientCompleted?.invoke(prof) }
                     Result.success(verifyResult.actualSha256)
                 } else {
                     currentState = TransferEngineState.FAILED
                     callback?.onStateChanged(currentState)
                     val err = "Máy nhận thông báo thất bại: mã băm thực tế ${verifyResult.actualSha256}"
                     callback?.onError(ErrorCode.ERR_CHECKSUM_MISMATCH, err)
-                    Result.failure(SecurityException(err))
+                    val exc = SecurityException(err)
+                    peerProfile?.let { prof -> onClientFailed?.invoke(prof, exc) }
+                    Result.failure(exc)
                 }
             } finally {
                 receiverJob.cancel()
@@ -536,7 +562,8 @@ class LanTransferEngine(
                 try { pipedOut?.close() } catch (_: Exception) {}
             }
         } catch (e: Exception) {
-            currentState = if (isCancelled.get()) TransferEngineState.CANCELLED else TransferEngineState.FAILED
+            peerProfile?.let { prof -> onClientFailed?.invoke(prof, e) }
+            currentState = if (isCancelled.get() || clientCancelled.get()) TransferEngineState.CANCELLED else TransferEngineState.FAILED
             callback?.onStateChanged(currentState)
             Result.failure(e)
         } finally {

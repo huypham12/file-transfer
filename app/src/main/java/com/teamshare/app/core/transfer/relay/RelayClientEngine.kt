@@ -229,6 +229,10 @@ class RelayClientEngine(
 
             val attachRespStr = connection.receiveText()
             val attachResp = AttachStreamResponse.fromJson(attachRespStr)
+            if (attachResp.isBusy) {
+                val busyMsg = attachResp.message ?: "Kênh chuyển tiếp Relay đang bận phục vụ thiết bị khác (chế độ 1-1)."
+                throw IOException("${ErrorCode.ERR_RELAY_CHANNEL_BUSY}: $busyMsg")
+            }
             if (!attachResp.isSuccess) {
                 throw IOException("Relay từ chối gắn kết nối: ${attachResp.message}")
             }
@@ -537,6 +541,15 @@ class RelayClientEngine(
                 )
             } catch (e: Exception) {
                 if (isCancelled.get()) return null
+                val isBusy = e.message?.contains(ErrorCode.ERR_RELAY_CHANNEL_BUSY) == true ||
+                        e.message?.contains("0x303") == true ||
+                        e.message?.contains("đang bận", ignoreCase = true) == true
+                if (isBusy) {
+                    currentState = TransferEngineState.FAILED
+                    callback?.onStateChanged(currentState)
+                    callback?.onError(ErrorCode.ERR_RELAY_CHANNEL_BUSY, e.message ?: "Kênh chuyển tiếp Relay hiện đang bận.")
+                    throw e
+                }
                 val isRejection = e.message?.contains(ErrorCode.ERR_DEVICE_REJECTED) == true ||
                         e.message?.contains("0x102") == true ||
                         e.message?.contains("từ chối", ignoreCase = true) == true
@@ -599,6 +612,10 @@ class RelayClientEngine(
 
             val attachRespStr = connection.receiveText()
             val attachResp = AttachStreamResponse.fromJson(attachRespStr)
+            if (attachResp.isBusy) {
+                val busyMsg = attachResp.message ?: "Kênh chuyển tiếp Relay đang bận phục vụ thiết bị khác (chế độ 1-1)."
+                throw IOException("${ErrorCode.ERR_RELAY_CHANNEL_BUSY}: $busyMsg")
+            }
             if (!attachResp.isSuccess) {
                 throw IOException("Relay từ chối gắn kết nối: ${attachResp.message}")
             }

@@ -76,6 +76,12 @@ sealed class DomainError(
         severity = AuditSeverity.WARNING
     )
 
+    object RelayChannelBusy : DomainError(
+        code = ErrorCode.ERR_RELAY_CHANNEL_BUSY,
+        technicalMessage = "Relay channel is currently busy serving another device (1-1 preview mode)",
+        severity = AuditSeverity.WARNING
+    )
+
     // =========================================================================
     // 0x400: Phần cứng & Sinh trắc học (Hardware & Biometrics)
     // =========================================================================
@@ -106,6 +112,7 @@ sealed class DomainError(
                 ErrorCode.ERR_SERVER_BIND_ERROR -> ServerBindError
                 ErrorCode.ERR_CHECKSUM_MISMATCH -> ChecksumMismatch
                 ErrorCode.ERR_INSUFFICIENT_STORAGE -> InsufficientStorage
+                ErrorCode.ERR_RELAY_CHANNEL_BUSY -> RelayChannelBusy
                 ErrorCode.ERR_BIOMETRIC_FAILED -> BiometricFailed
                 else -> GeneralException(fallbackDetail.ifBlank { "Error code: $code" })
             }
@@ -127,6 +134,7 @@ sealed class DomainError(
                 ErrorCode.ERR_SERVER_BIND_ERROR,
                 ErrorCode.ERR_CHECKSUM_MISMATCH,
                 ErrorCode.ERR_INSUFFICIENT_STORAGE,
+                ErrorCode.ERR_RELAY_CHANNEL_BUSY,
                 ErrorCode.ERR_BIOMETRIC_FAILED
             )) {
                 if (msg.contains(code)) {

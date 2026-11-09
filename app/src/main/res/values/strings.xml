@@ -73,6 +73,7 @@
     <string name="err_0x203_bind_error">Không thể mở cổng mạng để lắng nghe kết nối.</string>
     <string name="err_0x301_checksum_mismatch">Lỗi kiểm tra toàn vẹn: Tệp tải về bị sai lệch mã băm SHA-256.</string>
     <string name="err_0x302_insufficient_storage">Thiết bị không đủ bộ nhớ trống để tải tệp an toàn.</string>
+    <string name="err_0x303_relay_busy">Máy chủ Relay đang bận phục vụ thiết bị khác (chế độ thử nghiệm 1-1). Vui lòng chờ thiết bị trước hoàn tất hoặc kết nối chung Wi-Fi (LAN) để truyền tốc độ cao.</string>
     <string name="err_0x401_biometric_failed">Xác thực sinh trắc học không thành công hoặc bị hủy.</string>
     <string name="err_unknown">Đã xảy ra lỗi không xác định: %1$s</string>
 
@@ -135,6 +136,10 @@
     <string name="sender_ttl_countdown">Hiệu lực còn lại: %1$02d:%2$02d</string>
     <string name="sender_connected_devices_title">Thiết bị đã kết nối (%1$d)</string>
     <string name="sender_no_connected_devices">Chưa có thiết bị nào kết nối</string>
+    <string name="receiver_status_connecting">Đang kết nối...</string>
+    <string name="receiver_status_transferring">Đang gửi</string>
+    <string name="receiver_status_completed">Đã hoàn tất</string>
+    <string name="receiver_status_failed">Thất bại</string>
     <string name="sender_share_code_copied">Đã sao chép mã chia sẻ vào bộ nhớ tạm</string>
     <string name="sender_share_sheet_title">Chia sẻ mã tải tệp TeamShare</string>
     <string name="btn_share_message">Chia sẻ tin nhắn</string>

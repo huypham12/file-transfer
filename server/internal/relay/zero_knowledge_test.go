@@ -142,3 +142,67 @@ func TestZeroKnowledge_FullTraffic_NoDiskWrites(t *testing.T) {
 
 	t.Logf("Xác nhận tính chất Zero-Knowledge: 1 MB dữ liệu truyền thành công qua RAM Pipe, không ghi tệp xuống đĩa (Trước: %d, Sau: %d)", len(beforeFiles), len(afterFiles))
 }
+
+// TestRelay_SecondReceiverGetsBusyMessage kiểm chứng yêu cầu xử lý máy thứ hai kết nối vào kênh 1-1:
+// Máy nhận thứ 2 phải nhận được phản hồi status="BUSY" và thông điệp giải thích kênh đang bận.
+func TestRelay_SecondReceiverGetsBusyMessage(t *testing.T) {
+	hub := NewHub()
+	server := httptest.NewServer(HandleStream(hub))
+	defer server.Close()
+
+	u, _ := url.Parse(server.URL)
+	u.Scheme = "ws"
+	wsUrl := u.String()
+
+	streamId := "busy_test_stream_001"
+
+	// 1. Kết nối Receiver thứ nhất
+	receiver1, _, err := websocket.DefaultDialer.Dial(wsUrl, nil)
+	if err != nil {
+		t.Fatalf("Receiver 1 kết nối thất bại: %v", err)
+	}
+	defer receiver1.Close()
+
+	attach1 := AttachStreamMessage{
+		Action:   "ATTACH_STREAM",
+		StreamId: streamId,
+		Role:     "RECEIVER",
+	}
+	if err := receiver1.WriteJSON(attach1); err != nil {
+		t.Fatalf("Gửi ATTACH_STREAM Receiver 1 thất bại: %v", err)
+	}
+
+	var resp1 AttachResponse
+	if err := receiver1.ReadJSON(&resp1); err != nil || resp1.Status != "ATTACHED" {
+		t.Fatalf("Receiver 1 không nhận được ATTACHED: %v, resp: %+v", err, resp1)
+	}
+
+	// 2. Kết nối Receiver thứ hai vào cùng streamId
+	receiver2, _, err := websocket.DefaultDialer.Dial(wsUrl, nil)
+	if err != nil {
+		t.Fatalf("Receiver 2 kết nối thất bại: %v", err)
+	}
+	defer receiver2.Close()
+
+	attach2 := AttachStreamMessage{
+		Action:   "ATTACH_STREAM",
+		StreamId: streamId,
+		Role:     "RECEIVER",
+	}
+	if err := receiver2.WriteJSON(attach2); err != nil {
+		t.Fatalf("Gửi ATTACH_STREAM Receiver 2 thất bại: %v", err)
+	}
+
+	var resp2 AttachResponse
+	if err := receiver2.ReadJSON(&resp2); err != nil {
+		t.Fatalf("Receiver 2 đọc phản hồi thất bại: %v", err)
+	}
+
+	if resp2.Status != "BUSY" {
+		t.Errorf("Kỳ vọng status 'BUSY' cho Receiver 2, nhận được: %s", resp2.Status)
+	}
+	if !strings.Contains(resp2.Message, "đang bận") {
+		t.Errorf("Kỳ vọng thông báo bận chứa 'đang bận', nhận được: %s", resp2.Message)
+	}
+	t.Logf("Xác nhận Receiver 2 nhận phản hồi BUSY thành công: status=%s, msg=%s", resp2.Status, resp2.Message)
+}

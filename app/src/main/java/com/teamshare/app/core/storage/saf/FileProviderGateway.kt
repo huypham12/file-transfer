@@ -63,17 +63,12 @@ open class FileProviderGateway(
 
     /**
      * Tạo Intent mở thư mục an toàn (SRS FR-DOC-03 & CONF-01).
+     * Sử dụng ACTION_VIEW_DOWNLOADS để mở trực tiếp trong trình quản lý tệp hệ thống,
+     * tuyệt đối không dùng Uri.fromFile(directory) nhằm loại bỏ hoàn toàn FileUriExposedException trên Android 7.0+.
      */
     open fun createOpenDirectoryIntent(directory: File): Intent {
-        val intent = Intent(Intent.ACTION_VIEW)
+        val intent = Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS)
         try {
-            val uri = try {
-                Uri.fromFile(directory)
-            } catch (_: Throwable) {
-                Uri.parse("${AppConstants.Mime.SCHEME_FILE}${directory.absolutePath}")
-            }
-            intent.setDataAndType(uri, AppConstants.Mime.FOLDER)
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         } catch (_: Throwable) {
             // Fallback an toàn trên môi trường Unit Test thuần JVM không có mock Android Intent

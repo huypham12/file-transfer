@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -71,6 +72,7 @@ import com.teamshare.app.domain.model.ApprovalMode
 import com.teamshare.app.presentation.ui.components.ErrorBanner
 import com.teamshare.app.presentation.ui.components.ManualApprovalDialog
 import com.teamshare.app.presentation.ui.components.formatFileSize
+import com.teamshare.app.presentation.viewmodel.ReceiverTransferStatus
 import com.teamshare.app.presentation.viewmodel.SenderViewModel
 import kotlinx.coroutines.launch
 
@@ -463,47 +465,154 @@ fun QrDisplayScreen(
                         )
                     } else {
                         uiState.connectedDevices.forEach { dev ->
-                            Row(
+                            val progressInfo = uiState.receiverProgressMap[dev.fingerprint]
+                            val status = progressInfo?.status ?: ReceiverTransferStatus.CONNECTING
+
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(vertical = 4.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    .padding(10.dp)
                             ) {
-                                Surface(
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    modifier = Modifier.size(32.dp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PhoneAndroid,
-                                        contentDescription = "Device",
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = when (status) {
+                                            ReceiverTransferStatus.COMPLETED -> Color(0xFFE8F5E9)
+                                            ReceiverTransferStatus.FAILED -> MaterialTheme.colorScheme.errorContainer
+                                            else -> MaterialTheme.colorScheme.primaryContainer
+                                        },
+                                        modifier = Modifier.size(34.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PhoneAndroid,
+                                            contentDescription = "Device",
+                                            tint = when (status) {
+                                                ReceiverTransferStatus.COMPLETED -> Color(0xFF2E7D32)
+                                                ReceiverTransferStatus.FAILED -> MaterialTheme.colorScheme.onErrorContainer
+                                                else -> MaterialTheme.colorScheme.onPrimaryContainer
+                                            },
+                                            modifier = Modifier
+                                                .padding(7.dp)
+                                                .size(20.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        val devName = "${dev.manufacturer} ${dev.model}".trim().ifBlank { "Android Receiver" }
+                                        Text(
+                                            text = devName,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = "Mã: ${dev.fingerprint.take(12)}...",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    when (status) {
+                                        ReceiverTransferStatus.COMPLETED -> {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.CheckCircle,
+                                                    contentDescription = "Hoàn tất",
+                                                    tint = Color(0xFF2E7D32),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = stringResource(R.string.receiver_status_completed),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = Color(0xFF2E7D32),
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                        ReceiverTransferStatus.FAILED -> {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.ErrorOutline,
+                                                    contentDescription = "Lỗi",
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = stringResource(R.string.receiver_status_failed),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.error,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                        ReceiverTransferStatus.TRANSFERRING -> {
+                                            val percent = ((progressInfo?.progressPercent ?: 0f) * 100).toInt()
+                                            val speedText = if ((progressInfo?.speedBytesPerSec ?: 0L) > 0L) {
+                                                " • ${formatFileSize(progressInfo!!.speedBytesPerSec)}/s"
+                                            } else ""
+                                            Text(
+                                                text = "$percent%$speedText",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        ReceiverTransferStatus.CONNECTING -> {
+                                            Text(
+                                                text = stringResource(R.string.receiver_status_connecting),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (progressInfo != null && (status == ReceiverTransferStatus.TRANSFERRING || status == ReceiverTransferStatus.COMPLETED || status == ReceiverTransferStatus.FAILED)) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    LinearProgressIndicator(
+                                        progress = {
+                                            if (status == ReceiverTransferStatus.COMPLETED) 1f else progressInfo.progressPercent
+                                        },
                                         modifier = Modifier
-                                            .padding(6.dp)
-                                            .size(20.dp)
+                                            .fillMaxWidth()
+                                            .height(4.dp)
+                                            .clip(RoundedCornerShape(2.dp)),
+                                        color = when (status) {
+                                            ReceiverTransferStatus.COMPLETED -> Color(0xFF2E7D32)
+                                            ReceiverTransferStatus.FAILED -> MaterialTheme.colorScheme.error
+                                            else -> MaterialTheme.colorScheme.primary
+                                        }
                                     )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "${formatFileSize(progressInfo.bytesTransferred)} / ${formatFileSize(progressInfo.totalBytes)}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        if (status == ReceiverTransferStatus.FAILED && !progressInfo.errorMessage.isNullOrBlank()) {
+                                            Text(
+                                                text = progressInfo.errorMessage,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.error,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
                                 }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    val devName = "${dev.manufacturer} ${dev.model}".trim().ifBlank { "Android Receiver" }
-                                    Text(
-                                        text = devName,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Text(
-                                        text = "Mã: ${dev.fingerprint.take(12)}...",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = "Approved",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
                             }
                         }
                     }

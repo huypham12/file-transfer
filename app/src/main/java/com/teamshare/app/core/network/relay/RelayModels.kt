@@ -42,12 +42,13 @@ data class AttachStreamRequest(
  * Bản tin phản hồi từ Relay Server sau khi xử lý gắn kênh.
  */
 data class AttachStreamResponse(
-    val status: String, // "ATTACHED" hoặc "ERROR"
+    val status: String, // "ATTACHED", "BUSY", hoặc "ERROR"
     val streamId: String? = null,
     val role: String? = null,
     val message: String? = null
 ) {
     val isSuccess: Boolean get() = status == "ATTACHED"
+    val isBusy: Boolean get() = status == "BUSY"
 
     fun toJson(): String {
         val json = JSONObject()

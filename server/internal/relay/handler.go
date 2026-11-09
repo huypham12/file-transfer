@@ -79,12 +79,13 @@ func HandleStream(hub *Hub) http.HandlerFunc {
 			bridge.SetTTL(time.Duration(attachMsg.TtlSeconds) * time.Second)
 		}
 		attached := false
+		isBusy := false
 
 		switch attachMsg.Role {
 		case "SENDER":
 			attached = bridge.AttachSender(conn)
 		case "RECEIVER":
-			attached = bridge.AttachReceiver(conn)
+			attached, isBusy = bridge.AttachReceiver(conn)
 		default:
 			log.Printf("[Handler] Vai trò không hợp lệ: %s", attachMsg.Role)
 			_ = conn.WriteJSON(AttachResponse{
@@ -96,11 +97,23 @@ func HandleStream(hub *Hub) http.HandlerFunc {
 		}
 
 		if !attached {
-			log.Printf("[Handler] Không thể gắn kết nối (kênh đã có %s hoặc đã đóng)", attachMsg.Role)
-			_ = conn.WriteJSON(AttachResponse{
-				Status:  "ERROR",
-				Message: "Vai trò này đã được gắn trong phiên hoặc phiên đã đóng",
-			})
+			if isBusy {
+				log.Printf("[Handler] Kênh %s đang bận phục vụ Receiver khác (1-1 Limit)", attachMsg.StreamId)
+				_ = conn.WriteJSON(AttachResponse{
+					Status:   "BUSY",
+					StreamId: attachMsg.StreamId,
+					Role:     attachMsg.Role,
+					Message:  "Kênh chuyển tiếp Relay hiện đang bận phục vụ một thiết bị khác. Máy chủ Relay đang trong giai đoạn thử nghiệm giới hạn 1-1. Vui lòng chờ thiết bị trước hoàn tất hoặc kết nối chung mạng Wi-Fi (LAN) để truyền tốc độ cao.",
+				})
+			} else {
+				log.Printf("[Handler] Không thể gắn kết nối (kênh đã có %s hoặc đã đóng)", attachMsg.Role)
+				_ = conn.WriteJSON(AttachResponse{
+					Status:   "ERROR",
+					StreamId: attachMsg.StreamId,
+					Role:     attachMsg.Role,
+					Message:  "Vai trò này đã được gắn trong phiên hoặc phiên đã đóng",
+				})
+			}
 			_ = conn.Close()
 			return
 		}

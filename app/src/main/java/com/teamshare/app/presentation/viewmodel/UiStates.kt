@@ -12,6 +12,35 @@ import com.teamshare.app.domain.model.TransferProgress
 import java.io.File
 
 /**
+ * Trạng thái truyền tải của từng máy nhận kết nối tới máy phát (1-N).
+ */
+enum class ReceiverTransferStatus {
+    CONNECTING,
+    TRANSFERRING,
+    COMPLETED,
+    FAILED
+}
+
+/**
+ * Thông tin tiến trình và tốc độ truyền tải thời gian thực của một máy nhận cụ thể.
+ */
+data class ReceiverProgressInfo(
+    val device: DeviceProfile,
+    val bytesTransferred: Long = 0L,
+    val totalBytes: Long = 0L,
+    val speedBytesPerSec: Long = 0L,
+    val status: ReceiverTransferStatus = ReceiverTransferStatus.CONNECTING,
+    val errorMessage: String? = null
+) {
+    val progressPercent: Float
+        get() = if (totalBytes > 0L) {
+            (bytesTransferred.toFloat() / totalBytes.toFloat()).coerceIn(0.0f, 1.0f)
+        } else {
+            0.0f
+        }
+}
+
+/**
  * Trạng thái giao diện Màn hình Người phát tệp (SenderHomeScreen & QrDisplayScreen).
  * Tuân thủ SDD Mục 4.2.2 (SenderSessionUiState).
  */
@@ -27,6 +56,7 @@ data class SenderSessionUiState(
     val remainingTtlSeconds: Long = AppConstants.Timeout.QR_TTL_SECONDS,
     val pendingApprovalDevice: DeviceProfile? = null,
     val connectedDevices: List<DeviceProfile> = emptyList(),
+    val receiverProgressMap: Map<String, ReceiverProgressInfo> = emptyMap(),
     val errorMessage: String? = null,
     val errorResId: Int? = null
 )

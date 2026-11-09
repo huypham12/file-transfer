@@ -6,7 +6,9 @@ import com.example.file_tranfer.R
 import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.platform.network.NetworkAddressHelper
 import com.teamshare.app.core.platform.network.NetworkConfig
+import com.teamshare.app.core.platform.service.ITransferForegroundServiceLauncher
 import com.teamshare.app.core.transfer.lan.LanTransferEngine
+import com.teamshare.app.core.transfer.lan.TransferProgressCallback
 import com.teamshare.app.core.transfer.relay.RelayClientEngine
 import com.teamshare.app.domain.model.ApprovalMode
 import com.teamshare.app.domain.model.DeviceProfile
@@ -50,6 +52,7 @@ class SenderViewModel(
     private val lanEngine: LanTransferEngine? = null,
     private val relayEngine: RelayClientEngine? = null,
     private val authenticateBiometricUseCase: AuthenticateBiometricUseCase? = null,
+    private val serviceLauncher: ITransferForegroundServiceLauncher? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
@@ -64,6 +67,8 @@ class SenderViewModel(
     private var pendingApprovalDeferred: CompletableDeferred<Boolean>? = null
     private val approvedPeerFingerprints = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private val rejectedPeerFingerprints = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val lastReceiverProgressTime = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Long>>()
+    private var activePreparedFile: File? = null
 
     /**
      * Cập nhật danh sách tệp hoặc thư mục được người dùng chọn qua SAF.
@@ -248,6 +253,7 @@ class SenderViewModel(
             result.onSuccess { sessionData ->
                 approvedPeerFingerprints.clear()
                 rejectedPeerFingerprints.clear()
+                lastReceiverProgressTime.clear()
                 val rawQrText = sessionData.qrPayload.toQrString()
                 val qrBitmap = try {
                     QrCodeBitmapGenerator.generateQrBitmap(rawQrText, AppConstants.UI.QR_CODE_SIZE_PX)
@@ -262,10 +268,20 @@ class SenderViewModel(
                         qrPayload = sessionData.qrPayload,
                         qrBitmap = qrBitmap,
                         remainingTtlSeconds = _uiState.value.selectedTtlSeconds,
+                        receiverProgressMap = emptyMap(),
                         errorMessage = null,
                         errorResId = null
                     )
                 }
+
+                try {
+                    serviceLauncher?.startService(
+                        sessionId = sessionData.session.sessionId,
+                        documentName = if (files.size == 1) files[0].name else "Bộ tệp (${files.size} mục)",
+                        totalBytes = _uiState.value.totalBytes,
+                        isLan = (primaryChannel == TransferChannel.DIRECT_LAN)
+                    )
+                } catch (_: Exception) {}
 
                 val preparedFile = prepareFileToSend(files, sessionData.session.sessionId)
 
@@ -304,7 +320,7 @@ class SenderViewModel(
     }
 
     private fun prepareFileToSend(files: List<File>, sessionId: String): File {
-        return if (files.size == 1) {
+        val file = if (files.size == 1) {
             files[0]
         } else {
             val parentDir = files[0].parentFile ?: File(".")
@@ -323,6 +339,8 @@ class SenderViewModel(
             }
             batchDir
         }
+        activePreparedFile = file
+        return file
     }
 
     /**
@@ -348,6 +366,15 @@ class SenderViewModel(
                 },
                 onPeerConnected = { peerProfile ->
                     onDeviceConnectionRequested(peerProfile)
+                },
+                onClientProgress = { peerProfile, bytesTransferred, totalBytes, speed ->
+                    onReceiverProgress(peerProfile, bytesTransferred, totalBytes, speed)
+                },
+                onClientCompleted = { peerProfile ->
+                    onReceiverCompleted(peerProfile)
+                },
+                onClientFailed = { peerProfile, error ->
+                    onReceiverFailed(peerProfile, error)
                 },
                 maxReceivers = AppConstants.FlowControl.MAX_CONCURRENT_OUTGOING_TRANSFERS,
                 serverTimeoutMs = AppConstants.Timeout.SERVER_SOCKET_ACCEPT_TIMEOUT_MS
@@ -413,6 +440,24 @@ class SenderViewModel(
                             session = dummySession,
                             fileChannel = raf.channel,
                             expectedSha256 = sha,
+                            callback = object : TransferProgressCallback {
+                                override fun onProgress(bytesTransferred: Long, totalBytes: Long, speedBytesPerSec: Long) {
+                                    val peer = _uiState.value.connectedDevices.firstOrNull { it.fingerprint.isNotBlank() }
+                                        ?: DeviceProfile(manufacturer = "Relay", model = "Receiver", fingerprint = "relay_peer")
+                                    onReceiverProgress(peer, bytesTransferred, totalBytes, speedBytesPerSec)
+                                }
+                                override fun onCompleted(docId: String, finalSha256: String) {
+                                    val peer = _uiState.value.connectedDevices.firstOrNull { it.fingerprint.isNotBlank() }
+                                        ?: DeviceProfile(manufacturer = "Relay", model = "Receiver", fingerprint = "relay_peer")
+                                    onReceiverCompleted(peer)
+                                }
+                                override fun onError(errorCode: String, message: String) {
+                                    val peer = _uiState.value.connectedDevices.firstOrNull { it.fingerprint.isNotBlank() }
+                                        ?: DeviceProfile(manufacturer = "Relay", model = "Receiver", fingerprint = "relay_peer")
+                                    onReceiverFailed(peer, Exception("$errorCode: $message"))
+                                }
+                                override fun onStateChanged(newState: com.teamshare.app.core.transfer.lan.TransferEngineState) {}
+                            },
                             ttlSeconds = ttl,
                             peerValidator = { peerAuth ->
                                 val peerProfile = DeviceProfile(
@@ -523,7 +568,16 @@ class SenderViewModel(
             if (updatedList.none { it.fingerprint == device.fingerprint }) {
                 updatedList.add(device)
             }
-            _uiState.update { it.copy(connectedDevices = updatedList) }
+            val updatedMap = _uiState.value.receiverProgressMap.toMutableMap()
+            if (!updatedMap.containsKey(device.fingerprint)) {
+                updatedMap[device.fingerprint] = ReceiverProgressInfo(
+                    device = device,
+                    bytesTransferred = 0L,
+                    totalBytes = _uiState.value.totalBytes,
+                    status = ReceiverTransferStatus.CONNECTING
+                )
+            }
+            _uiState.update { it.copy(connectedDevices = updatedList, receiverProgressMap = updatedMap) }
         }
     }
 
@@ -534,8 +588,17 @@ class SenderViewModel(
         val currentPending = _uiState.value.pendingApprovalDevice
         if (currentPending?.fingerprint == device.fingerprint) {
             val updatedList = _uiState.value.connectedDevices.toMutableList()
+            val updatedMap = _uiState.value.receiverProgressMap.toMutableMap()
             if (accept && updatedList.none { it.fingerprint == device.fingerprint }) {
                 updatedList.add(device)
+                if (!updatedMap.containsKey(device.fingerprint)) {
+                    updatedMap[device.fingerprint] = ReceiverProgressInfo(
+                        device = device,
+                        bytesTransferred = 0L,
+                        totalBytes = _uiState.value.totalBytes,
+                        status = ReceiverTransferStatus.CONNECTING
+                    )
+                }
             }
             if (accept) {
                 approvedPeerFingerprints.add(device.fingerprint)
@@ -545,12 +608,97 @@ class SenderViewModel(
             _uiState.update {
                 it.copy(
                     pendingApprovalDevice = null,
-                    connectedDevices = updatedList
+                    connectedDevices = updatedList,
+                    receiverProgressMap = updatedMap
                 )
             }
             pendingApprovalDeferred?.complete(accept)
             pendingApprovalDeferred = null
         }
+    }
+
+    fun onReceiverProgress(device: DeviceProfile, bytesTransferred: Long, totalBytes: Long, speed: Long = 0L) {
+        val now = System.currentTimeMillis()
+        val calculatedSpeed = if (speed > 0L) {
+            speed
+        } else {
+            val prev = lastReceiverProgressTime[device.fingerprint]
+            val s = if (prev != null && now > prev.second) {
+                val deltaBytes = (bytesTransferred - prev.first).coerceAtLeast(0L)
+                val deltaTimeSec = (now - prev.second) / 1000.0
+                if (deltaTimeSec > 0) (deltaBytes / deltaTimeSec).toLong() else 0L
+            } else 0L
+            lastReceiverProgressTime[device.fingerprint] = Pair(bytesTransferred, now)
+            s
+        }
+
+        _uiState.update { current ->
+            val updatedMap = current.receiverProgressMap.toMutableMap()
+            val existing = updatedMap[device.fingerprint]
+            val resolvedTotal = if (totalBytes > 0L) totalBytes else current.totalBytes
+            val isFinished = bytesTransferred >= resolvedTotal && resolvedTotal > 0L
+            updatedMap[device.fingerprint] = ReceiverProgressInfo(
+                device = device,
+                bytesTransferred = bytesTransferred,
+                totalBytes = resolvedTotal,
+                speedBytesPerSec = if (isFinished) 0L else (if (calculatedSpeed > 0L) calculatedSpeed else existing?.speedBytesPerSec ?: 0L),
+                status = if (isFinished) ReceiverTransferStatus.COMPLETED else ReceiverTransferStatus.TRANSFERRING
+            )
+            val updatedDevices = current.connectedDevices.toMutableList()
+            if (updatedDevices.none { it.fingerprint == device.fingerprint }) {
+                updatedDevices.add(device)
+            }
+            current.copy(
+                receiverProgressMap = updatedMap,
+                connectedDevices = updatedDevices
+            )
+        }
+    }
+
+    fun onReceiverCompleted(device: DeviceProfile) {
+        lastReceiverProgressTime.remove(device.fingerprint)
+        _uiState.update { current ->
+            val updatedMap = current.receiverProgressMap.toMutableMap()
+            val existing = updatedMap[device.fingerprint]
+            val total = existing?.totalBytes ?: current.totalBytes
+            updatedMap[device.fingerprint] = ReceiverProgressInfo(
+                device = device,
+                bytesTransferred = total,
+                totalBytes = total,
+                speedBytesPerSec = 0L,
+                status = ReceiverTransferStatus.COMPLETED
+            )
+            current.copy(receiverProgressMap = updatedMap)
+        }
+    }
+
+    fun onReceiverFailed(device: DeviceProfile, error: Throwable) {
+        lastReceiverProgressTime.remove(device.fingerprint)
+        _uiState.update { current ->
+            val updatedMap = current.receiverProgressMap.toMutableMap()
+            val existing = updatedMap[device.fingerprint]
+            updatedMap[device.fingerprint] = ReceiverProgressInfo(
+                device = device,
+                bytesTransferred = existing?.bytesTransferred ?: 0L,
+                totalBytes = existing?.totalBytes ?: current.totalBytes,
+                speedBytesPerSec = 0L,
+                status = ReceiverTransferStatus.FAILED,
+                errorMessage = error.message
+            )
+            current.copy(receiverProgressMap = updatedMap)
+        }
+    }
+
+    private fun cleanupSessionCache(sessionId: String) {
+        try {
+            activePreparedFile?.let { file ->
+                if (file.isDirectory && file.name.startsWith(AppConstants.StorageDirectory.BATCH_DIR_PREFIX)) {
+                    file.deleteRecursively()
+                }
+            }
+        } catch (_: Exception) {}
+        activePreparedFile = null
+        lastReceiverProgressTime.clear()
     }
 
     /**
@@ -569,6 +717,10 @@ class SenderViewModel(
         pendingApprovalDeferred = null
         approvedPeerFingerprints.clear()
         rejectedPeerFingerprints.clear()
+        try {
+            serviceLauncher?.stopService()
+        } catch (_: Exception) {}
+        cleanupSessionCache(sessionId)
 
         _uiState.update {
             it.copy(
@@ -577,7 +729,8 @@ class SenderViewModel(
                 qrBitmap = null,
                 qrPayload = null,
                 pendingApprovalDevice = null,
-                connectedDevices = emptyList()
+                connectedDevices = emptyList(),
+                receiverProgressMap = emptyMap()
             )
         }
         onStopped?.invoke()
@@ -606,8 +759,14 @@ class SenderViewModel(
         super.onCleared()
         ttlTimerJob?.cancel()
         serverJob?.cancel()
+        relayJob?.cancel()
         lanEngine?.cancel()
+        relayEngine?.cancel()
         pendingApprovalDeferred?.complete(false)
         pendingApprovalDeferred = null
+        try {
+            serviceLauncher?.stopService()
+        } catch (_: Exception) {}
+        cleanupSessionCache(_uiState.value.sessionId)
     }
 }

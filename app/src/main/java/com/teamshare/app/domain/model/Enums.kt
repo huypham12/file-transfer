@@ -153,6 +153,7 @@ object ErrorCode {
     const val ERR_SERVER_BIND_ERROR = "0x203"
     const val ERR_CHECKSUM_MISMATCH = "0x301"
     const val ERR_INSUFFICIENT_STORAGE = "0x302"
+    const val ERR_RELAY_CHANNEL_BUSY = "0x303"
     const val ERR_BIOMETRIC_FAILED = "0x401"
     const val ERR_SYSTEM_EXCEPTION = "0x500"
 }

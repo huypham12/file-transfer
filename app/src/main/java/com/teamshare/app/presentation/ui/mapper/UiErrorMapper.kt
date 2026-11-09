@@ -24,6 +24,7 @@ object UiErrorMapper {
             is DomainError.ServerBindError -> R.string.err_0x203_bind_error
             is DomainError.ChecksumMismatch -> R.string.err_0x301_checksum_mismatch
             is DomainError.InsufficientStorage -> R.string.err_0x302_insufficient_storage
+            is DomainError.RelayChannelBusy -> R.string.err_0x303_relay_busy
             is DomainError.BiometricFailed -> R.string.err_0x401_biometric_failed
             is DomainError.GeneralException -> R.string.err_unknown
         }

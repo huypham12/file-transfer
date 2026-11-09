@@ -119,19 +119,20 @@ func (b *ChannelBridge) AttachSender(conn *websocket.Conn) bool {
 }
 
 // AttachReceiver gắn kết nối của Receiver vào cầu nối và kích hoạt vòng đọc RAM tức thì.
-func (b *ChannelBridge) AttachReceiver(conn *websocket.Conn) bool {
+// Trả về: (attached bool, isBusy bool). Nếu kênh đã có Receiver hoạt động, trả về (false, true).
+func (b *ChannelBridge) AttachReceiver(conn *websocket.Conn) (bool, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if b.isClosed {
-		return false
+		return false, false
 	}
 
 	if b.ReceiverConn != nil {
-		// ADR-01 (Phương án 2A): Zero-Knowledge Relay chuẩn hóa Point-to-Point 1-1.
-		// Nếu kênh đã có một bên nhận đang truyền dữ liệu, từ chối bên nhận mới để không làm gián đoạn bên nhận cũ.
-		log.Printf("[Bridge %s] Từ chối RECEIVER mới vì kênh đã có RECEIVER đang hoạt động (1-1 Conflict)", b.StreamId)
-		return false
+		// ADR-01: Zero-Knowledge Relay chuẩn hóa Point-to-Point 1-1 trong giai đoạn hiện tại.
+		// Nếu kênh đã có một bên nhận đang truyền dữ liệu, báo trạng thái BẬN (isBusy = true).
+		log.Printf("[Bridge %s] Kênh đang bận phục vụ RECEIVER khác (1-1 Conflict)", b.StreamId)
+		return false, true
 	}
 	b.ReceiverConn = NewSafeConn(conn)
 
@@ -141,7 +142,7 @@ func (b *ChannelBridge) AttachReceiver(conn *websocket.Conn) bool {
 
 	// Bắt đầu đọc từ Receiver ngay để xử lý Ping/Pong và nhận dữ liệu vào RAM
 	go b.readLoop(b.ReceiverConn, b.fromReceiver, "Receiver")
-	return true
+	return true, false
 }
 
 func (b *ChannelBridge) readLoop(conn *SafeConn, out chan<- StreamPayload, role string) {

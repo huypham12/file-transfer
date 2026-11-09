@@ -91,7 +91,8 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
             ),
             lanEngine = lanEngine,
             relayEngine = relayEngine,
-            authenticateBiometricUseCase = com.teamshare.app.domain.usecase.platform.AuthenticateBiometricUseCase(biometricAuthManager)
+            authenticateBiometricUseCase = com.teamshare.app.domain.usecase.platform.AuthenticateBiometricUseCase(biometricAuthManager),
+            serviceLauncher = serviceLauncher
         )
     }
 
