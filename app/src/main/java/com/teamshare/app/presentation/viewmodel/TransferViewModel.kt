@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.teamshare.app.core.transfer.lan.TransferProgressCallback
+import com.teamshare.app.core.transfer.relay.RelayClientEngine
+import com.teamshare.app.domain.model.ErrorCode
 
 /**
  * ViewModel điều khiển phiên truyền tải tệp P2P (LAN / Relay).
@@ -197,12 +199,19 @@ class TransferViewModel(
             }
 
             override fun onError(errorCode: String, message: String) {
+                val friendlyMessage = when {
+                    message.contains("CANCELED", ignoreCase = true) || errorCode == "0x102" || message.contains("CANCEL", ignoreCase = true) ->
+                        "Người gửi đã chủ động dừng phiên truyền này."
+                    errorCode == ErrorCode.ERR_RELAY_UNAVAILABLE || message.contains("Relay", ignoreCase = true) ->
+                        "Mất kết nối với máy chủ chuyển tiếp Relay."
+                    else -> message
+                }
                 _uiState.update { current ->
                     current.copy(
                         sessionId = sessionId,
                         state = TransferEngineState.FAILED,
                         errorCode = errorCode,
-                        errorMessage = message
+                        errorMessage = friendlyMessage
                     )
                 }
             }

@@ -134,6 +134,8 @@ object FrameType {
     const val CONTROL_SIGNAL: Byte = 0x06
     const val REVOKE_SIGNAL: Byte = 0x07
     const val VERIFY_RESULT: Byte = 0x08
+    const val ERROR_ALERT: Byte = 0x08
+    const val CONNECT_PENDING: Byte = 0x09
 }
 
 /**

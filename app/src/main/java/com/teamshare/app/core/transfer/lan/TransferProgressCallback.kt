@@ -7,6 +7,7 @@ enum class TransferEngineState {
     IDLE,
     CONNECTING,
     HANDSHAKING,
+    WAITING_APPROVAL,
     TRANSFERRING,
     PAUSED,
     VERIFYING,

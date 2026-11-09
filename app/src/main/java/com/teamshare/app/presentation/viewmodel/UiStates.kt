@@ -19,6 +19,7 @@ data class SenderSessionUiState(
     val selectedFiles: List<File> = emptyList(),
     val totalBytes: Long = 0L,
     val approvalMode: ApprovalMode = ApprovalMode.MANUAL_APPROVAL,
+    val selectedTtlSeconds: Long = AppConstants.Timeout.QR_TTL_SECONDS,
     val isSharing: Boolean = false,
     val sessionId: String = "",
     val qrBitmap: Bitmap? = null,

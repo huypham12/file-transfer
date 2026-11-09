@@ -45,9 +45,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.file_tranfer.R
 import com.teamshare.app.core.platform.share.ShareCodeHelper
 import com.teamshare.app.core.transfer.lan.TransferEngineState
 import com.teamshare.app.presentation.ui.components.EnterCodeBottomSheet
@@ -66,6 +68,7 @@ fun HomeScreen(
     onNavigateToSend: () -> Unit,
     onNavigateToScan: () -> Unit,
     onNavigateToAudit: () -> Unit,
+    onNavigateToHistory: () -> Unit = {},
     onNavigateToProgress: (String) -> Unit,
     onNavigateToReceiverHome: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -240,12 +243,22 @@ fun HomeScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            // 4. Action Card: Lịch sử & Nhật ký kiểm toán
+            // 4. Action Card: Lịch sử truyền nhận tệp (FR-HIS-01)
             HeroActionCard(
-                title = "Nhật ký kiểm toán an ninh",
-                subtitle = "Tra cứu lịch sử truyền nhận & đối chiếu mã băm SHA-256",
+                title = stringResource(R.string.title_transfer_history),
+                subtitle = "Quản lý, mở tệp và xuất các tệp đã gửi/đã nhận",
                 icon = Icons.Default.History,
                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                onClick = onNavigateToHistory
+            )
+
+            // 5. Action Card: Nhật ký kiểm toán an ninh
+            HeroActionCard(
+                title = "Nhật ký kiểm toán an ninh",
+                subtitle = "Tra cứu nhật ký bất biến & đối chiếu mã băm SHA-256",
+                icon = Icons.Default.Security,
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                 onClick = onNavigateToAudit
             )

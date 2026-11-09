@@ -25,6 +25,7 @@ type AttachStreamMessage struct {
 	StreamId   string `json:"streamId"`
 	Role       string `json:"role"` // "SENDER" hoặc "RECEIVER"
 	AuthTicket string `json:"authTicket,omitempty"`
+	TtlSeconds int    `json:"ttlSeconds,omitempty"`
 }
 
 // AttachResponse phản hồi xác nhận kênh đã gắn thành công.
@@ -73,6 +74,9 @@ func HandleStream(hub *Hub) http.HandlerFunc {
 			})
 			_ = conn.Close()
 			return
+		}
+		if attachMsg.TtlSeconds > 0 {
+			bridge.SetTTL(time.Duration(attachMsg.TtlSeconds) * time.Second)
 		}
 		attached := false
 

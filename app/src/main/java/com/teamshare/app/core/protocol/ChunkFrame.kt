@@ -55,6 +55,7 @@ data class ChunkFrame(
         const val TYPE_CONTROL_SIGNAL: Byte = 0x06
         const val TYPE_VERIFY_RESULT: Byte = 0x07
         const val TYPE_ERROR_ALERT: Byte = 0x08
+        const val TYPE_CONNECT_PENDING: Byte = 0x09
 
         // Aliases hỗ trợ chuyển giao
         @Deprecated("Sử dụng TYPE_CONNECT_REQUEST thay thế", ReplaceWith("TYPE_CONNECT_REQUEST"))
@@ -67,7 +68,7 @@ data class ChunkFrame(
         const val TYPE_REVOKE_SIGNAL: Byte = 0x07
 
         fun isValidType(type: Byte): Boolean {
-            return type in TYPE_CONNECT_REQUEST..TYPE_ERROR_ALERT
+            return type in TYPE_CONNECT_REQUEST..TYPE_CONNECT_PENDING
         }
     }
 }

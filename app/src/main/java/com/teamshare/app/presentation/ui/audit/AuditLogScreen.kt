@@ -242,7 +242,7 @@ private fun AuditLogItemCard(log: AuditLog) {
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = log.eventType.name,
+                        text = formatAuditEventType(log.eventType),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = severityColor
@@ -266,12 +266,30 @@ private fun AuditLogItemCard(log: AuditLog) {
             if (log.actorDevice.isNotBlank() && log.actorDevice != "local") {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Thiết bị: ${log.actorDevice}",
+                    text = stringResource(R.string.history_peer_label, log.actorDevice),
                     style = MaterialTheme.typography.labelSmall,
                     fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
+    }
+}
+
+private fun formatAuditEventType(eventType: com.teamshare.app.domain.model.AuditEventType): String {
+    return when (eventType) {
+        com.teamshare.app.domain.model.AuditEventType.SESSION_CREATED -> "Khởi tạo phiên chia sẻ"
+        com.teamshare.app.domain.model.AuditEventType.SESSION_APPROVED -> "Đã duyệt kết nối"
+        com.teamshare.app.domain.model.AuditEventType.SESSION_REJECTED -> "Từ chối kết nối"
+        com.teamshare.app.domain.model.AuditEventType.DEVICE_CONNECTED -> "Thiết bị kết nối"
+        com.teamshare.app.domain.model.AuditEventType.TRANSFER_STARTED -> "Bắt đầu truyền tệp"
+        com.teamshare.app.domain.model.AuditEventType.TRANSFER_COMPLETED -> "Truyền nhận thành công"
+        com.teamshare.app.domain.model.AuditEventType.TRANSFER_PAUSED -> "Tạm dừng truyền tệp"
+        com.teamshare.app.domain.model.AuditEventType.TRANSFER_RESUMED -> "Tiếp tục truyền tệp"
+        com.teamshare.app.domain.model.AuditEventType.TRANSFER_CANCELLED -> "Đã hủy phiên truyền"
+        com.teamshare.app.domain.model.AuditEventType.CHECKSUM_VERIFIED -> "Xác thực SHA-256 khớp"
+        com.teamshare.app.domain.model.AuditEventType.CHECKSUM_FAILED -> "Lỗi toàn vẹn dữ liệu"
+        com.teamshare.app.domain.model.AuditEventType.SECURITY_ALERT -> "Cảnh báo An ninh"
+        else -> eventType.name
     }
 }

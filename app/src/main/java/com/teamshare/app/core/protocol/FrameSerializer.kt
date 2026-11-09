@@ -73,6 +73,10 @@ class FrameSerializer {
         return ChunkFrame(ChunkFrame.TYPE_ERROR_ALERT, streamId, payload.toBytes())
     }
 
+    fun buildConnectPendingFrame(streamId: Int, payload: ConnectPendingPayload): ChunkFrame {
+        return ChunkFrame(ChunkFrame.TYPE_CONNECT_PENDING, streamId, payload.toBytes())
+    }
+
     // =====================================================================================
     // Helper Factory Methods Deprecated hỗ trợ tương thích ngược
     // =====================================================================================

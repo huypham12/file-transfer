@@ -105,7 +105,8 @@ class TlsSocketFactory(
         host: String,
         port: Int,
         useTls: Boolean = false,
-        timeoutMs: Int = AppConstants.Timeout.SOCKET_CONNECT_TIMEOUT_MS
+        timeoutMs: Int = AppConstants.Timeout.SOCKET_CONNECT_TIMEOUT_MS,
+        readTimeoutMs: Int = AppConstants.Timeout.SOCKET_READ_TIMEOUT_MS
     ): Socket {
         if (useTls) {
             checkNotNull(sslContext) { "Yêu cầu useTls = true nhưng SSLContext chưa được cấu hình cho TlsSocketFactory" }
@@ -123,7 +124,7 @@ class TlsSocketFactory(
             plainSocket.connect(InetSocketAddress(host, port), timeoutMs)
             plainSocket
         }
-        socket.soTimeout = timeoutMs
+        socket.soTimeout = readTimeoutMs
         socket.tcpNoDelay = true // Tắt thuật toán Nagle để giảm độ trễ đóng gói frame
         try {
             socket.sendBufferSize = AppConstants.Buffer.SOCKET_BUFFER_BYTES

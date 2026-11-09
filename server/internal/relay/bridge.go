@@ -47,6 +47,7 @@ type ChannelBridge struct {
 	done          chan struct{}
 	doneOnce      sync.Once
 	CreatedAt     time.Time
+	TtlDuration   time.Duration
 	mu            sync.Mutex
 	closeOnce     sync.Once
 	isClosed      bool
@@ -67,7 +68,17 @@ func NewChannelBridge(streamId string, config *ServerConfig, onClosed func(strea
 		receiverReady: make(chan struct{}),
 		done:          make(chan struct{}),
 		CreatedAt:     time.Now(),
+		TtlDuration:   300 * time.Second,
 		onClosed:      onClosed,
+	}
+}
+
+// SetTTL cập nhật thời gian sống tùy biến cho phiên từ thông điệp của máy phát.
+func (b *ChannelBridge) SetTTL(duration time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if duration > 0 {
+		b.TtlDuration = duration
 	}
 }
 
@@ -163,13 +174,20 @@ func (b *ChannelBridge) readLoop(conn *SafeConn, out chan<- StreamPayload, role 
 
 // StartForwarding bắt đầu vòng lặp chuyển tiếp dữ liệu nhị phân hai chiều giữa Sender và Receiver.
 func (b *ChannelBridge) StartForwarding() {
-	// Chờ cả 2 bên Sender và Receiver gắn kết nối trong tối đa 300 giây (5 phút - tương thích với TTL mã QR)
+	b.mu.Lock()
+	ttl := b.TtlDuration
+	if ttl <= 0 {
+		ttl = 300 * time.Second
+	}
+	b.mu.Unlock()
+
+	// Chờ cả 2 bên Sender và Receiver gắn kết nối trong tối đa ttl
 	select {
 	case <-b.done:
 		return
 	case <-b.senderReady:
-	case <-time.After(300 * time.Second):
-		log.Printf("[Bridge %s] Quá thời gian chờ Sender ghép cặp (300s). Hủy cầu nối.", b.StreamId)
+	case <-time.After(ttl):
+		log.Printf("[Bridge %s] Quá thời gian chờ Sender ghép cặp (%v). Hủy cầu nối.", b.StreamId, ttl)
 		b.Close()
 		return
 	}
@@ -178,8 +196,8 @@ func (b *ChannelBridge) StartForwarding() {
 	case <-b.done:
 		return
 	case <-b.receiverReady:
-	case <-time.After(300 * time.Second):
-		log.Printf("[Bridge %s] Quá thời gian chờ Receiver ghép cặp (300s). Hủy cầu nối.", b.StreamId)
+	case <-time.After(ttl):
+		log.Printf("[Bridge %s] Quá thời gian chờ Receiver ghép cặp (%v). Hủy cầu nối.", b.StreamId, ttl)
 		b.Close()
 		return
 	}

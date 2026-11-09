@@ -9,7 +9,8 @@ data class AttachStreamRequest(
     val action: String = "ATTACH_STREAM",
     val streamId: String,
     val role: String, // "SENDER" hoặc "RECEIVER"
-    val authTicket: String? = null
+    val authTicket: String? = null,
+    val ttlSeconds: Int = 0
 ) {
     fun toJson(): String {
         val json = JSONObject()
@@ -17,6 +18,9 @@ data class AttachStreamRequest(
         json.put("streamId", streamId)
         json.put("role", role)
         authTicket?.let { json.put("authTicket", it) }
+        if (ttlSeconds > 0) {
+            json.put("ttlSeconds", ttlSeconds)
+        }
         return json.toString()
     }
 
@@ -27,7 +31,8 @@ data class AttachStreamRequest(
                 action = json.optString("action", "ATTACH_STREAM"),
                 streamId = json.getString("streamId"),
                 role = json.getString("role"),
-                authTicket = if (json.has("authTicket")) json.getString("authTicket") else null
+                authTicket = if (json.has("authTicket")) json.getString("authTicket") else null,
+                ttlSeconds = json.optInt("ttlSeconds", 0)
             )
         }
     }

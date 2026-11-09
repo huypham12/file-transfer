@@ -227,6 +227,21 @@ fun TransferProgressScreen(
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     when (uiState.state) {
+                        TransferEngineState.WAITING_APPROVAL -> {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(56.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 4.dp
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = stringResource(R.string.transfer_status_waiting_approval),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                         TransferEngineState.COMPLETED -> {
                             Icon(
                                 imageVector = Icons.Default.CheckCircle,
@@ -495,6 +510,16 @@ fun TransferProgressScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 when (uiState.state) {
+                    TransferEngineState.WAITING_APPROVAL -> {
+                        OutlinedButton(
+                            onClick = { showCancelDialog = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(imageVector = Icons.Default.Cancel, contentDescription = null)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(stringResource(R.string.btn_confirm_cancel))
+                        }
+                    }
                     TransferEngineState.TRANSFERRING, TransferEngineState.HANDSHAKING -> {
                         OutlinedButton(
                             onClick = { viewModel.pauseSession(sessionId) },
@@ -564,6 +589,7 @@ fun formatTransferState(state: TransferEngineState): String {
     return when (state) {
         TransferEngineState.IDLE -> "Sẵn sàng"
         TransferEngineState.CONNECTING -> "Đang thiết lập kết nối..."
+        TransferEngineState.WAITING_APPROVAL -> "Đang chờ người gửi phê duyệt..."
         TransferEngineState.HANDSHAKING -> "Đang bắt tay TLS/E2EE..."
         TransferEngineState.TRANSFERRING -> "Đang truyền dữ liệu..."
         TransferEngineState.PAUSED -> "Đã tạm dừng an toàn"

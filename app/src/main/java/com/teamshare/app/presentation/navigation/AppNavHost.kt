@@ -9,6 +9,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.teamshare.app.presentation.ui.audit.AuditLogScreen
+import com.teamshare.app.presentation.ui.history.TransferHistoryScreen
 import com.teamshare.app.presentation.ui.home.HomeScreen
 import com.teamshare.app.presentation.ui.receiver.ReceiverHomeScreen
 import com.teamshare.app.presentation.ui.receiver.ScannerScreen
@@ -16,6 +17,7 @@ import com.teamshare.app.presentation.ui.sender.QrDisplayScreen
 import com.teamshare.app.presentation.ui.sender.SenderHomeScreen
 import com.teamshare.app.presentation.ui.transfer.TransferProgressScreen
 import com.teamshare.app.presentation.viewmodel.AuditViewModel
+import com.teamshare.app.presentation.viewmodel.HistoryViewModel
 import com.teamshare.app.presentation.viewmodel.ReceiverViewModel
 import com.teamshare.app.presentation.viewmodel.SenderViewModel
 import com.teamshare.app.presentation.viewmodel.TransferViewModel
@@ -31,6 +33,7 @@ fun AppNavHost(
     receiverViewModel: ReceiverViewModel,
     transferViewModel: TransferViewModel,
     auditViewModel: AuditViewModel,
+    historyViewModel: HistoryViewModel? = null,
     modifier: Modifier = Modifier,
     startDestination: String = Screen.Home.route
 ) {
@@ -47,6 +50,7 @@ fun AppNavHost(
                 onNavigateToSend = { navController.navigate(Screen.SenderHome.route) },
                 onNavigateToScan = { navController.navigate(Screen.Scanner.route) },
                 onNavigateToAudit = { navController.navigate(Screen.AuditLog.route) },
+                onNavigateToHistory = { navController.navigate(Screen.TransferHistory.route) },
                 onNavigateToProgress = { sessionId ->
                     navController.navigate(Screen.TransferProgress.createRoute(sessionId))
                 },
@@ -134,6 +138,16 @@ fun AppNavHost(
                 viewModel = auditViewModel,
                 onBackClick = { navController.popBackStack() }
             )
+        }
+
+        // 8. Màn hình Lịch sử truyền nhận tệp (TransferHistoryScreen)
+        composable(Screen.TransferHistory.route) {
+            if (historyViewModel != null) {
+                TransferHistoryScreen(
+                    viewModel = historyViewModel,
+                    onBackClick = { navController.popBackStack() }
+                )
+            }
         }
     }
 }

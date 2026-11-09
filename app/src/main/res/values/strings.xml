@@ -194,4 +194,36 @@
     <string name="audit_filter_security">Cảnh báo An ninh (Alert)</string>
     <string name="audit_empty_title">Không có nhật ký nào phù hợp</string>
     <string name="audit_empty_desc">Thử đổi từ khóa tìm kiếm hoặc bỏ chọn bộ lọc mức độ</string>
+
+    <!-- ========================================================================= -->
+    <!-- CẤU HÌNH TTL & LỊCH SỬ TRUYỀN TỆP (TTL & TRANSFER HISTORY)                -->
+    <!-- ========================================================================= -->
+    <string name="sender_ttl_title">Thời gian hiệu lực mã chia sẻ (TTL)</string>
+    <string name="sender_ttl_1m">1 phút</string>
+    <string name="sender_ttl_5m">5 phút</string>
+    <string name="sender_ttl_15m">15 phút</string>
+    <string name="sender_ttl_30m">30 phút</string>
+    <string name="sender_ttl_1h">1 giờ</string>
+
+    <string name="title_transfer_history">Lịch sử truyền nhận tệp</string>
+    <string name="history_tab_received">Tệp đã nhận</string>
+    <string name="history_tab_sent">Tệp đã gửi</string>
+    <string name="history_empty_received">Chưa nhận tệp nào</string>
+    <string name="history_empty_received_desc">Các tệp bạn nhận từ thiết bị khác sẽ xuất hiện ở đây.</string>
+    <string name="history_empty_sent">Chưa phát tệp nào</string>
+    <string name="history_empty_sent_desc">Lịch sử các phiên chia sẻ tệp của bạn sẽ được lưu tại đây.</string>
+    <string name="history_btn_open">Mở tệp</string>
+    <string name="history_btn_save_download">Lưu vào máy</string>
+    <string name="history_status_completed">Thành công</string>
+    <string name="history_status_failed">Thất bại</string>
+    <string name="history_status_cancelled">Đã hủy</string>
+    <string name="history_status_in_progress">Đang xử lý</string>
+    <string name="history_peer_label">Thiết bị: %1$s</string>
+    <string name="history_channel_lan">Wi-Fi LAN</string>
+    <string name="history_channel_relay">Relay E2EE</string>
+
+    <string name="transfer_status_waiting_approval">Đang chờ người gửi phê duyệt kết nối…</string>
+    <string name="msg_waiting_approval_hint">Yêu cầu tải tệp đã được gửi. Vui lòng chờ người gửi nhấn Chấp nhận trên màn hình.</string>
+    <string name="msg_sender_cancelled_session">Người gửi đã chủ động dừng phiên truyền này.</string>
+    <string name="msg_relay_disconnected">Mất kết nối với máy chủ chuyển tiếp Relay.</string>
 </resources>

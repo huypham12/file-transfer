@@ -9,6 +9,7 @@ import com.teamshare.app.core.protocol.BinaryFrameParser
 import com.teamshare.app.core.protocol.ChunkAckPayload
 import com.teamshare.app.core.protocol.ChunkFrame
 import com.teamshare.app.core.protocol.ConnectAcceptedPayload
+import com.teamshare.app.core.protocol.ConnectPendingPayload
 import com.teamshare.app.core.protocol.ConnectRequestPayload
 import com.teamshare.app.core.protocol.ControlSignalPayload
 import com.teamshare.app.core.protocol.DataChunkPayload
@@ -134,6 +135,7 @@ class LanTransferEngine(
         expectedSha256: String? = null,
         approvalMode: ApprovalMode = ApprovalMode.AUTO_ACCEPT,
         onDeviceApproval: (suspend (DeviceProfile) -> Boolean)? = null,
+        onPeerConnected: ((DeviceProfile) -> Unit)? = null,
         useTls: Boolean = false,
         serverTimeoutMs: Int = DEFAULT_SERVER_TIMEOUT_MS,
         callback: TransferProgressCallback? = null
@@ -209,7 +211,20 @@ class LanTransferEngine(
                 fingerprint = connectReq.deviceFingerprint
             )
 
+            // Luôn thông báo thiết bị đã bắt tay thành công lên tầng UI
+            onPeerConnected?.invoke(peerProfile)
+
             if (approvalMode == ApprovalMode.MANUAL_APPROVAL) {
+                // Gửi frame 0x09 CONNECT_PENDING báo cho Receiver biết đang chờ người duyệt
+                try {
+                    val pendingPayload = ConnectPendingPayload(
+                        timeoutSeconds = AppConstants.Timeout.APPROVAL_WAIT_TIMEOUT_MS / 1000,
+                        message = "Đang chờ người gửi phê duyệt kết nối..."
+                    )
+                    val pendingFrame = serializer.buildConnectPendingFrame(streamId, pendingPayload)
+                    serializer.serializeTo(pendingFrame, outputStream)
+                } catch (_: Exception) {}
+
                 val isApproved = onDeviceApproval?.invoke(peerProfile) ?: false
                 if (!isApproved) {
                     val rejectFrame = serializer.buildConnectAcceptedFrame(
@@ -457,7 +472,13 @@ class LanTransferEngine(
         }
 
         val socket = try {
-            socketFactory.createSocket(host, port, useTls = useTls, timeoutMs = timeoutMs).also {
+            socketFactory.createSocket(
+                host = host,
+                port = port,
+                useTls = useTls,
+                timeoutMs = timeoutMs,
+                readTimeoutMs = AppConstants.Timeout.SOCKET_READ_TIMEOUT_MS
+            ).also {
                 activeSocket = it
             }
         } catch (e: Exception) {
@@ -488,15 +509,25 @@ class LanTransferEngine(
             val reqFrame = serializer.buildConnectRequestFrame(streamId, connectReq)
             serializer.serializeTo(reqFrame, outputStream)
 
-            // 2. Nhận 0x02 CONNECT_ACCEPTED từ Sender
-            val acceptedFrame = parser.parseNextFrame(inputStream)
-                ?: throw IOException("Kết nối bị đóng trước khi nhận CONNECT_ACCEPTED")
+            // 2. Nhận phản hồi từ Sender: có thể là 0x09 CONNECT_PENDING hoặc 0x02 CONNECT_ACCEPTED
+            var initialFrame = parser.parseNextFrame(inputStream)
+                ?: throw IOException("Kết nối bị đóng trước khi nhận phản hồi kết nối")
 
-            if (acceptedFrame.msgType != ChunkFrame.TYPE_CONNECT_ACCEPTED) {
-                throw IOException("Khung tin mong đợi CONNECT_ACCEPTED (0x02), nhận được: ${acceptedFrame.msgType}")
+            if (initialFrame.msgType == ChunkFrame.TYPE_CONNECT_PENDING) {
+                currentState = TransferEngineState.WAITING_APPROVAL
+                callback?.onStateChanged(currentState)
+                // Kéo dài read timeout để người gửi có đủ thời gian bấm Dialog phê duyệt
+                socket.soTimeout = AppConstants.Timeout.APPROVAL_WAIT_TIMEOUT_MS
+                initialFrame = parser.parseNextFrame(inputStream)
+                    ?: throw IOException("Kết nối bị đóng trong khi chờ người gửi phê duyệt")
+                socket.soTimeout = AppConstants.Timeout.SOCKET_READ_TIMEOUT_MS
             }
 
-            val acceptedPayload = ConnectAcceptedPayload.fromBytes(acceptedFrame.payload)
+            if (initialFrame.msgType != ChunkFrame.TYPE_CONNECT_ACCEPTED) {
+                throw IOException("Khung tin mong đợi CONNECT_ACCEPTED (0x02), nhận được: ${initialFrame.msgType}")
+            }
+
+            val acceptedPayload = ConnectAcceptedPayload.fromBytes(initialFrame.payload)
             if (!acceptedPayload.isApproved) {
                 val reason = acceptedPayload.rejectionReason ?: "${ErrorCode.ERR_DEVICE_REJECTED}: ${DomainError.DeviceRejected.technicalMessage}"
                 callback?.onError(ErrorCode.ERR_DEVICE_REJECTED, reason)

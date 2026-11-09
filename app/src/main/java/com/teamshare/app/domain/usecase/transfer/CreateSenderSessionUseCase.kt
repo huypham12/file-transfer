@@ -52,7 +52,8 @@ class CreateSenderSessionUseCase(
         approvalMode: ApprovalMode = ApprovalMode.AUTO_ACCEPT,
         channel: TransferChannel = TransferChannel.DIRECT_LAN,
         relayUrl: String = "",
-        streamId: String = ""
+        streamId: String = "",
+        ttlSeconds: Long = com.teamshare.app.core.constant.AppConstants.Timeout.QR_TTL_SECONDS
     ): Result<CreateSenderSessionResult> {
         if (files.isEmpty()) {
             return Result.failure(IllegalArgumentException("Danh sách tệp tin chia sẻ không được rỗng"))
@@ -100,6 +101,7 @@ class CreateSenderSessionUseCase(
             }
 
             val deviceProfile = deviceIdentityManager.getDeviceProfile()
+            val expiresAt = System.currentTimeMillis() + (ttlSeconds * 1000L)
 
             val qrPayload = SessionQrPayload(
                 sessionId = sessionId,
@@ -112,7 +114,8 @@ class CreateSenderSessionUseCase(
                 itemCount = files.size,
                 senderDeviceModel = deviceProfile.model,
                 relayUrl = relayUrl,
-                streamId = streamId
+                streamId = streamId,
+                expiresAt = expiresAt
             )
 
             val session = TransferSession(

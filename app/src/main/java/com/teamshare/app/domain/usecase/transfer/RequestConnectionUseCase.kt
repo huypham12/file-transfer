@@ -150,6 +150,7 @@ class RequestConnectionUseCase(
 
         // Xử lý các lỗi khác không thể fallback (vd: người gửi bấm từ chối 0x102)
         val isRejected = exception?.message?.contains(ErrorCode.ERR_DEVICE_REJECTED) == true || exception?.message?.contains("0x102") == true
+        val isSecurityAlert = rawError.contains("checksum", ignoreCase = true) || rawError.contains("credential", ignoreCase = true)
         val status = if (isRejected) SessionStatus.CANCELLED else SessionStatus.FAILED
         transferRepository.updateSessionStatus(payload.sessionId, status, errorCode = exception?.message)
 
@@ -158,12 +159,24 @@ class RequestConnectionUseCase(
             else -> "Yêu cầu kết nối không thành công: $rawError"
         }
 
+        val eventType = when {
+            isRejected -> AuditEventType.SESSION_REJECTED
+            isSecurityAlert -> AuditEventType.SECURITY_ALERT
+            else -> AuditEventType.TRANSFER_CANCELLED
+        }
+
+        val severity = when {
+            isSecurityAlert -> AuditSeverity.SECURITY_ALERT
+            isRejected -> AuditSeverity.WARNING
+            else -> AuditSeverity.WARNING
+        }
+
         auditRepository?.logEvent(
             AuditLog(
                 sessionId = payload.sessionId,
                 actorId = myProfile.model,
-                eventType = if (isRejected) AuditEventType.SESSION_REJECTED else AuditEventType.SECURITY_ALERT,
-                severity = if (isRejected) AuditSeverity.WARNING else AuditSeverity.SECURITY_ALERT,
+                eventType = eventType,
+                severity = severity,
                 details = friendlyDetails
             )
         )
@@ -206,7 +219,7 @@ class RequestConnectionUseCase(
         )
 
         return try {
-            val success = relayEngine.receiveFileViaRelay(
+            val success = relayEngine.receiveFileViaRelayWithRetry(
                 relayWsUrl = targetRelayUrl,
                 session = relaySession,
                 targetFile = targetFile,

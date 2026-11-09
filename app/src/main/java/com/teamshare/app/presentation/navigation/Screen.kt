@@ -23,5 +23,7 @@ sealed class Screen(val route: String) {
         fun createRoute(sessionId: String): String = "transfer_progress/$sessionId"
     }
 
+    object TransferHistory : Screen("transfer_history")
+
     object AuditLog : Screen("audit_log")
 }

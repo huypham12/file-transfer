@@ -45,6 +45,32 @@ data class ConnectRequestPayload(
 }
 
 // =====================================================================================
+// 0x09: CONNECT_PENDING (Phê duyệt thủ công)
+// =====================================================================================
+data class ConnectPendingPayload(
+    val timeoutSeconds: Int = 60,
+    val message: String = ""
+) {
+    fun toBytes(): ByteArray {
+        val json = JSONObject().apply {
+            put("timeoutSeconds", timeoutSeconds)
+            put("message", message)
+        }
+        return json.toString().toByteArray(Charsets.UTF_8)
+    }
+
+    companion object {
+        fun fromBytes(bytes: ByteArray): ConnectPendingPayload {
+            val json = JSONObject(String(bytes, Charsets.UTF_8))
+            return ConnectPendingPayload(
+                timeoutSeconds = json.optInt("timeoutSeconds", 60),
+                message = json.optString("message", "")
+            )
+        }
+    }
+}
+
+// =====================================================================================
 // 0x02: CONNECT_ACCEPTED (SDD Mục 6.2)
 // =====================================================================================
 data class ManifestItemPayload(

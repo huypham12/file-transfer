@@ -74,7 +74,14 @@ class SenderViewModel(
     }
 
     /**
-     * Tiếp nhận danh sách Uri từ Android SAF (Sharesheet hoặc OpenMultipleDocuments).
+     * Cập nhật thời gian sống (TTL) của phiên chia sẻ do người dùng lựa chọn.
+     */
+    fun setSelectedTtlSeconds(seconds: Long) {
+        _uiState.update { it.copy(selectedTtlSeconds = seconds, remainingTtlSeconds = seconds) }
+    }
+
+    /**
+     * Tiếp nhận danh sách Uri từ Android SAF (Sharesheet hoặc OpenMultipleDocuments / OpenDocumentTree).
      * Sao chép an toàn vào cache sandbox để đảm bảo luồng I/O không bị ngắt quãng.
      */
     fun onUrisSelected(uris: List<android.net.Uri>, context: android.content.Context) {
@@ -84,6 +91,14 @@ class SenderViewModel(
             val resolvedFiles = mutableListOf<File>()
 
             for (uri in uris) {
+                if (safGateway.isTreeUri(uri)) {
+                    val copiedFolder = safGateway.copyTreeUriToDirectory(uri, cacheFolder)
+                    if (copiedFolder != null && copiedFolder.exists()) {
+                        resolvedFiles.add(copiedFolder)
+                    }
+                    continue
+                }
+
                 val metadata = safGateway.queryMetadata(uri) ?: continue
                 val targetFile = File(cacheFolder, metadata.fileName)
                 try {
@@ -196,7 +211,8 @@ class SenderViewModel(
                 approvalMode = _uiState.value.approvalMode,
                 channel = primaryChannel,
                 relayUrl = relayQrUrl,
-                streamId = streamId
+                streamId = streamId,
+                ttlSeconds = _uiState.value.selectedTtlSeconds
             )
 
             result.onSuccess { sessionData ->
@@ -213,7 +229,7 @@ class SenderViewModel(
                         sessionId = sessionData.session.sessionId,
                         qrPayload = sessionData.qrPayload,
                         qrBitmap = qrBitmap,
-                        remainingTtlSeconds = AppConstants.Timeout.QR_TTL_SECONDS,
+                        remainingTtlSeconds = _uiState.value.selectedTtlSeconds,
                         errorMessage = null,
                         errorResId = null
                     )
@@ -292,6 +308,9 @@ class SenderViewModel(
                 onDeviceApproval = { peerProfile ->
                     handleDeviceApproval(peerProfile)
                 },
+                onPeerConnected = { peerProfile ->
+                    onDeviceConnectionRequested(peerProfile)
+                },
                 serverTimeoutMs = AppConstants.Timeout.SERVER_SOCKET_ACCEPT_TIMEOUT_MS
             )
         }
@@ -352,17 +371,22 @@ class SenderViewModel(
                     session = dummySession,
                     fileChannel = raf.channel,
                     expectedSha256 = sha,
+                    ttlSeconds = _uiState.value.selectedTtlSeconds.toInt(),
                     peerValidator = { peerAuth ->
                         val peerProfile = DeviceProfile(
                             manufacturer = "Android",
                             model = peerAuth.memberId,
                             fingerprint = peerAuth.deviceFingerprint
                         )
-                        scope.launch { handleDeviceApproval(peerProfile) }
-                        true
+                        handleDeviceApproval(peerProfile)
                     }
                 )
-            } catch (_: Exception) {
+            } catch (e: java.util.concurrent.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(errorMessage = e.message)
+                }
             } finally {
                 try { raf?.close() } catch (_: Exception) {}
                 if (isFolder && actualFile.name.endsWith("_tmp.zip")) {
@@ -387,12 +411,12 @@ class SenderViewModel(
     }
 
     /**
-     * Bắt đầu đồng hồ đếm ngược hiệu lực mã QR (TTL 5 phút).
+     * Bắt đầu đồng hồ đếm ngược hiệu lực mã QR (TTL do người dùng chọn).
      */
     private fun startTtlTimer() {
         ttlTimerJob?.cancel()
         ttlTimerJob = scope.launch {
-            var timeLeft = AppConstants.Timeout.QR_TTL_SECONDS
+            var timeLeft = _uiState.value.selectedTtlSeconds
             while (timeLeft > 0 && _uiState.value.isSharing) {
                 delay(1000L)
                 timeLeft--

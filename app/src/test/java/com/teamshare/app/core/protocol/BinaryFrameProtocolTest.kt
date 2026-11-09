@@ -233,6 +233,27 @@ class BinaryFrameProtocolTest {
     }
 
     // -------------------------------------------------------------------------------------
+    // 0x09: CONNECT_PENDING
+    // -------------------------------------------------------------------------------------
+    @Test
+    fun testConnectPendingPayload() {
+        val payload = ConnectPendingPayload(
+            timeoutSeconds = 60,
+            message = "Đang chờ người gửi phê duyệt kết nối..."
+        )
+        val frame = serializer.buildConnectPendingFrame(streamId = 10, payload = payload)
+        val serializedBytes = serializer.serialize(frame)
+
+        val parsedFrame = parser.parseNextFrame(ByteArrayInputStream(serializedBytes))
+        assertNotNull(parsedFrame)
+        assertEquals(ChunkFrame.TYPE_CONNECT_PENDING, parsedFrame!!.msgType)
+
+        val deserialized = ConnectPendingPayload.fromBytes(parsedFrame.payload)
+        assertEquals(60, deserialized.timeoutSeconds)
+        assertEquals("Đang chờ người gửi phê duyệt kết nối...", deserialized.message)
+    }
+
+    // -------------------------------------------------------------------------------------
     // Backward Compatibility Tests
     // -------------------------------------------------------------------------------------
     @Test
@@ -303,7 +324,7 @@ class BinaryFrameProtocolTest {
     fun testInvalidMsgTypeThrowsException() {
         val badTypeHeader = byteArrayOf(
             0x53, 0x46,
-            0x09, // Invalid msgType 0x09 (cho phép 0x01..0x08)
+            0x0A, // Invalid msgType 0x0A (cho phép 0x01..0x09)
             0, 0, 0, 1,
             0, 0, 0, 0
         )

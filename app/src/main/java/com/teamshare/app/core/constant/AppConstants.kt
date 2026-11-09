@@ -73,6 +73,9 @@ object AppConstants {
         /** Thời gian tối đa lắng nghe kết nối ServerSocket (5 phút) */
         const val SERVER_SOCKET_ACCEPT_TIMEOUT_MS = 300_000
 
+        /** Thời gian tối đa chờ người dùng thao tác phê duyệt thủ công kết nối (60 giây) */
+        const val APPROVAL_WAIT_TIMEOUT_MS = 60_000
+
         /** Tần suất điều tiết tối thiểu giữa các lần cập nhật thông báo Notification / UI (500 ms) */
         const val PROGRESS_THROTTLE_INTERVAL_MS = 500L
 

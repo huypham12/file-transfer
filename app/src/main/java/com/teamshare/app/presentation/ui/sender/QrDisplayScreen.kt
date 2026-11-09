@@ -203,11 +203,11 @@ fun QrDisplayScreen(
                 }
             }
 
-            // Đồng hồ đếm ngược TTL (5 phút)
+            // Đồng hồ đếm ngược TTL
             val ttl = uiState.remainingTtlSeconds
             val minutes = ttl / 60
             val seconds = ttl % 60
-            val ttlProgress = (ttl / AppConstants.Timeout.QR_TTL_SECONDS.toFloat()).coerceIn(0f, 1f)
+            val ttlProgress = (ttl / uiState.selectedTtlSeconds.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f)
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -281,7 +281,7 @@ fun QrDisplayScreen(
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Mã chia sẻ từ xa (Không cần quét QR)",
+                                text = stringResource(R.string.label_share_code),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )

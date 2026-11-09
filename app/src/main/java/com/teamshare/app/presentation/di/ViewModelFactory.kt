@@ -28,6 +28,7 @@ import com.teamshare.app.domain.usecase.transfer.ManageApprovalModeUseCase
 import com.teamshare.app.domain.usecase.transfer.RequestConnectionUseCase
 import com.teamshare.app.domain.usecase.transfer.ScanQrTokenUseCase
 import com.teamshare.app.presentation.viewmodel.AuditViewModel
+import com.teamshare.app.presentation.viewmodel.HistoryViewModel
 import com.teamshare.app.presentation.viewmodel.ReceiverViewModel
 import com.teamshare.app.presentation.viewmodel.SenderViewModel
 import com.teamshare.app.presentation.viewmodel.TransferViewModel
@@ -131,6 +132,18 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
         )
     }
 
+    // 5. HistoryViewModel
+    val historyViewModel by lazy {
+        HistoryViewModel(
+            transferRepository = transferRepo,
+            openFileSecurelyUseCase = OpenFileSecurelyUseCase(
+                biometricAuthManager = biometricAuthManager,
+                fileProviderGateway = fileProviderGateway,
+                auditRepository = auditRepo
+            )
+        )
+    }
+
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         return when {
@@ -138,6 +151,7 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
             modelClass.isAssignableFrom(ReceiverViewModel::class.java) -> receiverViewModel as T
             modelClass.isAssignableFrom(TransferViewModel::class.java) -> transferViewModel as T
             modelClass.isAssignableFrom(AuditViewModel::class.java) -> auditViewModel as T
+            modelClass.isAssignableFrom(HistoryViewModel::class.java) -> historyViewModel as T
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }

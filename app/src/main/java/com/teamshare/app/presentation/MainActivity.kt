@@ -81,7 +81,8 @@ class MainActivity : FragmentActivity() {
                         senderViewModel = viewModelFactory.senderViewModel,
                         receiverViewModel = viewModelFactory.receiverViewModel,
                         transferViewModel = viewModelFactory.transferViewModel,
-                        auditViewModel = viewModelFactory.auditViewModel
+                        auditViewModel = viewModelFactory.auditViewModel,
+                        historyViewModel = viewModelFactory.historyViewModel
                     )
                 }
             }

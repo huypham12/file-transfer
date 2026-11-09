@@ -131,7 +131,8 @@ class RelayClientEngine(
         localCredential: TeamMembershipCredential? = null,
         ownerPublicKey: PublicKey? = null,
         callback: TransferProgressCallback? = null,
-        peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null,
+        peerValidator: (suspend (HandshakeAuthPayload) -> Boolean)? = null,
+        ttlSeconds: Int = 0,
         maxRetries: Int = AppConstants.Retry.MAX_RELAY_RETRIES
     ): Boolean {
         var attempt = 0
@@ -147,7 +148,8 @@ class RelayClientEngine(
                     localCredential = localCredential,
                     ownerPublicKey = ownerPublicKey,
                     callback = callback,
-                    peerValidator = peerValidator
+                    peerValidator = peerValidator,
+                    ttlSeconds = ttlSeconds
                 )
             } catch (e: Exception) {
                 if (isCancelled.get()) return false
@@ -177,7 +179,8 @@ class RelayClientEngine(
         localCredential: TeamMembershipCredential? = null,
         ownerPublicKey: PublicKey? = null,
         callback: TransferProgressCallback? = null,
-        peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null
+        peerValidator: (suspend (HandshakeAuthPayload) -> Boolean)? = null,
+        ttlSeconds: Int = 0
     ): Boolean = withContext(Dispatchers.IO) {
         isCancelled.set(false)
         isPaused.set(false)
@@ -200,7 +203,8 @@ class RelayClientEngine(
             val attachReq = AttachStreamRequest(
                 streamId = session.sessionId,
                 role = "SENDER",
-                authTicket = session.sessionToken
+                authTicket = session.sessionToken,
+                ttlSeconds = ttlSeconds
             )
             connection.sendText(attachReq.toJson())
 
@@ -653,12 +657,16 @@ class RelayClientEngine(
             var totalBytesReceived = startOffset
             val totalBytes = session.totalBytes
             val startTime = System.currentTimeMillis()
+            var connectionFailed = false
+            var connectionError: Exception? = null
 
             // 6. Nhận các khối dữ liệu DATA_CHUNK
             while (totalBytesReceived < totalBytes && !isCancelled.get()) {
                 val frameBytes = try {
                     connection.receiveBinary()
                 } catch (e: Exception) {
+                    connectionFailed = true
+                    connectionError = e
                     break
                 }
 
@@ -698,7 +706,19 @@ class RelayClientEngine(
                 return@withContext false
             }
 
-            // 7. Flush dữ liệu cuối cùng và thẩm định SHA-256
+            // Xử lý khi bị mất kết nối tới Relay Server giữa chừng (Bảo toàn tệp .part để Resume)
+            if (connectionFailed || totalBytesReceived < totalBytes) {
+                checkpointTracker.flushFinal(fileChannel)
+                currentState = TransferEngineState.FAILED
+                callback?.onStateChanged(currentState)
+                callback?.onError(
+                    ErrorCode.ERR_RELAY_UNAVAILABLE,
+                    "Mất kết nối tới Relay Server khi đang truyền dữ liệu ($totalBytesReceived / $totalBytes bytes)"
+                )
+                throw (connectionError ?: IOException("Mất kết nối với máy chủ chuyển tiếp Relay"))
+            }
+
+            // 7. Flush dữ liệu cuối cùng và thẩm định SHA-256 (chỉ khi đã nhận đủ 100% dữ liệu)
             checkpointTracker.flushFinal(fileChannel)
             fileChannel.close()
             fileChannel = null

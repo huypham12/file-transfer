@@ -3,8 +3,10 @@ package com.teamshare.app.core.storage.saf
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import com.teamshare.app.core.security.sanitizer.FilenameSanitizer
+import java.io.File
 import java.io.InputStream
 
 /**
@@ -116,6 +118,88 @@ class SafStorageGateway(private val context: Context) {
             mimeType = finalMimeType,
             uri = uri
         )
+    }
+
+    /**
+     * Kiểm tra xem URI có phải là một Tree URI (thư mục được chọn qua OpenDocumentTree) hay không.
+     */
+    fun isTreeUri(uri: Uri): Boolean {
+        return try {
+            DocumentsContract.isTreeUri(uri)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Sao chép đệ quy toàn bộ cấu trúc thư mục từ Tree URI vào thư mục đích (thường là cache của app).
+     * Trả về thư mục File đích hoàn chỉnh hoặc null nếu thất bại.
+     */
+    fun copyTreeUriToDirectory(treeUri: Uri, destinationDir: File): File? {
+        return try {
+            val treeDocId = DocumentsContract.getTreeDocumentId(treeUri)
+            val rootDocUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocId)
+
+            var folderName = "folder_${System.currentTimeMillis()}"
+            context.contentResolver.query(
+                rootDocUri,
+                arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                    if (nameIdx != -1) {
+                        cursor.getString(nameIdx)?.let { folderName = it }
+                    }
+                }
+            }
+            folderName = FilenameSanitizer.sanitize(folderName)
+            val rootFolder = File(destinationDir, folderName).apply { mkdirs() }
+
+            copyTreeRecursive(treeUri, treeDocId, rootFolder)
+            rootFolder
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun copyTreeRecursive(treeUri: Uri, parentDocId: String, currentDir: File) {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE
+        )
+
+        context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+            val idIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val mimeIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+
+            while (cursor.moveToNext()) {
+                val docId = cursor.getString(idIdx)
+                val rawName = cursor.getString(nameIdx) ?: "unnamed"
+                val sanitizedName = FilenameSanitizer.sanitize(rawName)
+                val mimeType = cursor.getString(mimeIdx)
+
+                if (DocumentsContract.Document.MIME_TYPE_DIR == mimeType) {
+                    val subDir = File(currentDir, sanitizedName).apply { mkdirs() }
+                    copyTreeRecursive(treeUri, docId, subDir)
+                } else {
+                    val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+                    val targetFile = File(currentDir, sanitizedName)
+                    try {
+                        context.contentResolver.openInputStream(docUri)?.use { input ->
+                            targetFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+        }
     }
 }
 
