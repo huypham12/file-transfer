@@ -1,5 +1,6 @@
 package com.teamshare.app.presentation.ui.audit
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,8 +20,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
@@ -43,6 +47,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -195,13 +202,16 @@ fun AuditLogScreen(
 
 @Composable
 private fun AuditLogItemCard(log: AuditLog) {
+    var isExpanded by remember { mutableStateOf(false) }
+    val formatted = remember(log.details) { AuditLogFormatter.format(log.details) }
+
     val severityColor = when (log.severity) {
         AuditSeverity.SECURITY_ALERT -> MaterialTheme.colorScheme.error
         AuditSeverity.WARNING -> SecurityWarningColor
         AuditSeverity.INFO -> MaterialTheme.colorScheme.primary
     }
 
-    val dateFormatter = SimpleDateFormat("HH:mm:ss dd/MM/yyyy", Locale.getDefault())
+    val dateFormatter = SimpleDateFormat("HH:mm:ss • dd/MM/yyyy", Locale.getDefault())
     val dateText = try {
         dateFormatter.format(Date(log.timestamp))
     } catch (_: Throwable) {
@@ -210,7 +220,7 @@ private fun AuditLogItemCard(log: AuditLog) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
@@ -221,16 +231,20 @@ private fun AuditLogItemCard(log: AuditLog) {
                 .fillMaxWidth()
                 .padding(14.dp)
         ) {
+            // Hàng 1: Icon Mức độ + Tiêu đề sự kiện + Thời gian
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Surface(
                         shape = CircleShape,
                         color = severityColor.copy(alpha = 0.15f),
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(26.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Box(
@@ -245,9 +259,13 @@ private fun AuditLogItemCard(log: AuditLog) {
                         text = formatAuditEventType(log.eventType),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = severityColor
+                        color = severityColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 Text(
                     text = dateText,
@@ -256,21 +274,111 @@ private fun AuditLogItemCard(log: AuditLog) {
                 )
             }
 
+            // Nếu có tên tệp liên quan, hiển thị File Badge
+            if (!formatted.fileName.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.InsertDriveFile,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = formatted.fileName,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            // Nội dung sự kiện thân thiện với người dùng
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = log.details,
+                text = formatted.userMessage,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
 
-            if (log.actorDevice.isNotBlank() && log.actorDevice != "local") {
-                Spacer(modifier = Modifier.height(6.dp))
+            // Thông tin thiết bị thực thi
+            val actorDisplay = AuditLogFormatter.formatActorDevice(log.actorDevice)
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = stringResource(R.string.history_peer_label, log.actorDevice),
+                    text = "Thiết bị: $actorDisplay",
                     style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                if (formatted.technicalInfo != null || !log.sessionId.isNullOrBlank()) {
+                    Row(
+                        modifier = Modifier.clickable { isExpanded = !isExpanded },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isExpanded) "Thu gọn chi tiết" else "Chi tiết kỹ thuật",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Icon(
+                            imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
+            // Vùng mở rộng xem chi tiết kỹ thuật cho Developer
+            if (isExpanded) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "Dữ liệu kiểm toán gốc (Developer Trace):",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = log.details,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (!log.sessionId.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "SessionId: ${log.sessionId}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             }
         }
     }

@@ -34,6 +34,7 @@ class OpenFileSecurelyUseCaseTest {
             title: String,
             subtitle: String,
             negativeButtonText: String,
+            allowDeviceCredential: Boolean,
             onSuccess: () -> Unit,
             onError: (errorCode: Int, errString: String) -> Unit,
             onFailed: () -> Unit

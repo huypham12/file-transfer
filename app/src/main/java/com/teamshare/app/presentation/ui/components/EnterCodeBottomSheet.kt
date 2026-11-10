@@ -169,24 +169,6 @@ fun EnterCodeBottomSheet(
                 }
             )
 
-            // Nút dán nhanh nếu ô đang trống
-            if (inputText.isBlank()) {
-                OutlinedButton(
-                    onClick = {
-                        val clipText = clipboardManager.getText()?.text
-                        if (!clipText.isNullOrBlank()) {
-                            inputText = clipText
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(imageVector = Icons.Default.ContentPaste, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.btn_paste_clipboard))
-                }
-            }
-
             // Card Xem trước Live Preview khi mã hợp lệ
             validatedPayload?.let { payload ->
                 Card(

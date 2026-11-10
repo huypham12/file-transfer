@@ -271,11 +271,31 @@ fun ConfirmationDialog(
 
 /**
  * Định dạng dung lượng byte sang định dạng con người dễ đọc (B, KB, MB, GB).
+ * Tối ưu hóa đơn vị hiển thị chính (MB), tự động chuyển đổi KB/GB và loại bỏ phần thập phân .0 dư thừa.
  */
 fun formatFileSize(bytes: Long): String {
     if (bytes <= 0) return "0 B"
-    val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt().coerceIn(0, units.size - 1)
-    return String.format(java.util.Locale.US, "%.1f %s", bytes / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
+    return when {
+        bytes >= 1024L * 1024L * 1024L -> {
+            val gb = bytes / (1024.0 * 1024.0 * 1024.0)
+            val formatted = String.format(java.util.Locale.US, "%.2f", gb).trimEnd('0').trimEnd('.')
+            "$formatted GB"
+        }
+        bytes >= 1024L * 1024L -> {
+            val mb = bytes / (1024.0 * 1024.0)
+            val formatted = String.format(java.util.Locale.US, "%.1f", mb).trimEnd('0').trimEnd('.')
+            "$formatted MB"
+        }
+        bytes >= 1024L -> {
+            val kb = bytes / 1024.0
+            val formatted = if (kb >= 100.0) {
+                String.format(java.util.Locale.US, "%.0f", kb)
+            } else {
+                String.format(java.util.Locale.US, "%.1f", kb).trimEnd('0').trimEnd('.')
+            }
+            "$formatted KB"
+        }
+        else -> "$bytes B"
+    }
 }
 

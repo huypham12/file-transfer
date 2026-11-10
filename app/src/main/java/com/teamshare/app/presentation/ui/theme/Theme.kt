@@ -9,16 +9,21 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import com.teamshare.app.core.platform.preference.ThemeMode
 
 private val TeamShareLightColorScheme = lightColorScheme(
     primary = TeamShareBlueLight,
     onPrimary = TeamShareOnBlueLight,
     primaryContainer = TeamShareBlueContainerLight,
     onPrimaryContainer = TeamShareOnBlueContainerLight,
-    secondary = TeamShareTealLight,
-    onSecondary = TeamShareOnTealLight,
-    secondaryContainer = TeamShareTealContainerLight,
-    onSecondaryContainer = TeamShareOnTealContainerLight,
+    secondary = TeamShareEmeraldLight,
+    onSecondary = TeamShareOnEmeraldLight,
+    secondaryContainer = TeamShareEmeraldContainerLight,
+    onSecondaryContainer = TeamShareOnEmeraldContainerLight,
+    tertiary = TeamShareTertiaryLight,
+    onTertiary = TeamShareOnTertiaryLight,
+    tertiaryContainer = TeamShareTertiaryContainerLight,
+    onTertiaryContainer = TeamShareOnTertiaryContainerLight,
     background = TeamShareBackgroundLight,
     onBackground = TeamShareOnBackgroundLight,
     surface = TeamShareSurfaceLight,
@@ -38,10 +43,14 @@ private val TeamShareDarkColorScheme = darkColorScheme(
     onPrimary = TeamShareOnBlueDark,
     primaryContainer = TeamShareBlueContainerDark,
     onPrimaryContainer = TeamShareOnBlueContainerDark,
-    secondary = TeamShareTealDark,
-    onSecondary = TeamShareOnTealDark,
-    secondaryContainer = TeamShareTealContainerDark,
-    onSecondaryContainer = TeamShareOnTealContainerDark,
+    secondary = TeamShareEmeraldDark,
+    onSecondary = TeamShareOnEmeraldDark,
+    secondaryContainer = TeamShareEmeraldContainerDark,
+    onSecondaryContainer = TeamShareOnEmeraldContainerDark,
+    tertiary = TeamShareTertiaryDark,
+    onTertiary = TeamShareOnTertiaryDark,
+    tertiaryContainer = TeamShareTertiaryContainerDark,
+    onTertiaryContainer = TeamShareOnTertiaryContainerDark,
     background = TeamShareBackgroundDark,
     onBackground = TeamShareOnBackgroundDark,
     surface = TeamShareSurfaceDark,
@@ -58,7 +67,12 @@ private val TeamShareDarkColorScheme = darkColorScheme(
 
 @Composable
 fun TeamShareTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    darkTheme: Boolean = when (themeMode) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.DARK -> true
+        ThemeMode.LIGHT -> false
+    },
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
@@ -77,4 +91,3 @@ fun TeamShareTheme(
         content = content
     )
 }
-

@@ -252,13 +252,22 @@ fun TransferProgressScreen(
                                 tint = LanBadgeColor,
                                 modifier = Modifier.size(56.dp)
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = "HOÀN TẤT",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = LanBadgeColor
                             )
+                            if (uiState.durationText.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = uiState.durationText,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                         TransferEngineState.FAILED -> {
                             Icon(
@@ -363,6 +372,46 @@ fun TransferProgressScreen(
                         }
                     }
 
+                    if (uiState.state == TransferEngineState.COMPLETED && uiState.durationText.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Tổng thời gian thực tế:",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = uiState.durationText,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        if (uiState.averageSpeedBytesPerSec > 0) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Tốc độ trung bình:",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = formatSpeed(uiState.averageSpeedBytesPerSec),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -445,7 +494,7 @@ fun TransferProgressScreen(
                             }
 
                             Text(
-                                text = "Chạm vào từng tệp dưới đây để xác thực vân tay và mở:",
+                                text = "Chạm vào từng tệp dưới đây để xác thực bảo mật và mở:",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -599,12 +648,12 @@ fun TransferProgressScreen(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Fingerprint,
-                                    contentDescription = "Sinh trắc học",
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = "Bảo mật",
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Xác thực vân tay để mở tệp")
+                                Text("Xác thực bảo mật để mở tệp")
                             }
 
                             // Nút 2: Lưu vào thư mục Downloads của máy

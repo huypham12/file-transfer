@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -19,6 +20,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.teamshare.app.core.platform.network.NetworkConfig
+import com.teamshare.app.core.platform.preference.AppPreferencesManager
 import com.teamshare.app.core.platform.service.NotificationManagerHelper
 import com.teamshare.app.core.platform.window.WindowSecurityManager
 import com.teamshare.app.core.security.sanitizer.SafeLogger
@@ -51,8 +53,11 @@ class MainActivity : FragmentActivity() {
 
         handleIncomingIntent(intent)
 
+        val prefsManager = AppPreferencesManager.getInstance(applicationContext)
+
         setContent {
-            TeamShareTheme {
+            val currentThemeMode by prefsManager.themeMode.collectAsState()
+            TeamShareTheme(themeMode = currentThemeMode) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val navController = rememberNavController()
 

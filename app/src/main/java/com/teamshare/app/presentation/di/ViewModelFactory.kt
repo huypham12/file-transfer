@@ -92,7 +92,8 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
             lanEngine = lanEngine,
             relayEngine = relayEngine,
             authenticateBiometricUseCase = com.teamshare.app.domain.usecase.platform.AuthenticateBiometricUseCase(biometricAuthManager),
-            serviceLauncher = serviceLauncher
+            serviceLauncher = serviceLauncher,
+            transferRepository = transferRepo
         )
     }
 
@@ -127,7 +128,8 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
                 biometricAuthManager = biometricAuthManager,
                 fileProviderGateway = fileProviderGateway,
                 auditRepository = auditRepo
-            )
+            ),
+            biometricAuthManager = biometricAuthManager
         )
     }
 
@@ -146,7 +148,8 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
                 biometricAuthManager = biometricAuthManager,
                 fileProviderGateway = fileProviderGateway,
                 auditRepository = auditRepo
-            )
+            ),
+            biometricAuthManager = biometricAuthManager
         )
     }
 

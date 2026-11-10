@@ -22,13 +22,18 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -52,7 +57,9 @@ import androidx.compose.ui.unit.sp
 import com.example.file_tranfer.R
 import com.teamshare.app.core.platform.share.ShareCodeHelper
 import com.teamshare.app.core.transfer.lan.TransferEngineState
+import com.teamshare.app.presentation.ui.components.AppSettingsDialog
 import com.teamshare.app.presentation.ui.components.EnterCodeBottomSheet
+import com.teamshare.app.presentation.ui.components.SecurityInfoDialog
 import com.teamshare.app.presentation.viewmodel.ReceiverViewModel
 import com.teamshare.app.presentation.viewmodel.TransferViewModel
 
@@ -77,6 +84,8 @@ fun HomeScreen(
     val clipboardManager = LocalClipboardManager.current
     var showEnterCodeSheet by remember { mutableStateOf(false) }
     var autoDetectedCode by remember { mutableStateOf<String?>(null) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
+    var showSecurityDialog by remember { mutableStateOf(false) }
 
     // Kiểm tra Clipboard thông minh khi mở màn hình chính (Smart Clipboard Auto-Detect)
     LaunchedEffect(Unit) {
@@ -119,6 +128,22 @@ fun HomeScreen(
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showSecurityDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Security,
+                            contentDescription = "Trung tâm An ninh",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(onClick = { showSettingsDialog = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Cài đặt & Giao diện",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -216,25 +241,107 @@ fun HomeScreen(
                 onClick = onNavigateToSend
             )
 
-            // 2. Hero Card: Quét QR nhận tệp (Receiver)
-            HeroActionCard(
-                title = "Quét QR nhận tệp",
-                subtitle = "Bật camera quét mã và tải tệp tức thời",
-                icon = Icons.Default.QrCodeScanner,
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                onClick = onNavigateToScan
-            )
+            // 2. Action Card: Nhận tệp tin (Tích hợp Quét QR & Nhập mã từ xa)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f),
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.QrCodeScanner,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier
+                                    .padding(10.dp)
+                                    .size(28.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Nhận tệp tin",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Quét mã QR trực tiếp hoặc dán mã từ xa",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
 
-            // 3. Action Card: Nhập mã nhận tệp (Từ xa qua Zalo/Telegram)
-            HeroActionCard(
-                title = "Nhập mã nhận tệp",
-                subtitle = "Dán mã chia sẻ từ xa qua Zalo/Telegram (Không cần Camera)",
-                icon = Icons.Default.Key,
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                onClick = { showEnterCodeSheet = true }
-            )
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = onNavigateToScan,
+                            modifier = Modifier
+                                .weight(1.2f)
+                                .height(44.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.secondary,
+                                contentColor = MaterialTheme.colorScheme.onSecondary
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.QrCodeScanner,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Quét QR",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = { showEnterCodeSheet = true },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Key,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Dán mã",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
 
             Text(
                 text = "Bảo mật & Quản trị",
@@ -277,6 +384,19 @@ fun HomeScreen(
                 onNavigateToReceiverHome?.invoke()
             },
             initialCode = autoDetectedCode ?: ""
+        )
+    }
+
+    // Hộp thoại Cài đặt Ứng dụng & Giao diện
+    if (showSettingsDialog) {
+        AppSettingsDialog(onDismiss = { showSettingsDialog = false })
+    }
+
+    // Hộp thoại Thông tin An ninh & Thiết bị
+    if (showSecurityDialog) {
+        SecurityInfoDialog(
+            deviceFingerprint = null,
+            onDismiss = { showSecurityDialog = false }
         )
     }
 }

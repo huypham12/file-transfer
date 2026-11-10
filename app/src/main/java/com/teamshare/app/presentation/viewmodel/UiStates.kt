@@ -117,6 +117,8 @@ data class TransferUiState(
     val errorMessage: String? = null,
     val etaSeconds: Long = 0L,
     val durationText: String = "",
+    val averageSpeedBytesPerSec: Long = 0L,
+    val activeDurationSeconds: Double = 0.0,
     val completedFilePath: String? = null,
     val isDirectoryOrBatch: Boolean = false,
     val receivedFileList: List<ReceivedFileInfo> = emptyList()

@@ -49,7 +49,7 @@ class OpenFileSecurelyUseCase(
             val canAuth = biometricAuthManager.canAuthenticate()
 
             if (!canAuth) {
-                val err = "Thiết bị không hỗ trợ hoặc chưa đăng ký sinh trắc học vân tay (Mã lỗi: ${ErrorCode.ERR_BIOMETRIC_FAILED})"
+                val err = "Thiết bị không hỗ trợ hoặc chưa thiết lập phương thức khóa máy/sinh trắc học (Mã lỗi: ${ErrorCode.ERR_BIOMETRIC_FAILED})"
                 logAudit(file.name, AuditSeverity.SECURITY_ALERT, err)
                 return Result.failure(SecurityException(err))
             }
@@ -60,20 +60,20 @@ class OpenFileSecurelyUseCase(
                 biometricAuthManager.authenticate(
                     activity = activity,
                     title = "Xác thực mở tài liệu bảo mật",
-                    subtitle = "Vui lòng chạm cảm biến vân tay để mở tệp ${file.name}",
+                    subtitle = "Vui lòng xác thực vân tay hoặc mã khóa để mở tệp ${file.name}",
                     negativeButtonText = "Hủy bỏ",
                     onSuccess = { authResult.complete(true) },
                     onError = { _, errString -> authResult.completeExceptionally(SecurityException(errString)) },
-                    onFailed = { authResult.completeExceptionally(SecurityException("Vân tay không trùng khớp")) }
+                    onFailed = { authResult.completeExceptionally(SecurityException("Xác thực không trùng khớp")) }
                 )
 
                 try {
                     val succeeded = authResult.await()
                     if (!succeeded) {
-                        throw SecurityException("Xác thực sinh trắc học thất bại")
+                        throw SecurityException("Xác thực bảo mật thất bại")
                     }
                 } catch (e: Exception) {
-                    val err = "${ErrorCode.ERR_BIOMETRIC_FAILED}: Xác thực vân tay mở tệp thất bại: ${e.message}"
+                    val err = "${ErrorCode.ERR_BIOMETRIC_FAILED}: Xác thực mở tệp thất bại: ${e.message}"
                     logAudit(file.name, AuditSeverity.SECURITY_ALERT, err)
                     return Result.failure(SecurityException(err))
                 }

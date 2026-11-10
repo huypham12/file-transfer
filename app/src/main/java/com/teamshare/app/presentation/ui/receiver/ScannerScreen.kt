@@ -202,37 +202,21 @@ fun ScannerScreen(
                         )
                     }
 
-                    Row(
-                        modifier = Modifier.align(Alignment.CenterEnd),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Nút Bật/Tắt Flash ở góc trên bên phải
+                    IconButton(
+                        onClick = {
+                            isFlashOn = !isFlashOn
+                            camera?.cameraControl?.enableTorch(isFlashOn)
+                        },
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
                     ) {
-                        // Nút Nhập mã thủ công
-                        IconButton(
-                            onClick = { showEnterCodeSheet = true },
-                            modifier = Modifier.background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Keyboard,
-                                contentDescription = "Nhập mã bằng tay",
-                                tint = Color.White
-                            )
-                        }
-
-                        // Nút Bật/Tắt Flash
-                        IconButton(
-                            onClick = {
-                                isFlashOn = !isFlashOn
-                                camera?.cameraControl?.enableTorch(isFlashOn)
-                            },
-                            modifier = Modifier.background(Color.Black.copy(alpha = 0.5f), CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = if (isFlashOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
-                                contentDescription = "Đèn Flash",
-                                tint = if (isFlashOn) Color.Yellow else Color.White
-                            )
-                        }
+                        Icon(
+                            imageVector = if (isFlashOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
+                            contentDescription = "Đèn Flash",
+                            tint = if (isFlashOn) Color.Yellow else Color.White
+                        )
                     }
                 }
 

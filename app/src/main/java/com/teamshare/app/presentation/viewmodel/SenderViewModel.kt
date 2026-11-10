@@ -19,6 +19,7 @@ import com.teamshare.app.domain.model.TransferChannel
 import com.teamshare.app.domain.model.TransferDirection
 import com.teamshare.app.domain.model.TransferSession
 import com.teamshare.app.domain.model.TransferType
+import com.teamshare.app.domain.repository.ITransferRepository
 import com.teamshare.app.domain.usecase.platform.AuthenticateBiometricUseCase
 import com.teamshare.app.domain.usecase.transfer.CancelTransferSessionUseCase
 import com.teamshare.app.domain.usecase.transfer.CreateSenderSessionUseCase
@@ -53,6 +54,7 @@ class SenderViewModel(
     private val relayEngine: RelayClientEngine? = null,
     private val authenticateBiometricUseCase: AuthenticateBiometricUseCase? = null,
     private val serviceLauncher: ITransferForegroundServiceLauncher? = null,
+    private val transferRepository: ITransferRepository? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
@@ -568,6 +570,7 @@ class SenderViewModel(
                 )
             }
             _uiState.update { it.copy(connectedDevices = updatedList, receiverProgressMap = updatedMap) }
+            savePeerInfoToDatabase(device)
         }
     }
 
@@ -592,6 +595,7 @@ class SenderViewModel(
             }
             if (accept) {
                 approvedPeerFingerprints.add(device.fingerprint)
+                savePeerInfoToDatabase(device)
             } else {
                 rejectedPeerFingerprints.add(device.fingerprint)
             }
@@ -604,6 +608,22 @@ class SenderViewModel(
             }
             pendingApprovalDeferred?.complete(accept)
             pendingApprovalDeferred = null
+        }
+    }
+
+    private fun savePeerInfoToDatabase(device: DeviceProfile) {
+        val sId = _uiState.value.sessionId
+        if (sId.isNotBlank() && transferRepository != null) {
+            val deviceName = if (device.model.contains(device.manufacturer, ignoreCase = true)) {
+                device.model
+            } else {
+                "${device.manufacturer} ${device.model}".trim()
+            }
+            scope.launch {
+                try {
+                    transferRepository.updatePeerInfo(sId, deviceName, device.fingerprint)
+                } catch (_: Exception) {}
+            }
         }
     }
 

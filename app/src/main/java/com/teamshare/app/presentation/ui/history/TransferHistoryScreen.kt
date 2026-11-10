@@ -517,7 +517,12 @@ private fun HistorySessionCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val peerName = session.peerDeviceModel.ifBlank { "Thiết bị khác" }
+                val defaultPeer = if (session.direction == com.teamshare.app.domain.model.TransferDirection.SENDER) {
+                    if (session.status == SessionStatus.COMPLETED) "Thiết bị nhận" else "Chờ thiết bị nhận..."
+                } else {
+                    "Thiết bị gửi"
+                }
+                val peerName = session.peerDeviceModel.ifBlank { defaultPeer }
                 Text(
                     text = stringResource(R.string.history_peer_label, peerName),
                     style = MaterialTheme.typography.bodySmall,
@@ -546,12 +551,12 @@ private fun HistorySessionCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     val openBtnText = when {
-                        isFolder || isBatch -> stringResource(R.string.btn_browse_files)
+                        isFolder || isBatch -> "Xem danh sách"
                         else -> stringResource(R.string.history_btn_open)
                     }
                     val saveBtnText = when {
-                        isFolder -> stringResource(R.string.btn_extract_folder)
-                        isBatch -> stringResource(R.string.btn_save_all_to_downloads)
+                        isFolder -> "Giải nén tệp"
+                        isBatch -> "Lưu tất cả"
                         else -> stringResource(R.string.history_btn_save_download)
                     }
 

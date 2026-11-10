@@ -44,6 +44,7 @@ data class HistoryUiState(
 class HistoryViewModel(
     private val transferRepository: ITransferRepository,
     private val openFileSecurelyUseCase: OpenFileSecurelyUseCase? = null,
+    private val biometricAuthManager: com.teamshare.app.core.security.biometric.IBiometricAuthManager? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
@@ -162,17 +163,27 @@ class HistoryViewModel(
             return
         }
 
+        val prefs = com.teamshare.app.core.platform.preference.AppPreferencesManager.getInstance(activity)
+        val isBiometricEnforced = prefs.requireBiometricForOpen.value
+        val canAuth = biometricAuthManager?.canAuthenticate() ?: true
+        val requireBiometric = isBiometricEnforced && canAuth
+
         scope.launch {
             try {
-                val result = useCase.execute(file = file, requireBiometric = true, activity = activity)
+                val result = useCase.execute(file = file, requireBiometric = requireBiometric, activity = activity)
                 result.onSuccess { intent ->
                     activity.startActivity(intent)
                     onResult(true, null)
                 }.onFailure { err ->
-                    onResult(false, err.message ?: "Xác thực không thành công")
+                    val userFriendlyMsg = if (err.message?.contains("0x401") == true) {
+                        "Xác thực danh tính không thành công hoặc đã bị hủy"
+                    } else {
+                        err.message ?: "Không thể mở tệp"
+                    }
+                    onResult(false, userFriendlyMsg)
                 }
             } catch (e: Exception) {
-                onResult(false, e.message ?: "Xác thực không thành công")
+                onResult(false, e.message ?: "Không thể mở tệp")
             }
         }
     }

@@ -39,6 +39,7 @@ class TransferViewModel(
     private val controlSessionUseCase: ControlSessionUseCase,
     private val transferCoordinator: TransferCoordinator? = null,
     private val openFileSecurelyUseCase: OpenFileSecurelyUseCase? = null,
+    private val biometricAuthManager: com.teamshare.app.core.security.biometric.IBiometricAuthManager? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
@@ -50,6 +51,8 @@ class TransferViewModel(
     private var progressJob: Job? = null
     private var lastEmitTime = 0L
     private var sessionStartTime = System.currentTimeMillis()
+    private var pausedAccumulatedMs = 0L
+    private var pauseStartTime = 0L
 
     companion object {
         const val THROTTLE_INTERVAL_MS = 100L
@@ -105,6 +108,8 @@ class TransferViewModel(
         channel: TransferChannel
     ) {
         sessionStartTime = System.currentTimeMillis()
+        pausedAccumulatedMs = 0L
+        pauseStartTime = 0L
         lastEmitTime = 0L
         _uiState.update {
             it.copy(
@@ -115,6 +120,9 @@ class TransferViewModel(
                 transferredBytes = 0L,
                 progressPercent = 0f,
                 speedBytesPerSec = 0L,
+                averageSpeedBytesPerSec = 0L,
+                activeDurationSeconds = 0.0,
+                durationText = "",
                 channel = channel,
                 state = TransferEngineState.CONNECTING,
                 errorMessage = null,
@@ -173,6 +181,12 @@ class TransferViewModel(
             }
 
             override fun onStateChanged(newState: TransferEngineState) {
+                if (newState == TransferEngineState.PAUSED && pauseStartTime == 0L) {
+                    pauseStartTime = System.currentTimeMillis()
+                } else if (newState == TransferEngineState.TRANSFERRING && pauseStartTime > 0L) {
+                    pausedAccumulatedMs += (System.currentTimeMillis() - pauseStartTime)
+                    pauseStartTime = 0L
+                }
                 _uiState.update { current ->
                     current.copy(
                         sessionId = sessionId,
@@ -187,13 +201,18 @@ class TransferViewModel(
             }
 
             override fun onCompleted(docId: String, finalSha256: String) {
+                val safeTotal = _uiState.value.totalBytes
+                val (activeSec, avgSpeed, durationFormatted) = calculateCompletionMetrics(safeTotal)
                 _uiState.update { current ->
                     current.copy(
                         sessionId = sessionId,
                         fileName = fileName.ifBlank { current.fileName },
                         transferredBytes = current.totalBytes,
                         progressPercent = 1f,
-                        state = TransferEngineState.COMPLETED
+                        state = TransferEngineState.COMPLETED,
+                        durationText = durationFormatted,
+                        activeDurationSeconds = activeSec,
+                        averageSpeedBytesPerSec = avgSpeed
                     )
                 }
             }
@@ -247,18 +266,49 @@ class TransferViewModel(
             emptyList()
         }
 
+        val safeTotal = if (_uiState.value.totalBytes > 0L) _uiState.value.totalBytes else file.length()
+        val (activeSec, avgSpeed, durationFormatted) = calculateCompletionMetrics(safeTotal)
+
         _uiState.update { current ->
             current.copy(
                 state = TransferEngineState.COMPLETED,
                 fileName = file.name,
-                transferredBytes = if (current.totalBytes > 0L) current.totalBytes else file.length(),
-                totalBytes = if (current.totalBytes > 0L) current.totalBytes else file.length(),
+                transferredBytes = safeTotal,
+                totalBytes = safeTotal,
                 progressPercent = 1f,
                 completedFilePath = file.absolutePath,
                 isDirectoryOrBatch = isDir,
-                receivedFileList = childFiles
+                receivedFileList = childFiles,
+                durationText = durationFormatted,
+                activeDurationSeconds = activeSec,
+                averageSpeedBytesPerSec = avgSpeed
             )
         }
+    }
+
+    private fun calculateCompletionMetrics(currentTotalBytes: Long): Triple<Double, Long, String> {
+        val now = System.currentTimeMillis()
+        var accumulated = pausedAccumulatedMs
+        if (pauseStartTime > 0L) {
+            accumulated += (now - pauseStartTime)
+        }
+        val totalActiveMs = (now - sessionStartTime - accumulated).coerceAtLeast(100L)
+        val activeSec = totalActiveMs / 1000.0
+        val avgSpeed = if (activeSec > 0 && currentTotalBytes > 0) {
+            (currentTotalBytes / activeSec).toLong()
+        } else {
+            0L
+        }
+        val durationFormatted = if (activeSec < 1.0) {
+            String.format(java.util.Locale.US, "%.1f giây", activeSec)
+        } else if (activeSec < 60) {
+            String.format(java.util.Locale.US, "%.0f giây", activeSec)
+        } else {
+            val mins = (activeSec / 60).toLong()
+            val secs = (activeSec % 60).toLong()
+            "$mins phút $secs giây"
+        }
+        return Triple(activeSec, avgSpeed, durationFormatted)
     }
 
     /**
@@ -466,17 +516,32 @@ class TransferViewModel(
             return
         }
 
+        val prefs = com.teamshare.app.core.platform.preference.AppPreferencesManager.getInstance(activity)
+        val isBiometricEnforced = prefs.requireBiometricForOpen.value
+        val canAuth = biometricAuthManager?.canAuthenticate() ?: true
+        val requireBiometric = isBiometricEnforced && canAuth
+
         scope.launch {
             try {
-                val result = useCase.execute(file = file, activity = activity)
+                val result = useCase.execute(file = file, requireBiometric = requireBiometric, activity = activity)
                 result.onSuccess { intent ->
                     activity.startActivity(intent)
                     onResult(true, null)
                 }.onFailure { err ->
-                    onResult(false, err.message ?: "Xác thực sinh trắc học thất bại")
+                    val userFriendlyMsg = if (err.message?.contains("0x401") == true) {
+                        "Xác thực danh tính không thành công hoặc đã bị hủy"
+                    } else {
+                        err.message ?: "Không thể mở tệp tin an toàn"
+                    }
+                    onResult(false, userFriendlyMsg)
                 }
             } catch (e: Exception) {
-                onResult(false, e.message ?: "Xác thực sinh trắc học thất bại")
+                val userFriendlyMsg = if (e.message?.contains("0x401") == true) {
+                    "Xác thực danh tính không thành công hoặc đã bị hủy"
+                } else {
+                    e.message ?: "Không thể mở tệp tin an toàn"
+                }
+                onResult(false, userFriendlyMsg)
             }
         }
     }
