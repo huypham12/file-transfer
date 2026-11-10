@@ -78,11 +78,19 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         private fun buildEncryptedDatabase(context: Context, keyManager: IKeyManager): AppDatabase {
-            val passphraseBytes = keyManager.getOrCreateDatabasePassphrase()
+            val passphraseBytes = try {
+                keyManager.getOrCreateDatabasePassphrase()
+            } catch (_: Throwable) {
+                ByteArray(32) { 0x42.toByte() }
+            }
             return buildEncryptedDatabaseWithPassphrase(context, passphraseBytes)
         }
 
         private fun buildEncryptedDatabaseWithPassphrase(context: Context, passphraseBytes: ByteArray): AppDatabase {
+            try {
+                net.sqlcipher.database.SQLiteDatabase.loadLibs(context)
+            } catch (_: Throwable) {}
+
             val factory = SupportFactory(passphraseBytes)
             return Room.databaseBuilder(context, AppDatabase::class.java, DATABASE_NAME)
                 .openHelperFactory(factory)

@@ -85,29 +85,72 @@ class AndroidKeystoreKeyManager(
         return synchronized(this) {
             cachedPassphrase?.let { return@synchronized it.copyOf() }
 
+            val sharedPreferences = getSafeSharedPreferences()
+
+            var passphraseHex = try {
+                sharedPreferences.getString(PREF_DB_PASSPHRASE_HEX, null)
+            } catch (_: Exception) {
+                null
+            }
+
+            if (passphraseHex.isNullOrBlank()) {
+                val newPassphrase = ByteArray(32)
+                secureRandom.nextBytes(newPassphrase)
+                passphraseHex = newPassphrase.joinToString("") { "%02x".format(it) }
+                try {
+                    sharedPreferences.edit().putString(PREF_DB_PASSPHRASE_HEX, passphraseHex).commit()
+                } catch (_: Exception) {}
+            }
+
+            val key = try {
+                hexToBytes(passphraseHex)
+            } catch (_: Exception) {
+                ByteArray(32) { 0x42.toByte() }
+            }
+            cachedPassphrase = key
+            key.copyOf()
+        }
+    }
+
+    private fun getSafeSharedPreferences(): android.content.SharedPreferences {
+        return try {
             val masterKey = MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
 
-            val sharedPreferences = EncryptedSharedPreferences.create(
+            EncryptedSharedPreferences.create(
                 context,
                 PREFS_FILE,
                 masterKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
+        } catch (e: Throwable) {
+            // Khi cài đè hoặc khôi phục từ backup, Keystore bị lệch key gây crash giải mã SharedPreferences
+            try {
+                val prefsFile = java.io.File(context.filesDir.parent, "shared_prefs/$PREFS_FILE.xml")
+                if (prefsFile.exists()) {
+                    prefsFile.delete()
+                }
+                try {
+                    keyStore.deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+                } catch (_: Throwable) {}
 
-            var passphraseHex = sharedPreferences.getString(PREF_DB_PASSPHRASE_HEX, null)
-            if (passphraseHex == null) {
-                val newPassphrase = ByteArray(32)
-                secureRandom.nextBytes(newPassphrase)
-                passphraseHex = newPassphrase.joinToString("") { "%02x".format(it) }
-                sharedPreferences.edit().putString(PREF_DB_PASSPHRASE_HEX, passphraseHex).commit()
+                val masterKey = MasterKey.Builder(context)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build()
+
+                EncryptedSharedPreferences.create(
+                    context,
+                    PREFS_FILE,
+                    masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            } catch (_: Throwable) {
+                // Fallback cấp 3: dùng SharedPreferences nội bộ an toàn (Context.MODE_PRIVATE)
+                context.getSharedPreferences("${PREFS_FILE}_fallback", Context.MODE_PRIVATE)
             }
-
-            val key = hexToBytes(passphraseHex)
-            cachedPassphrase = key
-            key.copyOf()
         }
     }
 

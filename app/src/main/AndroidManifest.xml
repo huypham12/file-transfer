@@ -25,8 +25,12 @@
     <!-- Quyền xác thực sinh trắc học vân tay / khuôn mặt (Android BiometricPrompt - SRS FR-MOB-02) -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
+    <!-- Quyền ghi bộ nhớ ngoài tương thích ngược cho Android 7.0 đến 9.0 (API 24-28) -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
     <application
-        android:allowBackup="true"
+        android:extractNativeLibs="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:networkSecurityConfig="@xml/network_security_config"
