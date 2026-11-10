@@ -105,7 +105,7 @@
     <string name="title_audit_log">Nhật ký kiểm toán an ninh</string>
     <string name="dialog_cancel_title">Xác nhận hủy phiên</string>
     <string name="dialog_cancel_message">Bạn có chắc chắn muốn hủy phiên truyền này không? Toàn bộ tệp tạm dở dang sẽ được tiêu hủy an toàn.</string>
-    <string name="msg_select_file_required">Vui lòng chọn ít nhất một tệp hoặc thư mục để chia sẻ.</string>
+    <string name="msg_select_file_required">Vui lòng chọn ít nhất một tệp tin để chia sẻ.</string>
     <string name="msg_qr_expired">Mã QR đã hết hạn hiệu lực (5 phút). Vui lòng tạo phiên mới.</string>
     <string name="msg_storage_insufficient">Thiết bị không đủ bộ nhớ trống để tải tệp.</string>
     <string name="msg_connecting">Đang kết nối...</string>
@@ -130,7 +130,7 @@
     <string name="sender_approval_auto_desc">Mọi thiết bị quét mã QR hợp lệ đều được tải ngay lập tức</string>
     <string name="sender_file_list_title">Danh sách tệp phát (%1$d)</string>
     <string name="sender_empty_files_title">Chưa có tệp nào được chọn</string>
-    <string name="sender_empty_files_subtitle">Nhấn \'Chọn tệp\' hoặc \'Chọn thư mục\' ở trên</string>
+    <string name="sender_empty_files_subtitle">Nhấn \'Chọn tệp tin\' ở trên để bắt đầu (có thể chọn nhiều tệp)</string>
     <string name="sender_stop_sharing">Dừng phát tệp (Đóng phiên)</string>
     <string name="sender_qr_rendering">Đang kết xuất mã QR…</string>
     <string name="sender_ttl_countdown">Hiệu lực còn lại: %1$02d:%2$02d</string>

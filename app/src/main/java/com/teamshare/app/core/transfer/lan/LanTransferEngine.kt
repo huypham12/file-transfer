@@ -362,7 +362,7 @@ class LanTransferEngine(
 
             // 2. Gửi 0x02 CONNECT_ACCEPTED kèm Manifest
             val isFolder = file.isDirectory
-            val transferType = if (isFolder) "FOLDER_ZIP" else "SINGLE_FILE"
+            val transferType = if (isFolder) "BATCH_FILES" else "SINGLE_FILE"
             val (calculatedSha, totalFileSize) = if (isFolder) {
                 val zipMeta = ZipStreamPacker.calculateZipMetadata(file, bufferPool)
                 Pair(zipMeta.sha256, zipMeta.totalCompressedBytes)

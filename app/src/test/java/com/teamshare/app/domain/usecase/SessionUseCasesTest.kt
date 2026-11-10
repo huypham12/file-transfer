@@ -285,10 +285,9 @@ class SessionUseCasesTest {
     }
 
     @Test
-    fun testCreateSenderSessionWithFolderAndMultipleFiles() = runBlocking {
+    fun testCreateSenderSessionWithMultipleFiles() = runBlocking {
         val file1 = createSampleFile("photo1.jpg", 1024)
-        val folder = tempFolder.newFolder("subfolder_batch")
-        File(folder, "child.txt").apply { writeText("hello from child") }
+        val file2 = createSampleFile("photo2.png", 2048)
 
         val useCase = CreateSenderSessionUseCase(
             transferRepository = transferRepository,
@@ -297,17 +296,17 @@ class SessionUseCasesTest {
         )
 
         val result = useCase.execute(
-            files = listOf(file1, folder),
+            files = listOf(file1, file2),
             senderIp = "192.168.1.100",
             senderPort = 8888,
             approvalMode = ApprovalMode.AUTO_ACCEPT,
             channel = TransferChannel.DIRECT_LAN
         )
 
-        assertTrue("Khởi tạo phiên chia sẻ có thư mục hỗn hợp phải thành công không ném EISDIR", result.isSuccess)
+        assertTrue("Khởi tạo phiên chia sẻ nhiều tệp phải thành công", result.isSuccess)
         val (session, qrPayload) = result.getOrThrow()
         assertEquals(TransferType.BATCH_FILES, session.transferType)
-        assertTrue(session.totalBytes > 1024L)
+        assertEquals(3072L, session.totalBytes)
         assertEquals(2, qrPayload.itemCount)
     }
 }

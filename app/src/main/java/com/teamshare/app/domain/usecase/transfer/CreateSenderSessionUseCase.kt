@@ -4,7 +4,6 @@ import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.platform.device.IDeviceIdentityManager
 import com.teamshare.app.core.platform.network.NetworkConfig
 import com.teamshare.app.core.security.crypto.Sha256StreamCalculator
-import com.teamshare.app.core.transfer.zip.ZipStreamPacker
 import com.teamshare.app.domain.model.ApprovalMode
 import com.teamshare.app.domain.model.AuditEventType
 import com.teamshare.app.domain.model.AuditLog
@@ -18,6 +17,8 @@ import com.teamshare.app.domain.model.TransferSession
 import com.teamshare.app.domain.model.TransferType
 import com.teamshare.app.domain.repository.IAuditRepository
 import com.teamshare.app.domain.repository.ITransferRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -44,7 +45,8 @@ class CreateSenderSessionUseCase(
     private val secureRandom = SecureRandom()
 
     /**
-     * Khởi tạo phiên chia sẻ cho danh sách tệp tin hoặc thư mục.
+     * Khởi tạo phiên chia sẻ cho danh sách tệp tin.
+     * Chạy toàn bộ I/O trên Dispatchers.IO để chống chặn Main Thread.
      */
     suspend fun execute(
         files: List<File>,
@@ -55,62 +57,31 @@ class CreateSenderSessionUseCase(
         relayUrl: String = "",
         streamId: String = "",
         ttlSeconds: Long = com.teamshare.app.core.constant.AppConstants.Timeout.QR_TTL_SECONDS
-    ): Result<CreateSenderSessionResult> {
+    ): Result<CreateSenderSessionResult> = withContext(Dispatchers.IO) {
         if (files.isEmpty()) {
-            return Result.failure(IllegalArgumentException("Danh sách tệp tin chia sẻ không được rỗng"))
+            return@withContext Result.failure(IllegalArgumentException("Danh sách tệp tin chia sẻ không được rỗng"))
         }
 
-        return try {
+        try {
             val sessionId = UUID.randomUUID().toString()
             val sessionToken = generateSecureToken()
 
-            val isSingleFolder = files.size == 1 && files[0].isDirectory
-            val transferType = when {
-                isSingleFolder -> TransferType.FOLDER_ZIP
-                files.size > 1 -> TransferType.BATCH_FILES
-                else -> TransferType.SINGLE_FILE
-            }
+            val transferType = if (files.size > 1) TransferType.BATCH_FILES else TransferType.SINGLE_FILE
 
             var totalBytes = 0L
             val manifestArray = JSONArray()
 
-            if (isSingleFolder) {
-                val folder = files[0]
-                val zipMeta = ZipStreamPacker.calculateZipMetadata(folder)
-                totalBytes = zipMeta.totalCompressedBytes
-
+            for (file in files) {
+                val size = file.length()
+                totalBytes += size
+                val sha = Sha256StreamCalculator.calculateFileSha256(file)
                 val itemJson = JSONObject().apply {
-                    put("relativePath", folder.name)
-                    put("fileSize", totalBytes)
-                    put("mimeType", "application/zip")
-                    put("sha256", zipMeta.sha256)
+                    put("relativePath", file.name)
+                    put("fileSize", size)
+                    put("mimeType", "application/octet-stream")
+                    put("sha256", sha)
                 }
                 manifestArray.put(itemJson)
-            } else {
-                for (file in files) {
-                    if (file.isDirectory) {
-                        val zipMeta = ZipStreamPacker.calculateZipMetadata(file)
-                        totalBytes += zipMeta.totalCompressedBytes
-                        val itemJson = JSONObject().apply {
-                            put("relativePath", file.name)
-                            put("fileSize", zipMeta.totalCompressedBytes)
-                            put("mimeType", "application/zip")
-                            put("sha256", zipMeta.sha256)
-                        }
-                        manifestArray.put(itemJson)
-                    } else {
-                        val size = file.length()
-                        totalBytes += size
-                        val sha = Sha256StreamCalculator.calculateFileSha256(file)
-                        val itemJson = JSONObject().apply {
-                            put("relativePath", file.name)
-                            put("fileSize", size)
-                            put("mimeType", "application/octet-stream")
-                            put("sha256", sha)
-                        }
-                        manifestArray.put(itemJson)
-                    }
-                }
             }
 
             val deviceProfile = deviceIdentityManager.getDeviceProfile()

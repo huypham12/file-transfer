@@ -515,13 +515,8 @@ fun TransferProgressScreen(
                                 }
                             }
 
-                            // Nút lưu tất cả / giải nén vào Downloads
-                            val isFolder = targetFile.isDirectory && !uiState.fileName.startsWith(AppConstants.StorageDirectory.BATCH_DIR_PREFIX)
-                            val actionBtnText = if (isFolder) {
-                                stringResource(R.string.btn_extract_folder)
-                            } else {
-                                stringResource(R.string.btn_save_all_to_downloads)
-                            }
+                            // Nút lưu tất cả các tệp vào Downloads
+                            val actionBtnText = stringResource(R.string.btn_save_all_to_downloads)
                             Button(
                                 onClick = {
                                     viewModel.exportFileToDownloads(context, targetFile) { success, msg ->
@@ -532,7 +527,7 @@ fun TransferProgressScreen(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Icon(
-                                    imageVector = if (isFolder) Icons.Default.Folder else Icons.Default.Download,
+                                    imageVector = Icons.Default.Download,
                                     contentDescription = null,
                                     modifier = Modifier.size(18.dp)
                                 )

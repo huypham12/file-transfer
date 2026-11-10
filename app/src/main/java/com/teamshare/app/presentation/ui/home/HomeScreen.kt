@@ -208,7 +208,7 @@ fun HomeScreen(
 
             // 1. Hero Card: Gửi tệp tin (Sender)
             HeroActionCard(
-                title = "Gửi tệp / Thư mục",
+                title = "Gửi tệp tin",
                 subtitle = "Tạo mã QR phát tệp 1-N trong mạng Wi-Fi LAN",
                 icon = Icons.AutoMirrored.Filled.Send,
                 containerColor = MaterialTheme.colorScheme.primaryContainer,

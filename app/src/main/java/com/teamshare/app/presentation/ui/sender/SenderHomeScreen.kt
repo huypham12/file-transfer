@@ -1,7 +1,5 @@
 package com.teamshare.app.presentation.ui.sender
 
-import android.os.Build
-import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -22,12 +20,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.UploadFile
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -38,20 +34,15 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -68,7 +59,8 @@ import com.teamshare.app.presentation.viewmodel.SenderViewModel
 import java.io.File
 
 /**
- * Màn hình chọn tệp/thư mục và cấu hình phiên phát 1-N (FR-SND-01..04).
+ * Màn hình chọn tệp và cấu hình phiên phát 1-N (FR-SND-01..04).
+ * Hỗ trợ chọn linh hoạt 1 tệp hoặc nhiều tệp tin cùng lúc qua SAF.
  * Tuân thủ SDD Mục 4.2.1 (SenderHomeScreen).
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -81,7 +73,6 @@ fun SenderHomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    var showFolderGuideDialog by remember { mutableStateOf(false) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
@@ -89,42 +80,6 @@ fun SenderHomeScreen(
         if (uris.isNotEmpty()) {
             viewModel.onUrisSelected(uris, context)
         }
-    }
-
-    val folderPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { treeUri ->
-        if (treeUri != null) {
-            viewModel.onUrisSelected(listOf(treeUri), context)
-        }
-    }
-
-    val launchFolderPicker = {
-        val initialUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            DocumentsContract.buildTreeDocumentUri("com.android.externalstorage.documents", "primary:Documents")
-        } else null
-        folderPickerLauncher.launch(initialUri)
-    }
-
-    if (showFolderGuideDialog) {
-        AlertDialog(
-            onDismissRequest = { showFolderGuideDialog = false },
-            title = { Text(stringResource(R.string.dialog_folder_guide_title)) },
-            text = { Text(stringResource(R.string.dialog_folder_guide_message)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    showFolderGuideDialog = false
-                    launchFolderPicker()
-                }) {
-                    Text(stringResource(R.string.action_continue))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showFolderGuideDialog = false }) {
-                    Text(stringResource(R.string.btn_close))
-                }
-            }
-        )
     }
 
     Scaffold(
@@ -241,43 +196,26 @@ fun SenderHomeScreen(
                 }
             }
 
-            // Nút bấm chọn tệp và thư mục
+            // Nút bấm chọn tệp tin (1 hoặc nhiều tệp)
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                FilledTonalButton(
+                    onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    FilledTonalButton(
-                        onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.UploadFile,
-                            contentDescription = stringResource(R.string.btn_select_file),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(stringResource(R.string.btn_select_file))
-                    }
-
-                    OutlinedButton(
-                        onClick = { showFolderGuideDialog = true },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CreateNewFolder,
-                            contentDescription = stringResource(R.string.btn_select_folder),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(stringResource(R.string.btn_select_folder))
-                    }
+                    Icon(
+                        imageVector = Icons.Default.UploadFile,
+                        contentDescription = stringResource(R.string.btn_select_file),
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.btn_select_file),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
 

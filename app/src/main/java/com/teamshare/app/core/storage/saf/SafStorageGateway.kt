@@ -123,6 +123,7 @@ class SafStorageGateway(private val context: Context) {
     /**
      * Kiểm tra xem URI có phải là một Tree URI (thư mục được chọn qua OpenDocumentTree) hay không.
      */
+    @Deprecated("Không còn sử dụng do đã loại bỏ tính năng truyền cả thư mục.")
     fun isTreeUri(uri: Uri): Boolean {
         return try {
             DocumentsContract.isTreeUri(uri)
@@ -135,6 +136,7 @@ class SafStorageGateway(private val context: Context) {
      * Sao chép đệ quy toàn bộ cấu trúc thư mục từ Tree URI vào thư mục đích (thường là cache của app).
      * Trả về thư mục File đích hoàn chỉnh hoặc null nếu thất bại.
      */
+    @Deprecated("Không còn sử dụng do đã loại bỏ tính năng truyền cả thư mục.")
     fun copyTreeUriToDirectory(treeUri: Uri, destinationDir: File): File? {
         return try {
             val treeDocId = DocumentsContract.getTreeDocumentId(treeUri)

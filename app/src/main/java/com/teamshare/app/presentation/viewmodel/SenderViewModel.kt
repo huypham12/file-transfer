@@ -71,7 +71,7 @@ class SenderViewModel(
     private var activePreparedFile: File? = null
 
     /**
-     * Cập nhật danh sách tệp hoặc thư mục được người dùng chọn qua SAF.
+     * Cập nhật danh sách tệp tin được người dùng chọn qua SAF.
      */
     fun onFilesSelected(files: List<File>) {
         val totalBytes = files.sumOf { calculateTotalBytes(it) }
@@ -93,24 +93,16 @@ class SenderViewModel(
     }
 
     /**
-     * Tiếp nhận danh sách Uri từ Android SAF (Sharesheet hoặc OpenMultipleDocuments / OpenDocumentTree).
+     * Tiếp nhận danh sách Uri từ Android SAF (Sharesheet hoặc OpenMultipleDocuments).
      * Sao chép an toàn vào cache sandbox để đảm bảo luồng I/O không bị ngắt quãng.
      */
     fun onUrisSelected(uris: List<android.net.Uri>, context: android.content.Context) {
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
             val safGateway = com.teamshare.app.core.storage.saf.SafStorageGateway(context)
             val cacheFolder = File(context.cacheDir, "outgoing_shares").apply { mkdirs() }
             val resolvedFiles = mutableListOf<File>()
 
             for (uri in uris) {
-                if (safGateway.isTreeUri(uri)) {
-                    val copiedFolder = safGateway.copyTreeUriToDirectory(uri, cacheFolder)
-                    if (copiedFolder != null && copiedFolder.exists()) {
-                        resolvedFiles.add(copiedFolder)
-                    }
-                    continue
-                }
-
                 val metadata = safGateway.queryMetadata(uri) ?: continue
                 val targetFile = File(cacheFolder, metadata.fileName)
                 try {
@@ -130,7 +122,9 @@ class SenderViewModel(
                 val current = _uiState.value.selectedFiles.toMutableList()
                 current.addAll(resolvedFiles)
                 val distinct = current.distinctBy { it.absolutePath }
-                onFilesSelected(distinct)
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onFilesSelected(distinct)
+                }
             }
         }
     }
@@ -189,7 +183,7 @@ class SenderViewModel(
             _uiState.update {
                 it.copy(
                     errorResId = R.string.msg_select_file_required,
-                    errorMessage = "Vui lòng chọn ít nhất một tệp hoặc thư mục để chia sẻ"
+                    errorMessage = "Vui lòng chọn ít nhất một tệp tin để chia sẻ"
                 )
             }
             return Job().apply { complete() }
@@ -329,11 +323,7 @@ class SenderViewModel(
                 val dest = File(batchDir, src.name)
                 if (!dest.exists()) {
                     try {
-                        if (src.isDirectory) {
-                            src.copyRecursively(dest, overwrite = true)
-                        } else {
-                            src.copyTo(dest, overwrite = true)
-                        }
+                        src.copyTo(dest, overwrite = true)
                     } catch (_: Exception) {}
                 }
             }
@@ -418,7 +408,7 @@ class SenderViewModel(
                 peerDeviceModel = "",
                 peerFingerprint = "",
                 approvalMode = _uiState.value.approvalMode,
-                transferType = if (fileToSend.isDirectory) TransferType.FOLDER_ZIP else TransferType.SINGLE_FILE,
+                transferType = if (_uiState.value.selectedFiles.size > 1) TransferType.BATCH_FILES else TransferType.SINGLE_FILE,
                 manifestJson = "",
                 totalBytes = actualFile.length(),
                 confirmedOffset = 0L,
@@ -748,11 +738,7 @@ class SenderViewModel(
     private fun calculateTotalBytes(file: File): Long {
         if (!file.exists()) return 0L
         if (file.isFile) return file.length()
-        var size = 0L
-        file.listFiles()?.forEach { child ->
-            size += calculateTotalBytes(child)
-        }
-        return size
+        return 0L
     }
 
     override fun onCleared() {

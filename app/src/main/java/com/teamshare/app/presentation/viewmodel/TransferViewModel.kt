@@ -530,9 +530,9 @@ class TransferViewModel(
                     val result = exporter.exportFolder(file)
                     withContext(Dispatchers.Main) {
                         result.onSuccess { count ->
-                            onResult(true, "Đã giải nén $count tệp vào Downloads/TeamShare/${file.name}")
+                            onResult(true, "Đã lưu $count tệp vào Downloads/TeamShare/${file.name}")
                         }.onFailure { err ->
-                            onResult(false, "Lỗi khi giải nén thư mục: ${err.message}")
+                            onResult(false, "Lỗi khi lưu tệp vào Downloads: ${err.message}")
                         }
                     }
                 } else {

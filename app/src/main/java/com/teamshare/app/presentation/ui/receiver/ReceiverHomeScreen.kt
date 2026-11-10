@@ -238,9 +238,9 @@ fun ReceiverHomeScreen(
                         color = MaterialTheme.colorScheme.primaryContainer,
                         modifier = Modifier.size(56.dp)
                     ) {
-                        val isZip = payload?.transferType == TransferType.FOLDER_ZIP
+                        val isBatch = payload?.transferType == TransferType.BATCH_FILES || (payload != null && payload.itemCount > 1) || payload?.transferType == TransferType.FOLDER_ZIP
                         Icon(
-                            imageVector = if (isZip) Icons.Default.FolderZip else Icons.Default.InsertDriveFile,
+                            imageVector = if (isBatch) Icons.Default.FolderZip else Icons.Default.InsertDriveFile,
                             contentDescription = "File Type",
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier
@@ -252,8 +252,8 @@ fun ReceiverHomeScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         val displayName = if (payload != null && payload.itemCount > 1) {
                             stringResource(R.string.receiver_batch_files, payload.itemCount)
-                        } else if (payload?.transferType == TransferType.FOLDER_ZIP) {
-                            stringResource(R.string.receiver_folder_share)
+                        } else if (payload?.transferType == TransferType.BATCH_FILES) {
+                            stringResource(R.string.receiver_batch_files, 1)
                         } else {
                             stringResource(R.string.receiver_single_file)
                         }

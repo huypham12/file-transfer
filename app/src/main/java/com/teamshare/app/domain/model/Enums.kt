@@ -29,6 +29,7 @@ enum class ApprovalMode {
 enum class TransferType {
     SINGLE_FILE,
     BATCH_FILES,
+    @Deprecated("Chỉ giữ lại để duy trì tương thích ngược dữ liệu Room DB cũ")
     FOLDER_ZIP
 }
 
