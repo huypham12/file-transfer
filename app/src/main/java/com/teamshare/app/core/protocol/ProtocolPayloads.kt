@@ -1,5 +1,6 @@
 package com.teamshare.app.core.protocol
 
+import com.teamshare.app.core.constant.AppConstants
 import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.ByteBuffer
@@ -411,7 +412,7 @@ data class TransferManifestPayload(
     val fileSize: Long = 0L,
     val mimeType: String = "application/octet-stream",
     val expectedSha256: String = "",
-    val chunkSize: Int = 65536
+    val chunkSize: Int = AppConstants.Buffer.CHUNK_SIZE_BYTES
 ) {
     fun toBytes(): ByteArray {
         val json = JSONObject().apply {
@@ -434,7 +435,7 @@ data class TransferManifestPayload(
                 fileSize = json.optLong("fileSize", 0L),
                 mimeType = json.optString("mimeType", "application/octet-stream"),
                 expectedSha256 = json.optString("expectedSha256", ""),
-                chunkSize = json.optInt("chunkSize", 65536)
+                chunkSize = json.optInt("chunkSize", AppConstants.Buffer.CHUNK_SIZE_BYTES)
             )
         }
     }

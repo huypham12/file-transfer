@@ -49,12 +49,13 @@ object ShareCodeHelper {
     fun formatShareMessage(payload: SessionQrPayload): String {
         val countText = if (payload.itemCount > 1) "${payload.itemCount} tệp" else "1 tệp"
         val sender = payload.senderDeviceModel.ifBlank { "Thiết bị TeamShare" }
+        val ttlMinutes = ((payload.expiresAt - System.currentTimeMillis() + 59_999) / 60_000).coerceAtLeast(1)
         return """
             TeamShare - Mã nhận tệp an toàn
             Người gửi: $sender ($countText)
             Mã nhận tệp:
             ${payload.toQrString()}
-            (Mã có hiệu lực trong 5 phút)
+            (Mã có hiệu lực trong $ttlMinutes phút)
         """.trimIndent()
     }
 }

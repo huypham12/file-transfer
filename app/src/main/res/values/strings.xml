@@ -66,9 +66,9 @@
     <!-- ========================================================================= -->
     <string name="err_0x101_invalid_credential">Phiên chia sẻ hoặc token xác thực không hợp lệ.</string>
     <string name="err_0x102_device_rejected">Người gửi đã từ chối yêu cầu kết nối thiết bị.</string>
-    <string name="err_0x103_session_expired">Mã chia sẻ đã hết hạn hiệu lực (5 phút). Vui lòng tạo mã mới.</string>
+    <string name="err_0x103_session_expired">Mã chia sẻ đã hết hạn hiệu lực. Vui lòng tạo mã mới.</string>
     <string name="err_0x104_invalid_role">Quyền hạn thiết bị không hợp lệ cho thao tác này.</string>
-    <string name="err_0x105_session_full">Phiên chia sẻ đã đạt giới hạn tối đa 5 thiết bị. Vui lòng tạo phiên mới hoặc chờ người gửi thu hồi slot trống.</string>
+    <string name="err_0x105_session_full">Phiên chia sẻ đã đạt giới hạn tối đa thiết bị cho phép. Vui lòng tạo phiên mới hoặc chờ người gửi giải phóng slot.</string>
     <string name="err_0x201_relay_unavailable">Không thể kết nối tới máy chủ Relay trung chuyển.</string>
     <string name="err_0x202_server_timeout">Quá thời gian chờ phản hồi từ thiết bị đối tác.</string>
     <string name="err_0x203_bind_error">Không thể mở cổng mạng để lắng nghe kết nối.</string>
@@ -107,7 +107,7 @@
     <string name="dialog_cancel_title">Xác nhận hủy phiên</string>
     <string name="dialog_cancel_message">Bạn có chắc chắn muốn hủy phiên truyền này không? Toàn bộ tệp tạm dở dang sẽ được tiêu hủy an toàn.</string>
     <string name="msg_select_file_required">Vui lòng chọn ít nhất một tệp tin để chia sẻ.</string>
-    <string name="msg_qr_expired">Mã QR đã hết hạn hiệu lực (5 phút). Vui lòng tạo phiên mới.</string>
+    <string name="msg_qr_expired">Mã QR đã hết hạn hiệu lực. Vui lòng tạo phiên mới.</string>
     <string name="msg_storage_insufficient">Thiết bị không đủ bộ nhớ trống để tải tệp.</string>
     <string name="msg_connecting">Đang kết nối...</string>
     <string name="msg_biometric_prompt_title">Xác thực vân tay để mở tệp</string>

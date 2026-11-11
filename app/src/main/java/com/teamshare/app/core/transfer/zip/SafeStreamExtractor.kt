@@ -1,5 +1,6 @@
 package com.teamshare.app.core.transfer.zip
 
+import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.security.sanitizer.ZipSlipValidator
 import com.teamshare.app.core.storage.saf.SafeFileDeleter
 import com.teamshare.app.core.transfer.buffer.BufferPoolManager
@@ -30,7 +31,7 @@ data class ZipExtractResult(
  */
 object SafeStreamExtractor {
 
-    private const val DEFAULT_BUFFER_SIZE = 64 * 1024 // 64 KB
+    private const val DEFAULT_BUFFER_SIZE = AppConstants.Buffer.IO_BUFFER_BYTES
     const val MAX_ENTRIES_COUNT = 10_000
     const val MAX_TOTAL_UNCOMPRESSED_BYTES = 50L * 1024L * 1024L * 1024L // 50 GB
 

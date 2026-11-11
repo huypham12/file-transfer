@@ -12,14 +12,25 @@ object AppConstants {
         const val DEFAULT_SYNC_PORT = 8988
         const val DEFAULT_LOOPBACK_HOST = "10.0.2.2"
         const val DEFAULT_FALLBACK_IP = "127.0.0.1"
+
+        /** Dải cổng động (Ephemeral/Private Ports) theo chuẩn IANA (49152..65535) */
+        const val DYNAMIC_PORT_START = 49152
+        const val DYNAMIC_PORT_END = 65535
     }
 
     object Buffer {
         /** Kích thước khối dữ liệu truyền tải nhị phân chuẩn (256 KB theo đặc tả v2.2) */
         const val CHUNK_SIZE_BYTES = 256 * 1024
 
-        /** Sức chứa tối đa của BufferPoolManager (20 buffers x 256 KB = 5 MB RAM cho 5 máy đồng thời) */
-        const val MAX_POOL_CAPACITY = 20
+        /** Kích thước bộ đệm I/O tiêu chuẩn cho các thao tác tệp, băm SHA-256 và Zip (64 KB) */
+        const val IO_BUFFER_BYTES = 64 * 1024
+
+        /** Số lượng khối đệm phân bổ cho mỗi máy nhận đồng thời trong hồ đệm */
+        const val BUFFERS_PER_RECEIVER = 4
+
+        /** Sức chứa tối đa của BufferPoolManager (tự động co giãn theo số máy nhận: MAX_SESSION_RECEIVERS x 4) */
+        val MAX_POOL_CAPACITY: Int
+            get() = FlowControl.MAX_SESSION_RECEIVERS * BUFFERS_PER_RECEIVER
 
         /** Kích thước bộ đệm gửi và nhận Socket TCP tầng OS (512 KB) */
         const val SOCKET_BUFFER_BYTES = 512 * 1024
@@ -44,10 +55,11 @@ object AppConstants {
         /** Dung lượng bộ nhớ trống an toàn tối thiểu trên đĩa cần kiểm tra trước khi nhận (+50 MB) */
         const val DISK_SAFETY_MARGIN_BYTES = 50 * 1024 * 1024L
 
-        /** Số lượng tối đa các phiên truyền tải tệp gửi ra đồng thời (Outgoing Semaphore) */
-        const val MAX_CONCURRENT_OUTGOING_TRANSFERS = 5
+        /** Số lượng tối đa các phiên truyền tải tệp gửi ra đồng thời (tự động đồng bộ theo MAX_SESSION_RECEIVERS) */
+        val MAX_CONCURRENT_OUTGOING_TRANSFERS: Int
+            get() = MAX_SESSION_RECEIVERS
 
-        /** Giới hạn số lượng thiết bị nhận tối đa trong một phiên chia sẻ (v2.2 Zero Queue) */
+        /** Giới hạn số lượng thiết bị nhận tối đa mặc định trong một phiên chia sẻ (v2.2 Zero Queue) */
         const val MAX_SESSION_RECEIVERS = 5
     }
 
@@ -175,6 +187,10 @@ object AppConstants {
     object Preferences {
         const val NETWORK_CONFIG = "teamshare_network_config"
         const val KEY_RELAY_HOST = "relay_host"
+        const val PREFS_APP = "teamshare_app_preferences"
+        const val KEY_THEME_MODE = "key_theme_mode"
+        const val KEY_REQUIRE_BIOMETRIC = "key_require_biometric"
+        const val KEY_MAX_RECEIVERS = "key_max_session_receivers"
     }
 }
 

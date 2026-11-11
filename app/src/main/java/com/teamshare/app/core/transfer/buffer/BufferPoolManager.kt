@@ -17,7 +17,8 @@ class BufferPoolManager(
 ) {
     companion object {
         const val DEFAULT_BUFFER_SIZE = AppConstants.Buffer.CHUNK_SIZE_BYTES
-        const val DEFAULT_MAX_BUFFERS = AppConstants.Buffer.MAX_POOL_CAPACITY
+        val DEFAULT_MAX_BUFFERS: Int
+            get() = AppConstants.Buffer.MAX_POOL_CAPACITY
     }
 
     private val pool = ConcurrentLinkedQueue<ByteArray>()

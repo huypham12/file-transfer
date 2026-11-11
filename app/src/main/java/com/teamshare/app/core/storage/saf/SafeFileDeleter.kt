@@ -1,5 +1,6 @@
 package com.teamshare.app.core.storage.saf
 
+import com.teamshare.app.core.constant.AppConstants
 import java.io.File
 import java.io.RandomAccessFile
 import java.util.Arrays
@@ -12,7 +13,7 @@ import java.util.Arrays
  */
 object SafeFileDeleter {
 
-    private const val BUFFER_SIZE = 64 * 1024 // 64 KB chunk
+    private const val BUFFER_SIZE = AppConstants.Buffer.IO_BUFFER_BYTES
 
     /**
      * Ghi đè toàn bộ nội dung tệp bằng 0x00 và đồng bộ xuống đĩa Flash (không xóa file).

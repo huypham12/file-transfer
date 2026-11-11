@@ -1,5 +1,6 @@
 package com.teamshare.app.core.transfer.zip
 
+import com.teamshare.app.core.constant.AppConstants
 import com.teamshare.app.core.transfer.buffer.BufferPoolManager
 import java.io.File
 import java.io.FileInputStream
@@ -37,7 +38,7 @@ data class ZipStreamMetadata(
  */
 object ZipStreamPacker {
 
-    private const val DEFAULT_BUFFER_SIZE = 64 * 1024 // 64 KB
+    private const val DEFAULT_BUFFER_SIZE = AppConstants.Buffer.IO_BUFFER_BYTES
 
     /**
      * Tính toán siêu dữ liệu (Kích thước và SHA-256) của luồng nén mà không ghi đĩa.

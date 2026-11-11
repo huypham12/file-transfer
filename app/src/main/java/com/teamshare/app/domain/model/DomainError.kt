@@ -1,5 +1,7 @@
 package com.teamshare.app.domain.model
 
+import com.teamshare.app.core.constant.AppConstants
+
 /**
  * Định nghĩa lỗi chuẩn hóa cấp Domain theo nguyên tắc DDD và SDD Chương 10.
  * Hoàn toàn thuần Kotlin (Pure Kotlin), không phụ thuộc vào Android SDK.
@@ -40,11 +42,13 @@ sealed class DomainError(
         severity = AuditSeverity.SECURITY_ALERT
     )
 
-    object SessionFull : DomainError(
+    open class SessionFull(val maxCapacity: Int = AppConstants.FlowControl.MAX_SESSION_RECEIVERS) : DomainError(
         code = ErrorCode.ERR_SESSION_FULL,
-        technicalMessage = "Sharing session has reached its maximum capacity of 5 devices",
+        technicalMessage = "Sharing session has reached its maximum capacity of $maxCapacity devices",
         severity = AuditSeverity.WARNING
-    )
+    ) {
+        companion object : SessionFull(AppConstants.FlowControl.MAX_SESSION_RECEIVERS)
+    }
 
     // =========================================================================
     // 0x200: Kết nối Mạng & Relay Server (Network & Relay Connectivity)

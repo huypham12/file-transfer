@@ -22,8 +22,8 @@ class TlsSocketFactory(
     private val sslContext: SSLContext? = null
 ) {
     companion object {
-        const val DYNAMIC_PORT_START = 49152
-        const val DYNAMIC_PORT_END = 65535
+        const val DYNAMIC_PORT_START = AppConstants.Network.DYNAMIC_PORT_START
+        const val DYNAMIC_PORT_END = AppConstants.Network.DYNAMIC_PORT_END
         private val random = SecureRandom()
 
         /**

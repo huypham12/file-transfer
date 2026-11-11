@@ -1,5 +1,6 @@
 package com.teamshare.app.core.security.crypto
 
+import com.teamshare.app.core.constant.AppConstants
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
@@ -14,7 +15,7 @@ import java.security.MessageDigest
  */
 object Sha256StreamCalculator {
 
-    const val DEFAULT_BUFFER_SIZE_BYTES: Int = 64 * 1024 // 64 KB
+    const val DEFAULT_BUFFER_SIZE_BYTES: Int = AppConstants.Buffer.IO_BUFFER_BYTES
     private const val SHA256_ALGORITHM = "SHA-256"
 
     /**

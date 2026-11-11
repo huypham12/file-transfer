@@ -35,7 +35,7 @@ class ScanQrTokenUseCase(
                         details = "Quét phải mã QR đã hết hạn hiệu lực (Mã lỗi 0x103: ERR_QR_EXPIRED)"
                     )
                 )
-                return Result.failure(SecurityException("0x103: Mã QR đã hết hạn hiệu lực (5 phút). Vui lòng yêu cầu người gửi tạo mã mới."))
+                return Result.failure(SecurityException("0x103: Mã QR đã hết hạn hiệu lực. Vui lòng yêu cầu người gửi tạo mã mới."))
             }
 
             Result.success(payload)
