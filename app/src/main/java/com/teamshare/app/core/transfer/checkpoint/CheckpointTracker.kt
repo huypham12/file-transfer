@@ -62,8 +62,8 @@ class CheckpointTracker(
     }
 
     private suspend fun performFlush(fileChannel: FileChannel): Long {
-        // 1. fsync vật lý xuống SSD/NAND Flash
-        fileChannel.force(true)
+        // 1. fsync vật lý xuống SSD/NAND Flash (force(false) tối ưu cho flash storage không ép ghi metadata liên tục)
+        fileChannel.force(false)
 
         // 2. Cập nhật cơ sở dữ liệu Room nếu có sessionDao
         sessionDao?.updateCheckpoint(sessionId, currentOffset)

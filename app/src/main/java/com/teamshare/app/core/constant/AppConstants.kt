@@ -15,11 +15,11 @@ object AppConstants {
     }
 
     object Buffer {
-        /** Kích thước khối dữ liệu truyền tải nhị phân chuẩn (64 KB) */
-        const val CHUNK_SIZE_BYTES = 64 * 1024
+        /** Kích thước khối dữ liệu truyền tải nhị phân chuẩn (256 KB theo đặc tả v2.2) */
+        const val CHUNK_SIZE_BYTES = 256 * 1024
 
-        /** Sức chứa tối đa của BufferPoolManager (64 buffers = tối đa 4 MB RAM) */
-        const val MAX_POOL_CAPACITY = 64
+        /** Sức chứa tối đa của BufferPoolManager (20 buffers x 256 KB = 5 MB RAM cho 5 máy đồng thời) */
+        const val MAX_POOL_CAPACITY = 20
 
         /** Kích thước bộ đệm gửi và nhận Socket TCP tầng OS (512 KB) */
         const val SOCKET_BUFFER_BYTES = 512 * 1024
@@ -45,7 +45,10 @@ object AppConstants {
         const val DISK_SAFETY_MARGIN_BYTES = 50 * 1024 * 1024L
 
         /** Số lượng tối đa các phiên truyền tải tệp gửi ra đồng thời (Outgoing Semaphore) */
-        const val MAX_CONCURRENT_OUTGOING_TRANSFERS = 3
+        const val MAX_CONCURRENT_OUTGOING_TRANSFERS = 5
+
+        /** Giới hạn số lượng thiết bị nhận tối đa trong một phiên chia sẻ (v2.2 Zero Queue) */
+        const val MAX_SESSION_RECEIVERS = 5
     }
 
     object Timeout {
@@ -72,6 +75,9 @@ object AppConstants {
 
         /** Thời gian tối đa lắng nghe kết nối ServerSocket (5 phút) */
         const val SERVER_SOCKET_ACCEPT_TIMEOUT_MS = 300_000
+
+        /** Thời gian không hoạt động tối đa trước khi tự động hủy phiên an toàn (15 phút) */
+        const val SESSION_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000L
 
         /** Thời gian tối đa chờ người dùng thao tác phê duyệt thủ công kết nối (60 giây) */
         const val APPROVAL_WAIT_TIMEOUT_MS = 60_000

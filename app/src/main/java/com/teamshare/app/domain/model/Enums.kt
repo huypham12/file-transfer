@@ -149,6 +149,7 @@ object ErrorCode {
     const val ERR_SESSION_EXPIRED = "0x103"
     const val ERR_INVITATION_EXPIRED = "0x103" // Alias tương thích ngược
     const val ERR_INVALID_ROLE = "0x104"
+    const val ERR_SESSION_FULL = "0x105"
     const val ERR_RELAY_UNAVAILABLE = "0x201"
     const val ERR_SERVER_TIMEOUT = "0x202"
     const val ERR_SERVER_BIND_ERROR = "0x203"
@@ -165,7 +166,8 @@ object ErrorCode {
 enum class SessionCmd {
     PAUSE,
     RESUME,
-    CANCEL
+    CANCEL,
+    REVOKE
 }
 
 /**

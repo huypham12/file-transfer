@@ -17,7 +17,9 @@ data class ConnectRequestPayload(
     val deviceModel: String,
     val deviceManufacturer: String,
     val deviceFingerprint: String,
-    val clientNonce: String
+    val clientNonce: String,
+    val clientPublicKey: String = "",
+    val authSignature: String = ""
 ) {
     fun toBytes(): ByteArray {
         val json = JSONObject().apply {
@@ -26,6 +28,12 @@ data class ConnectRequestPayload(
             put("deviceManufacturer", deviceManufacturer)
             put("deviceFingerprint", deviceFingerprint)
             put("clientNonce", clientNonce)
+            if (clientPublicKey.isNotBlank()) {
+                put("clientPublicKey", clientPublicKey)
+            }
+            if (authSignature.isNotBlank()) {
+                put("authSignature", authSignature)
+            }
         }
         return json.toString().toByteArray(Charsets.UTF_8)
     }
@@ -38,7 +46,9 @@ data class ConnectRequestPayload(
                 deviceModel = json.optString("deviceModel", "Unknown Model"),
                 deviceManufacturer = json.optString("deviceManufacturer", "Unknown Manufacturer"),
                 deviceFingerprint = json.optString("deviceFingerprint", ""),
-                clientNonce = json.optString("clientNonce", "")
+                clientNonce = json.optString("clientNonce", ""),
+                clientPublicKey = json.optString("clientPublicKey", ""),
+                authSignature = json.optString("authSignature", "")
             )
         }
     }
@@ -99,6 +109,7 @@ data class ManifestItemPayload(
 data class ConnectAcceptedPayload(
     val status: String, // "APPROVED" | "REJECTED"
     val rejectionReason: String? = null,
+    val reasonCode: String? = null, // e.g. "0x105" for ERR_SESSION_FULL
     val transferType: String = "SINGLE_FILE", // "SINGLE_FILE" | "BATCH_FILES" | "FOLDER_ZIP"
     val manifest: List<ManifestItemPayload> = emptyList()
 ) {
@@ -109,6 +120,9 @@ data class ConnectAcceptedPayload(
             put("status", status)
             if (rejectionReason != null) {
                 put("rejectionReason", rejectionReason)
+            }
+            if (reasonCode != null) {
+                put("reasonCode", reasonCode)
             }
             put("transferType", transferType)
             val manifestArray = JSONArray()
@@ -135,6 +149,9 @@ data class ConnectAcceptedPayload(
                 status = json.optString("status", STATUS_REJECTED),
                 rejectionReason = if (json.has("rejectionReason") && !json.isNull("rejectionReason")) {
                     json.getString("rejectionReason")
+                } else null,
+                reasonCode = if (json.has("reasonCode") && !json.isNull("reasonCode")) {
+                    json.getString("reasonCode")
                 } else null,
                 transferType = json.optString("transferType", "SINGLE_FILE"),
                 manifest = manifestList
@@ -269,6 +286,7 @@ data class ControlSignalPayload(
         const val CMD_PAUSE = "PAUSE"
         const val CMD_RESUME = "RESUME"
         const val CMD_CANCEL = "CANCEL"
+        const val CMD_REVOKE = "REVOKE"
 
         fun fromBytes(bytes: ByteArray): ControlSignalPayload {
             val json = JSONObject(String(bytes, Charsets.UTF_8))

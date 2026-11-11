@@ -30,11 +30,16 @@ class FrameSerializer {
 
     /**
      * Ghi trực tiếp một ChunkFrame vào luồng OutputStream.
+     * Mặc định autoFlush = true để đảm bảo an toàn tuyệt đối cho mọi khung tin (control và legacy data).
+     * Với động cơ truyền tải tối ưu 1-N (LanTransferEngine), truyền autoFlush = false để cho phép
+     * kernel và OS gom cụm I/O, sau đó flush có chủ đích ở cuối checkpoint / cuối file.
      */
-    fun serializeTo(frame: ChunkFrame, outputStream: OutputStream) {
+    fun serializeTo(frame: ChunkFrame, outputStream: OutputStream, autoFlush: Boolean = true) {
         val bytes = serialize(frame)
         outputStream.write(bytes)
-        outputStream.flush()
+        if (autoFlush) {
+            outputStream.flush()
+        }
     }
 
     // =====================================================================================

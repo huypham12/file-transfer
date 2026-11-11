@@ -47,6 +47,9 @@ class ControlSessionUseCase(
                 SessionCmd.CANCEL -> {
                     transferCoordinator.cancelSession(sessionId)
                 }
+                SessionCmd.REVOKE -> {
+                    transferCoordinator.cancelSession(sessionId)
+                }
             }
             Result.success(Unit)
         } catch (e: CancellationException) {

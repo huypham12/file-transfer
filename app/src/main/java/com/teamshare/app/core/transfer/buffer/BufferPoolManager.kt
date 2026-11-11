@@ -7,9 +7,9 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Bộ đệm tuần hoàn (Ring Buffer / Object Pool) quản lý các khối nhớ ByteArray cố định 64KB.
- * Giới hạn tối đa 64 khối (tương đương 4MB RAM), áp dụng Semaphore để kiểm soát Backpressure cho Coroutines,
- * đảm bảo hệ thống không bao giờ vượt trần RAM 120MB theo đặc tả SDD Chương 6.2 và SRS-PERF-01.
+ * Bộ đệm tuần hoàn (Ring Buffer / Object Pool) quản lý các khối nhớ ByteArray cố định 256KB.
+ * Giới hạn tối đa 20 khối (tương đương 5MB RAM), áp dụng Semaphore để kiểm soát Backpressure cho Coroutines,
+ * đảm bảo hệ thống duy trì hiệu năng cao mà không gây áp lực GC heap theo đặc tả kiến trúc v2.2 và SRS-PERF-01.
  */
 class BufferPoolManager(
     val bufferSize: Int = DEFAULT_BUFFER_SIZE,

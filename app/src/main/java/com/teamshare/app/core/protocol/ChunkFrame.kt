@@ -46,9 +46,10 @@ data class ChunkFrame(
         const val HEADER_SIZE = 11
         const val MAX_PAYLOAD_SIZE = 1024 * 1024 // 1MB tối đa cho mỗi khung tin
 
-        // SDD Mục 6.2: 8 loại gói tin nghiệp vụ chuẩn
+        // SDD Mục 6.2 & v2.2 Protocol Registry: 9 loại khung tin chuẩn hóa
         const val TYPE_CONNECT_REQUEST: Byte = 0x01
-        const val TYPE_CONNECT_ACCEPTED: Byte = 0x02
+        const val TYPE_CONNECT_RESPONSE: Byte = 0x02
+        const val TYPE_CONNECT_ACCEPTED: Byte = 0x02 // Alias tương thích ngược
         const val TYPE_REQUEST_STREAM: Byte = 0x03
         const val TYPE_DATA_CHUNK: Byte = 0x04
         const val TYPE_CHUNK_ACK: Byte = 0x05
@@ -60,12 +61,12 @@ data class ChunkFrame(
         // Aliases hỗ trợ chuyển giao
         @Deprecated("Sử dụng TYPE_CONNECT_REQUEST thay thế", ReplaceWith("TYPE_CONNECT_REQUEST"))
         const val TYPE_HANDSHAKE_AUTH: Byte = 0x01
-        @Deprecated("Sử dụng TYPE_CONNECT_ACCEPTED thay thế", ReplaceWith("TYPE_CONNECT_ACCEPTED"))
+        @Deprecated("Sử dụng TYPE_CONNECT_RESPONSE thay thế", ReplaceWith("TYPE_CONNECT_RESPONSE"))
         const val TYPE_TRANSFER_MANIFEST: Byte = 0x02
         @Deprecated("Sử dụng TYPE_REQUEST_STREAM thay thế", ReplaceWith("TYPE_REQUEST_STREAM"))
         const val TYPE_MANIFEST_RESPONSE: Byte = 0x03
-        @Deprecated("Sử dụng TYPE_VERIFY_RESULT thay thế", ReplaceWith("TYPE_VERIFY_RESULT"))
-        const val TYPE_REVOKE_SIGNAL: Byte = 0x07
+        @Deprecated("Thu hồi quyền thành viên được chuyển sang TYPE_CONTROL_SIGNAL với lệnh CMD_REVOKE để tránh xung đột mã 0x07", ReplaceWith("TYPE_CONTROL_SIGNAL"))
+        const val TYPE_REVOKE_SIGNAL: Byte = 0x06
 
         fun isValidType(type: Byte): Boolean {
             return type in TYPE_CONNECT_REQUEST..TYPE_CONNECT_PENDING

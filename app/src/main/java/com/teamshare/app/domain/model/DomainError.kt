@@ -40,6 +40,12 @@ sealed class DomainError(
         severity = AuditSeverity.SECURITY_ALERT
     )
 
+    object SessionFull : DomainError(
+        code = ErrorCode.ERR_SESSION_FULL,
+        technicalMessage = "Sharing session has reached its maximum capacity of 5 devices",
+        severity = AuditSeverity.WARNING
+    )
+
     // =========================================================================
     // 0x200: Kết nối Mạng & Relay Server (Network & Relay Connectivity)
     // =========================================================================
@@ -107,6 +113,7 @@ sealed class DomainError(
                 ErrorCode.ERR_DEVICE_REJECTED, ErrorCode.ERR_MEMBER_REVOKED -> DeviceRejected
                 ErrorCode.ERR_SESSION_EXPIRED, ErrorCode.ERR_INVITATION_EXPIRED -> SessionExpired
                 ErrorCode.ERR_INVALID_ROLE -> InvalidRole
+                ErrorCode.ERR_SESSION_FULL -> SessionFull
                 ErrorCode.ERR_RELAY_UNAVAILABLE -> RelayUnavailable
                 ErrorCode.ERR_SERVER_TIMEOUT -> ServerTimeout
                 ErrorCode.ERR_SERVER_BIND_ERROR -> ServerBindError
@@ -129,6 +136,7 @@ sealed class DomainError(
                 ErrorCode.ERR_SESSION_EXPIRED,
                 ErrorCode.ERR_INVITATION_EXPIRED,
                 ErrorCode.ERR_INVALID_ROLE,
+                ErrorCode.ERR_SESSION_FULL,
                 ErrorCode.ERR_RELAY_UNAVAILABLE,
                 ErrorCode.ERR_SERVER_TIMEOUT,
                 ErrorCode.ERR_SERVER_BIND_ERROR,
