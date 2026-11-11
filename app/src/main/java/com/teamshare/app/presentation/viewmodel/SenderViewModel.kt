@@ -368,7 +368,7 @@ class SenderViewModel(
                 onClientFailed = { peerProfile, error ->
                     onReceiverFailed(peerProfile, error)
                 },
-                maxReceivers = AppConstants.FlowControl.MAX_CONCURRENT_OUTGOING_TRANSFERS,
+                maxReceivers = AppConstants.FlowControl.MAX_SESSION_RECEIVERS,
                 serverTimeoutMs = AppConstants.Timeout.SERVER_SOCKET_ACCEPT_TIMEOUT_MS
             )
         }
@@ -709,6 +709,27 @@ class SenderViewModel(
         } catch (_: Exception) {}
         activePreparedFile = null
         lastReceiverProgressTime.clear()
+    }
+
+    /**
+     * Người gửi chủ động thu hồi (revoke) quyền kết nối của một thiết bị nhận khỏi phiên chia sẻ.
+     * Thao tác này giải phóng 1 slot trong ReceiverRegistry để cho phép thiết bị khác kết nối,
+     * theo đúng đặc tả kiến trúc v2.2.
+     */
+    fun revokeReceiver(fingerprint: String) {
+        lanEngine?.revokeReceiver(fingerprint)
+        approvedPeerFingerprints.remove(fingerprint)
+        rejectedPeerFingerprints.add(fingerprint)
+        lastReceiverProgressTime.remove(fingerprint)
+        _uiState.update { current ->
+            val updatedDevices = current.connectedDevices.filterNot { it.fingerprint == fingerprint }
+            val updatedMap = current.receiverProgressMap.toMutableMap()
+            updatedMap.remove(fingerprint)
+            current.copy(
+                connectedDevices = updatedDevices,
+                receiverProgressMap = updatedMap
+            )
+        }
     }
 
     /**

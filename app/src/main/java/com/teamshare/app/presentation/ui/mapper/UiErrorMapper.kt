@@ -19,6 +19,7 @@ object UiErrorMapper {
             is DomainError.DeviceRejected -> R.string.err_0x102_device_rejected
             is DomainError.SessionExpired -> R.string.err_0x103_session_expired
             is DomainError.InvalidRole -> R.string.err_0x104_invalid_role
+            is DomainError.SessionFull -> R.string.err_0x105_session_full
             is DomainError.RelayUnavailable -> R.string.err_0x201_relay_unavailable
             is DomainError.ServerTimeout -> R.string.err_0x202_server_timeout
             is DomainError.ServerBindError -> R.string.err_0x203_bind_error
