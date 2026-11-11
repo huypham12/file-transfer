@@ -21,15 +21,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -40,6 +44,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -74,6 +79,8 @@ import com.teamshare.app.presentation.ui.mapper.UiErrorMapper
 import com.teamshare.app.presentation.ui.theme.LanBadgeColor
 import com.teamshare.app.presentation.ui.theme.RelayBadgeColor
 import com.teamshare.app.presentation.ui.theme.SecurityWarningColor
+import com.teamshare.app.presentation.viewmodel.FileStorageState
+import com.teamshare.app.presentation.viewmodel.ReceivedFileInfo
 import com.teamshare.app.presentation.viewmodel.TransferViewModel
 import java.io.File
 
@@ -451,21 +458,25 @@ fun TransferProgressScreen(
                 val targetFile = if (!targetFilePath.isNullOrBlank()) File(targetFilePath) else File(context.filesDir, "${AppConstants.StorageDirectory.TRANSFERS}/${AppConstants.StorageDirectory.COMPLETED}/${uiState.fileName}")
 
                 if (uiState.isDirectoryOrBatch || targetFile.isDirectory) {
-                    // TRƯỜNG HỢP NHIỀU TỆP (BATCH) HOẶC THƯ MỤC (FOLDER)
+                    // TRƯỜNG HỢP NHIỀU TỆP (BATCH)
+                    val savedCount = uiState.receivedFileList.count {
+                        it.storageState == FileStorageState.SAVED_TO_PUBLIC || it.storageState == FileStorageState.SANDBOX_CLEANED
+                    }
+                    val totalBatchCount = uiState.receivedFileList.size
+
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surface
-                        ),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
+                            // Header Thư mục / Gói tệp
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth()
@@ -486,15 +497,53 @@ fun TransferProgressScreen(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = "${uiState.receivedFileList.size} tệp tin • ${formatFileSize(uiState.totalBytes)}",
+                                        text = "$totalBatchCount tệp tin • ${formatFileSize(uiState.totalBytes)}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
 
+                            // Thẻ tóm tắt tiến trình lưu trữ (Storage Summary Card)
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Tiến trình lưu vào Downloads:",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = "$savedCount / $totalBatchCount tệp",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (savedCount == totalBatchCount && totalBatchCount > 0) LanBadgeColor else MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { if (totalBatchCount > 0) savedCount.toFloat() / totalBatchCount.toFloat() else 0f },
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+
                             Text(
-                                text = "Chạm vào từng tệp dưới đây để xác thực bảo mật và mở:",
+                                text = "Chạm vào từng tệp dưới đây để mở bảo mật hoặc lưu vào Downloads:",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -509,7 +558,7 @@ fun TransferProgressScreen(
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(10.dp),
                                         colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                                         )
                                     ) {
                                         Row(
@@ -533,12 +582,28 @@ fun TransferProgressScreen(
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
-                                                Text(
-                                                    text = formatFileSize(item.sizeBytes),
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
+                                                Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = formatFileSize(item.sizeBytes),
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    Text(
+                                                        text = when (item.storageState) {
+                                                            FileStorageState.SAVED_TO_PUBLIC -> "• Đã lưu Downloads"
+                                                            FileStorageState.SANDBOX_CLEANED -> "• Đã dọn Sandbox"
+                                                            else -> "• Trong App"
+                                                        },
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = if (item.storageState == FileStorageState.SAVED_TO_PUBLIC) LanBadgeColor else MaterialTheme.colorScheme.secondary
+                                                    )
+                                                }
                                             }
+
+                                            // Nút mở bảo mật qua vân tay
                                             FilledTonalButton(
                                                 onClick = {
                                                     if (activity != null) {
@@ -556,21 +621,38 @@ fun TransferProgressScreen(
                                                     contentDescription = "Mở",
                                                     modifier = Modifier.size(16.dp)
                                                 )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Mở", style = MaterialTheme.typography.labelMedium)
+                                            }
+
+                                            Spacer(modifier = Modifier.width(4.dp))
+
+                                            // Nút lưu lẻ từng tệp (không disable khi đã lưu; bấm lại sẽ hỏi xác nhận)
+                                            IconButton(
+                                                onClick = {
+                                                    viewModel.exportChildFileSmart(context, item, forceOverwrite = false)
+                                                }
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (item.storageState == FileStorageState.SAVED_TO_PUBLIC || item.storageState == FileStorageState.SANDBOX_CLEANED) Icons.Default.Done else Icons.Default.Download,
+                                                    contentDescription = "Lưu tệp",
+                                                    tint = if (item.storageState == FileStorageState.SAVED_TO_PUBLIC) LanBadgeColor else MaterialTheme.colorScheme.primary
+                                                )
                                             }
                                         }
                                     }
                                 }
                             }
 
-                            // Nút lưu tất cả các tệp vào Downloads
-                            val actionBtnText = stringResource(R.string.btn_save_all_to_downloads)
+                            // Nút lưu tất cả các tệp vào Downloads (Smart Idempotent)
+                            val remainingToSave = totalBatchCount - savedCount
+                            val actionBtnText = if (remainingToSave > 0) {
+                                "Lưu tất cả vào Downloads ($remainingToSave tệp chưa lưu)"
+                            } else {
+                                "Lưu lại toàn bộ vào Downloads"
+                            }
+
                             Button(
                                 onClick = {
-                                    viewModel.exportFileToDownloads(context, targetFile) { success, msg ->
-                                        exportFeedbackMessage = msg
-                                    }
+                                    viewModel.exportAllBatchSmart(context, targetFile, forceOverwriteAll = false, onlyNewFiles = false)
                                 },
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
@@ -584,6 +666,25 @@ fun TransferProgressScreen(
                                 Text(actionBtnText, fontWeight = FontWeight.Bold)
                             }
 
+                            // Nút dọn dẹp các tệp Sandbox đã lưu an toàn
+                            if (savedCount > 0) {
+                                OutlinedButton(
+                                    onClick = {
+                                        viewModel.cleanupExportedSandboxFiles(context)
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Dọn dẹp bản sao tạm trong App ($savedCount tệp đã có ở Downloads)")
+                                }
+                            }
+
                             if (biometricFeedbackMessage != null) {
                                 Text(
                                     text = biometricFeedbackMessage ?: "",
@@ -594,9 +695,10 @@ fun TransferProgressScreen(
                                 )
                             }
 
-                            if (exportFeedbackMessage != null) {
+                            val feedback = uiState.exportFeedbackMessage ?: exportFeedbackMessage
+                            if (feedback != null) {
                                 Text(
-                                    text = exportFeedbackMessage ?: "",
+                                    text = feedback,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = LanBadgeColor,
                                     fontWeight = FontWeight.Bold,
@@ -611,9 +713,7 @@ fun TransferProgressScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer
-                        )
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                     ) {
                         Column(
                             modifier = Modifier
@@ -623,8 +723,13 @@ fun TransferProgressScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = "Tệp tin đã được lưu an toàn trong Sandbox",
+                                text = when (uiState.singleFileStorageState) {
+                                    FileStorageState.SAVED_TO_PUBLIC -> "Tệp đã được lưu an toàn vào Downloads"
+                                    FileStorageState.SANDBOX_CLEANED -> "Đã giải phóng Sandbox (Tệp sẵn sàng tại Downloads)"
+                                    else -> "Tệp tin đã được lưu an toàn trong Sandbox"
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 textAlign = TextAlign.Center
                             )
@@ -641,9 +746,7 @@ fun TransferProgressScreen(
                                         }
                                     }
                                 },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary
-                                ),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -656,17 +759,62 @@ fun TransferProgressScreen(
                                 Text("Xác thực bảo mật để mở tệp")
                             }
 
-                            // Nút 2: Lưu vào thư mục Downloads của máy
+                            // Nút 2: Lưu vào thư mục Downloads của máy (Luôn cho phép bấm, hỏi xác nhận nếu trùng)
                             OutlinedButton(
                                 onClick = {
-                                    viewModel.exportFileToDownloads(context, targetFile) { success, msg ->
-                                        exportFeedbackMessage = msg
-                                    }
+                                    viewModel.exportSingleFileSmart(context, targetFile, forceOverwrite = false)
                                 },
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text("Lưu vào thư mục Tải về (Downloads)")
+                                Icon(
+                                    imageVector = if (uiState.singleFileStorageState == FileStorageState.SAVED_TO_PUBLIC || uiState.singleFileStorageState == FileStorageState.SANDBOX_CLEANED) Icons.Default.Done else Icons.Default.Download,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (uiState.singleFileStorageState == FileStorageState.SAVED_TO_PUBLIC || uiState.singleFileStorageState == FileStorageState.SANDBOX_CLEANED) {
+                                        "Đã có trong Downloads (Bấm để tải lại)"
+                                    } else {
+                                        "Lưu vào thư mục Tải về (Downloads)"
+                                    }
+                                )
+                            }
+
+                            // Banner Gợi ý Dọn dẹp Sandbox khi tệp đã lưu ra Downloads
+                            if (uiState.singleFileStorageState == FileStorageState.SAVED_TO_PUBLIC) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "Gợi ý: Tệp đã có trong thư mục Downloads của máy. Bạn có muốn dọn dẹp bản lưu tạm trong TeamShare để giải phóng ${formatFileSize(targetFile.length())} bộ nhớ không?",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End
+                                        ) {
+                                            FilledTonalButton(
+                                                onClick = { viewModel.cleanupExportedSandboxFiles(context) },
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Xóa bản tạm", style = MaterialTheme.typography.labelMedium)
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
                             if (biometricFeedbackMessage != null) {
@@ -678,9 +826,10 @@ fun TransferProgressScreen(
                                 )
                             }
 
-                            if (exportFeedbackMessage != null) {
+                            val singleFeedback = uiState.exportFeedbackMessage ?: exportFeedbackMessage
+                            if (singleFeedback != null) {
                                 Text(
-                                    text = exportFeedbackMessage ?: "",
+                                    text = singleFeedback,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = LanBadgeColor,
                                     fontWeight = FontWeight.Bold,
@@ -689,6 +838,98 @@ fun TransferProgressScreen(
                             }
                         }
                     }
+                }
+
+                // DIALOG 1: XÁC NHẬN TẢI LẠI TỆP TRÙNG LẶP (SINGLE FILE DUPLICATE DIALOG)
+                if (uiState.showSingleDuplicateDialog) {
+                    val dupFile = uiState.duplicateFileToConfirm
+                    val targetName = dupFile?.name ?: uiState.fileName
+                    AlertDialog(
+                        onDismissRequest = { viewModel.dismissDuplicateDialog() },
+                        icon = { Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                        title = { Text("Tệp đã có trong máy") },
+                        text = {
+                            Text("Tệp '$targetName' đã có sẵn trong thư mục Download/TeamShare. Bạn có muốn lưu lần nữa không?")
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    if (uiState.isDirectoryOrBatch && dupFile != null) {
+                                        viewModel.exportChildFileSmart(context, dupFile, forceOverwrite = true)
+                                    } else {
+                                        viewModel.exportSingleFileSmart(context, targetFile, forceOverwrite = true)
+                                    }
+                                }
+                            ) {
+                                Text("Lưu lần nữa")
+                            }
+                        },
+                        dismissButton = {
+                            OutlinedButton(onClick = { viewModel.dismissDuplicateDialog() }) {
+                                Text("Hủy")
+                            }
+                        }
+                    )
+                }
+
+                // DIALOG 2: XÁC NHẬN TẢI LẠI DANH SÁCH NHIỀU TỆP TRÙNG LẶP (BATCH DUPLICATE DIALOG)
+                if (uiState.showBatchDuplicateDialog) {
+                    AlertDialog(
+                        onDismissRequest = { viewModel.dismissDuplicateDialog() },
+                        icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = SecurityWarningColor) },
+                        title = { Text("Phát hiện tệp trùng lặp") },
+                        text = {
+                            Text("Phát hiện ${uiState.pendingBatchDuplicates.size} tệp đã có sẵn trong thư mục Downloads/TeamShare. Bạn muốn bỏ qua các tệp đã có hay tải lại toàn bộ?")
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    viewModel.exportAllBatchSmart(context, targetFile, forceOverwriteAll = false, onlyNewFiles = true)
+                                }
+                            ) {
+                                Text("Chỉ tải tệp mới")
+                            }
+                        },
+                        dismissButton = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { viewModel.dismissDuplicateDialog() }) {
+                                    Text("Hủy")
+                                }
+                                Button(
+                                    onClick = {
+                                        viewModel.exportAllBatchSmart(context, targetFile, forceOverwriteAll = true, onlyNewFiles = false)
+                                    }
+                                ) {
+                                    Text("Tải lại tất cả")
+                                }
+                            }
+                        }
+                    )
+                }
+
+                // DIALOG 3: GỢI Ý DỌN DẸP BẢN SAO TẠM SANDBOX SAU KHI XUẤT HÀNG LOẠT
+                if (uiState.showCleanupSuggestionDialog && uiState.isDirectoryOrBatch) {
+                    AlertDialog(
+                        onDismissRequest = { viewModel.dismissCleanupDialog() },
+                        icon = { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = LanBadgeColor) },
+                        title = { Text("Giải phóng bộ nhớ ứng dụng?") },
+                        text = {
+                            val cleanSize = if (uiState.cleanableBytes > 0) formatFileSize(uiState.cleanableBytes) else formatFileSize(uiState.totalBytes)
+                            Text("Các tệp đã được lưu an toàn vào thư mục Downloads của thiết bị!\n\nBản sao tạm trong ứng dụng đang chiếm $cleanSize bộ nhớ. Bạn có muốn xóa sạch các bản tạm này để giải phóng bộ nhớ không?")
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = { viewModel.cleanupExportedSandboxFiles(context) }
+                            ) {
+                                Text("Xóa bản tạm")
+                            }
+                        },
+                        dismissButton = {
+                            OutlinedButton(onClick = { viewModel.dismissCleanupDialog() }) {
+                                Text("Để lại trong App")
+                            }
+                        }
+                    )
                 }
             }
 

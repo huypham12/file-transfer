@@ -57,6 +57,7 @@ data class SenderSessionUiState(
     val pendingApprovalDevice: DeviceProfile? = null,
     val connectedDevices: List<DeviceProfile> = emptyList(),
     val receiverProgressMap: Map<String, ReceiverProgressInfo> = emptyMap(),
+    val maxReceivers: Int = AppConstants.FlowControl.MAX_SESSION_RECEIVERS,
     val errorMessage: String? = null,
     val errorResId: Int? = null
 )
@@ -89,13 +90,24 @@ data class ReceiverUiState(
 )
 
 /**
+ * Trạng thái lưu trữ của tệp tin theo Kiến trúc Lưu trữ 2 Tầng.
+ */
+enum class FileStorageState {
+    SANDBOX_ONLY,       // Tệp mới nhận, chỉ có trong Sandbox riêng
+    EXPORTING,          // Đang ghi vào MediaStore Downloads
+    SAVED_TO_PUBLIC,    // Đã lưu an toàn ra Downloads (Đang tồn tại cả 2 bản)
+    SANDBOX_CLEANED     // Đã dọn dẹp bản tạm Sandbox, chỉ còn ở Downloads
+}
+
+/**
  * Thông tin tệp tin con sau khi nhận và giải nén (phục vụ duyệt danh sách nhiều tệp / thư mục).
  */
 data class ReceivedFileInfo(
     val name: String,
     val sizeBytes: Long,
     val absolutePath: String,
-    val isDirectory: Boolean = false
+    val isDirectory: Boolean = false,
+    val storageState: FileStorageState = FileStorageState.SANDBOX_ONLY
 )
 
 /**
@@ -121,7 +133,15 @@ data class TransferUiState(
     val activeDurationSeconds: Double = 0.0,
     val completedFilePath: String? = null,
     val isDirectoryOrBatch: Boolean = false,
-    val receivedFileList: List<ReceivedFileInfo> = emptyList()
+    val receivedFileList: List<ReceivedFileInfo> = emptyList(),
+    val singleFileStorageState: FileStorageState = FileStorageState.SANDBOX_ONLY,
+    val duplicateFileToConfirm: ReceivedFileInfo? = null,
+    val showSingleDuplicateDialog: Boolean = false,
+    val showBatchDuplicateDialog: Boolean = false,
+    val pendingBatchDuplicates: List<ReceivedFileInfo> = emptyList(),
+    val showCleanupSuggestionDialog: Boolean = false,
+    val cleanableBytes: Long = 0L,
+    val exportFeedbackMessage: String? = null
 ) {
     companion object {
         fun fromProgress(

@@ -25,6 +25,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.teamshare.app.core.storage.saf.ExportOverwriteMode
+import com.teamshare.app.core.storage.saf.PublicStorageExporter
+import com.teamshare.app.core.storage.saf.SafeFileDeleter
 import com.teamshare.app.core.transfer.lan.TransferProgressCallback
 import com.teamshare.app.core.transfer.relay.RelayClientEngine
 import com.teamshare.app.domain.model.ErrorCode
@@ -571,6 +574,244 @@ class TransferViewModel(
                 }
             } catch (e: Exception) {
                 onResult(false, e.message ?: "Không thể mở tệp")
+            }
+        }
+    }
+
+    fun dismissDuplicateDialog() {
+        _uiState.update { it.copy(showSingleDuplicateDialog = false, duplicateFileToConfirm = null, showBatchDuplicateDialog = false) }
+    }
+
+    fun dismissCleanupDialog() {
+        _uiState.update { it.copy(showCleanupSuggestionDialog = false) }
+    }
+
+    fun clearFeedbackMessage() {
+        _uiState.update { it.copy(exportFeedbackMessage = null) }
+    }
+
+    /**
+     * Xuất tệp đơn lẻ có kiểm tra chống trùng lặp (Smart Idempotency Check).
+     * Nếu tệp đã có và chưa xác nhận forceOverwrite, kích hoạt Dialog hỏi người dùng.
+     */
+    fun exportSingleFileSmart(
+        context: android.content.Context,
+        file: File,
+        forceOverwrite: Boolean = false
+    ) {
+        scope.launch(Dispatchers.IO) {
+            val exporter = PublicStorageExporter(context)
+            if (!forceOverwrite && exporter.checkFileExistsInDownloads(file.name)) {
+                withContext(Dispatchers.Main) {
+                    _uiState.update {
+                        it.copy(
+                            duplicateFileToConfirm = ReceivedFileInfo(file.name, file.length(), file.absolutePath),
+                            showSingleDuplicateDialog = true
+                        )
+                    }
+                }
+                return@launch
+            }
+
+            withContext(Dispatchers.Main) {
+                _uiState.update { it.copy(showSingleDuplicateDialog = false, singleFileStorageState = FileStorageState.EXPORTING) }
+            }
+
+            val mode = if (forceOverwrite) ExportOverwriteMode.OVERWRITE else ExportOverwriteMode.CREATE_NEW_COPY
+            val result = exporter.exportSingleFile(file, overwriteMode = mode)
+
+            withContext(Dispatchers.Main) {
+                result.onSuccess { path ->
+                    _uiState.update {
+                        it.copy(
+                            singleFileStorageState = FileStorageState.SAVED_TO_PUBLIC,
+                            cleanableBytes = file.length(),
+                            showCleanupSuggestionDialog = true,
+                            exportFeedbackMessage = "Đã lưu an toàn vào $path"
+                        )
+                    }
+                }.onFailure { err ->
+                    _uiState.update {
+                        it.copy(
+                            singleFileStorageState = FileStorageState.SANDBOX_ONLY,
+                            exportFeedbackMessage = "Lỗi khi lưu tệp: ${err.message}"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Xuất 1 tệp con trong danh sách nhiều tệp có kiểm tra trùng lặp.
+     */
+    fun exportChildFileSmart(
+        context: android.content.Context,
+        item: ReceivedFileInfo,
+        forceOverwrite: Boolean = false
+    ) {
+        scope.launch(Dispatchers.IO) {
+            val exporter = PublicStorageExporter(context)
+            if (!forceOverwrite && exporter.checkFileExistsInDownloads(item.name)) {
+                withContext(Dispatchers.Main) {
+                    _uiState.update {
+                        it.copy(
+                            duplicateFileToConfirm = item,
+                            showSingleDuplicateDialog = true
+                        )
+                    }
+                }
+                return@launch
+            }
+
+            val file = File(item.absolutePath)
+            if (!file.exists()) {
+                withContext(Dispatchers.Main) {
+                    _uiState.update { it.copy(exportFeedbackMessage = "Tệp nguồn không tồn tại") }
+                }
+                return@launch
+            }
+
+            val mode = if (forceOverwrite) ExportOverwriteMode.OVERWRITE else ExportOverwriteMode.CREATE_NEW_COPY
+            val result = exporter.exportSingleFile(file, overwriteMode = mode)
+
+            withContext(Dispatchers.Main) {
+                _uiState.update { state ->
+                    val updatedList = state.receivedFileList.map {
+                        if (it.absolutePath == item.absolutePath) {
+                            it.copy(storageState = if (result.isSuccess) FileStorageState.SAVED_TO_PUBLIC else FileStorageState.SANDBOX_ONLY)
+                        } else it
+                    }
+                    state.copy(
+                        receivedFileList = updatedList,
+                        showSingleDuplicateDialog = false,
+                        duplicateFileToConfirm = null,
+                        exportFeedbackMessage = result.fold(
+                            onSuccess = { "Đã lưu ${item.name} vào Downloads" },
+                            onFailure = { "Lỗi lưu ${item.name}: ${it.message}" }
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Xuất tất cả các tệp trong danh sách nhiều tệp (Batch):
+     * Tự động phát hiện các tệp đã có trong Downloads.
+     */
+    fun exportAllBatchSmart(
+        context: android.content.Context,
+        targetFolder: File,
+        forceOverwriteAll: Boolean = false,
+        onlyNewFiles: Boolean = false
+    ) {
+        scope.launch(Dispatchers.IO) {
+            val exporter = PublicStorageExporter(context)
+            val currentList = _uiState.value.receivedFileList
+
+            val duplicates = currentList.filter { exporter.checkFileExistsInDownloads(it.name) }
+            if (duplicates.isNotEmpty() && !forceOverwriteAll && !onlyNewFiles) {
+                withContext(Dispatchers.Main) {
+                    _uiState.update {
+                        it.copy(
+                            showBatchDuplicateDialog = true,
+                            pendingBatchDuplicates = duplicates
+                        )
+                    }
+                }
+                return@launch
+            }
+
+            val filesToExport = if (onlyNewFiles) {
+                currentList.filterNot { exporter.checkFileExistsInDownloads(it.name) }
+            } else {
+                currentList
+            }
+
+            var successCount = 0
+            var totalExportedBytes = 0L
+
+            for (item in filesToExport) {
+                val f = File(item.absolutePath)
+                if (f.exists()) {
+                    val mode = if (forceOverwriteAll) ExportOverwriteMode.OVERWRITE else ExportOverwriteMode.CREATE_NEW_COPY
+                    val res = exporter.exportSingleFile(f, overwriteMode = mode)
+                    if (res.isSuccess) {
+                        successCount++
+                        totalExportedBytes += f.length()
+                        withContext(Dispatchers.Main) {
+                            _uiState.update { state ->
+                                val updated = state.receivedFileList.map {
+                                    if (it.absolutePath == item.absolutePath) it.copy(storageState = FileStorageState.SAVED_TO_PUBLIC) else it
+                                }
+                                state.copy(receivedFileList = updated)
+                            }
+                        }
+                    }
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                        showBatchDuplicateDialog = false,
+                        pendingBatchDuplicates = emptyList(),
+                        cleanableBytes = totalExportedBytes,
+                        showCleanupSuggestionDialog = (successCount > 0),
+                        exportFeedbackMessage = "Đã lưu thành công $successCount/${filesToExport.size} tệp vào Downloads"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Dọn dẹp an toàn các tệp Sandbox đã được xuất ra Downloads để giải phóng bộ nhớ.
+     */
+    fun cleanupExportedSandboxFiles(context: android.content.Context) {
+        scope.launch(Dispatchers.IO) {
+            val state = _uiState.value
+            var cleanedCount = 0
+
+            if (state.isDirectoryOrBatch) {
+                val savedItems = state.receivedFileList.filter { it.storageState == FileStorageState.SAVED_TO_PUBLIC }
+                for (item in savedItems) {
+                    val f = File(item.absolutePath)
+                    if (f.exists()) {
+                        SafeFileDeleter.wipeAndSanitizeFile(f)
+                        cleanedCount++
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    _uiState.update { s ->
+                        val updated = s.receivedFileList.map {
+                            if (it.storageState == FileStorageState.SAVED_TO_PUBLIC) it.copy(storageState = FileStorageState.SANDBOX_CLEANED) else it
+                        }
+                        s.copy(
+                            receivedFileList = updated,
+                            showCleanupSuggestionDialog = false,
+                            cleanableBytes = 0L,
+                            exportFeedbackMessage = "Đã giải phóng bộ nhớ cho $cleanedCount tệp trong ứng dụng"
+                        )
+                    }
+                }
+            } else {
+                val filePath = state.completedFilePath
+                val targetFile = if (!filePath.isNullOrBlank()) File(filePath) else File(context.filesDir, "${com.teamshare.app.core.constant.AppConstants.StorageDirectory.TRANSFERS}/${com.teamshare.app.core.constant.AppConstants.StorageDirectory.COMPLETED}/${state.fileName}")
+                if (targetFile.exists()) {
+                    SafeFileDeleter.wipeAndSanitizeFile(targetFile)
+                }
+                withContext(Dispatchers.Main) {
+                    _uiState.update {
+                        it.copy(
+                            singleFileStorageState = FileStorageState.SANDBOX_CLEANED,
+                            showCleanupSuggestionDialog = false,
+                            cleanableBytes = 0L,
+                            exportFeedbackMessage = "Đã giải phóng bộ nhớ bản sao tạm trong ứng dụng"
+                        )
+                    }
+                }
             }
         }
     }

@@ -23,11 +23,13 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -80,7 +82,14 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+private sealed class DuplicateSaveTarget {
+    data class SessionTarget(val session: TransferSession, val file: File) : DuplicateSaveTarget()
+    data class ChildFileTarget(val file: File) : DuplicateSaveTarget()
+}
 
 /**
  * Màn hình Quản lý lịch sử truyền nhận tệp (FR-HIS-01).
@@ -99,6 +108,7 @@ fun TransferHistoryScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     var folderDialogSession by remember { mutableStateOf<Pair<TransferSession, List<File>>?>(null) }
+    var duplicateConfirmTarget by remember { mutableStateOf<DuplicateSaveTarget?>(null) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -241,10 +251,28 @@ fun TransferHistoryScreen(
                                 }
                             },
                             onSaveToDownloads = {
-                                viewModel.exportFileToDownloads(context, session) { success, msg ->
-                                    if (msg != null) {
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar(msg)
+                                val resolvedFile = viewModel.resolveSessionFile(context, session)
+                                if (resolvedFile == null || !resolvedFile.exists()) {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Không tìm thấy tệp tin nguồn trong ứng dụng")
+                                    }
+                                } else {
+                                    coroutineScope.launch {
+                                        val alreadyExisted = withContext(Dispatchers.IO) {
+                                            viewModel.checkFileExistsInDownloads(context, resolvedFile)
+                                        }
+                                        if (alreadyExisted) {
+                                            // Đã tồn tại -> Mở hộp thoại hỏi người dùng có muốn lưu lần nữa không!
+                                            duplicateConfirmTarget = DuplicateSaveTarget.SessionTarget(session, resolvedFile)
+                                        } else {
+                                            // Chưa tồn tại -> Lưu ngay
+                                            viewModel.exportFileToDownloads(context, session) { success, msg ->
+                                                if (msg != null) {
+                                                    coroutineScope.launch {
+                                                        snackbarHostState.showSnackbar(msg)
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -328,10 +356,19 @@ fun TransferHistoryScreen(
                                         }
                                         IconButton(
                                             onClick = {
-                                                viewModel.exportSingleChildFile(context, subFile) { success, msg ->
-                                                    if (msg != null) {
-                                                        coroutineScope.launch {
-                                                            snackbarHostState.showSnackbar(msg)
+                                                coroutineScope.launch {
+                                                    val alreadyExisted = withContext(Dispatchers.IO) {
+                                                        viewModel.checkFileExistsInDownloads(context, subFile)
+                                                    }
+                                                    if (alreadyExisted) {
+                                                        duplicateConfirmTarget = DuplicateSaveTarget.ChildFileTarget(subFile)
+                                                    } else {
+                                                        viewModel.exportSingleChildFile(context, subFile) { success, msg ->
+                                                            if (msg != null) {
+                                                                coroutineScope.launch {
+                                                                    snackbarHostState.showSnackbar(msg)
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -372,10 +409,22 @@ fun TransferHistoryScreen(
                         OutlinedButton(
                             onClick = {
                                 folderDialogSession = null
-                                viewModel.exportFileToDownloads(context, session) { success, msg ->
-                                    if (msg != null) {
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar(msg)
+                                val resolvedFile = viewModel.resolveSessionFile(context, session)
+                                if (resolvedFile != null && resolvedFile.exists()) {
+                                    coroutineScope.launch {
+                                        val alreadyExisted = withContext(Dispatchers.IO) {
+                                            viewModel.checkFileExistsInDownloads(context, resolvedFile)
+                                        }
+                                        if (alreadyExisted) {
+                                            duplicateConfirmTarget = DuplicateSaveTarget.SessionTarget(session, resolvedFile)
+                                        } else {
+                                            viewModel.exportFileToDownloads(context, session) { success, msg ->
+                                                if (msg != null) {
+                                                    coroutineScope.launch {
+                                                        snackbarHostState.showSnackbar(msg)
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -401,6 +450,71 @@ fun TransferHistoryScreen(
                         Text(stringResource(R.string.action_cancel))
                     }
                 }
+            )
+        }
+
+        if (duplicateConfirmTarget != null) {
+            val target = duplicateConfirmTarget!!
+            val fileName = when (target) {
+                is DuplicateSaveTarget.SessionTarget -> target.file.name
+                is DuplicateSaveTarget.ChildFileTarget -> target.file.name
+            }
+            AlertDialog(
+                onDismissRequest = { duplicateConfirmTarget = null },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Tệp đã có trong máy",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Tệp \"$fileName\" đã có sẵn trong thư mục Download/TeamShare. Bạn có muốn lưu lần nữa không?",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val current = target
+                            duplicateConfirmTarget = null
+                            when (current) {
+                                is DuplicateSaveTarget.SessionTarget -> {
+                                    viewModel.exportFileToDownloads(context, current.session) { success, msg ->
+                                        if (msg != null) {
+                                            coroutineScope.launch { snackbarHostState.showSnackbar(msg) }
+                                        }
+                                    }
+                                }
+                                is DuplicateSaveTarget.ChildFileTarget -> {
+                                    viewModel.exportSingleChildFile(context, current.file) { success, msg ->
+                                        if (msg != null) {
+                                            coroutineScope.launch { snackbarHostState.showSnackbar(msg) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    ) {
+                        Text("Lưu lần nữa")
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(onClick = { duplicateConfirmTarget = null }) {
+                        Text("Hủy")
+                    }
+                },
+                shape = RoundedCornerShape(16.dp)
             )
         }
     }

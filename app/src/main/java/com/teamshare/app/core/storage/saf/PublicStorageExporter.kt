@@ -15,16 +15,67 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.util.zip.ZipInputStream
 
+enum class ExportOverwriteMode {
+    OVERWRITE,      // Ghi đè tệp cũ nếu đã tồn tại
+    CREATE_NEW_COPY // Tạo bản sao mới (MediaStore tự động sinh (1).ext)
+}
+
 /**
  * Tiện ích xuất tệp và thư mục an toàn ra thư mục công cộng Downloads/TeamShare của thiết bị.
  * Tương thích toàn diện với Android 10+ (API 29+ Scoped Storage MediaStore) và Android 9-.
+ * Hỗ trợ kiểm tra chống trùng lặp (Idempotency Check) và ghi đè theo chủ đích người dùng.
  */
 class PublicStorageExporter(private val context: Context) {
 
     /**
-     * Xuất một tệp đơn lẻ vào Downloads/TeamShare/[subDir]/[fileName].
+     * Kiểm tra xem tệp tin đã tồn tại trong thư mục Downloads/TeamShare hay chưa.
      */
-    suspend fun exportSingleFile(sourceFile: File, subDir: String? = null): Result<String> = withContext(Dispatchers.IO) {
+    fun checkFileExistsInDownloads(fileName: String, subDir: String? = null): Boolean {
+        val sanitizedName = FilenameSanitizer.sanitize(fileName)
+        val relativeSubPath = buildRelativePath(subDir)
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val projection = arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME)
+                val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+                val selectionArgs = arrayOf(sanitizedName, "$relativeSubPath%")
+                context.contentResolver.query(
+                    MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    projection,
+                    selection,
+                    selectionArgs,
+                    null
+                )?.use { cursor ->
+                    if (cursor.count > 0) return true
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // Fallback kiểm tra qua hệ thống tệp truyền thống (Android 9- hoặc môi trường test)
+        return try {
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val targetFolder = if (!subDir.isNullOrBlank()) {
+                File(downloadsDir, "${AppConstants.StorageDirectory.TEAM_SHARE_PUBLIC_FOLDER}/$subDir")
+            } else {
+                File(downloadsDir, AppConstants.StorageDirectory.TEAM_SHARE_PUBLIC_FOLDER)
+            }
+            File(targetFolder, sanitizedName).exists()
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /**
+     * Xuất một tệp đơn lẻ vào Downloads/TeamShare/[subDir]/[fileName].
+     * @param sourceFile Tệp nguồn trong Sandbox
+     * @param subDir Thư mục con tùy chọn
+     * @param overwriteMode Chế độ xử lý khi tệp đã tồn tại (OVERWRITE hoặc CREATE_NEW_COPY)
+     */
+    suspend fun exportSingleFile(
+        sourceFile: File,
+        subDir: String? = null,
+        overwriteMode: ExportOverwriteMode = ExportOverwriteMode.CREATE_NEW_COPY
+    ): Result<String> = withContext(Dispatchers.IO) {
         if (!sourceFile.exists()) {
             return@withContext Result.failure(IOException("Tệp nguồn không tồn tại"))
         }
@@ -34,11 +85,21 @@ class PublicStorageExporter(private val context: Context) {
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val resolver = context.contentResolver
+
+                // Nếu chọn OVERWRITE, xóa mục ghi cũ trong MediaStore nếu có
+                if (overwriteMode == ExportOverwriteMode.OVERWRITE) {
+                    try {
+                        val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+                        val selectionArgs = arrayOf(sanitizedName, "$relativeSubPath%")
+                        resolver.delete(MediaStore.Downloads.EXTERNAL_CONTENT_URI, selection, selectionArgs)
+                    } catch (_: Throwable) {}
+                }
+
                 val contentValues = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, sanitizedName)
                     put(MediaStore.MediaColumns.RELATIVE_PATH, relativeSubPath)
                 }
-                val resolver = context.contentResolver
                 val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
                     ?: return@withContext Result.failure(IOException("Không thể tạo mục ghi trong MediaStore.Downloads"))
 
@@ -59,7 +120,7 @@ class PublicStorageExporter(private val context: Context) {
                 }.apply { mkdirs() }
 
                 val destFile = File(targetFolder, sanitizedName)
-                sourceFile.copyTo(destFile, overwrite = true)
+                sourceFile.copyTo(destFile, overwrite = (overwriteMode == ExportOverwriteMode.OVERWRITE))
                 Result.success(destFile.absolutePath)
             }
         } catch (e: Exception) {

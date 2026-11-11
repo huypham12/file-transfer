@@ -216,10 +216,12 @@ class HistoryViewModel(
                         }
                     }
                 } else {
+                    val alreadyExisted = exporter.checkFileExistsInDownloads(file.name)
                     val result = exporter.exportSingleFile(file)
                     withContext(Dispatchers.Main) {
                         result.onSuccess { path ->
-                            onResult(true, "Đã lưu tệp vào $path")
+                            val msg = if (alreadyExisted) "Đã lưu thêm bản sao tại $path" else "Đã lưu tệp vào $path"
+                            onResult(true, msg)
                         }.onFailure { err ->
                             onResult(false, "Lỗi khi lưu tệp: ${err.message}")
                         }
@@ -231,6 +233,15 @@ class HistoryViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * Kiểm tra xem tệp đã tồn tại trong thư mục Download/TeamShare công cộng hay chưa.
+     */
+    fun checkFileExistsInDownloads(context: Context, file: File): Boolean {
+        if (!file.exists()) return false
+        val exporter = com.teamshare.app.core.storage.saf.PublicStorageExporter(context)
+        return exporter.checkFileExistsInDownloads(file.name)
     }
 
     /**
@@ -248,10 +259,12 @@ class HistoryViewModel(
 
         scope.launch(Dispatchers.IO) {
             val exporter = com.teamshare.app.core.storage.saf.PublicStorageExporter(context)
+            val alreadyExisted = exporter.checkFileExistsInDownloads(childFile.name)
             val result = exporter.exportSingleFile(childFile)
             withContext(Dispatchers.Main) {
                 result.onSuccess { path ->
-                    onResult(true, "Đã lưu ${childFile.name} vào $path")
+                    val msg = if (alreadyExisted) "Đã lưu thêm bản sao ${childFile.name} tại $path" else "Đã lưu ${childFile.name} vào $path"
+                    onResult(true, msg)
                 }.onFailure { err ->
                     onResult(false, "Lỗi khi lưu tệp: ${err.message}")
                 }

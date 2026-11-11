@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!-- Cấu hình an ninh mạng cơ sở (Production Base Config): Chỉ tin cậy chứng chỉ hệ thống -->
     <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Chỉ cho phép tin cậy chứng chỉ người dùng khi chạy ở chế độ Debug (OWASP MASVS-NETWORK) -->
+    <debug-overrides>
         <trust-anchors>
             <certificates src="system" />
             <certificates src="user" />
         </trust-anchors>
-    </base-config>
+    </debug-overrides>
 </network-security-config>
 
