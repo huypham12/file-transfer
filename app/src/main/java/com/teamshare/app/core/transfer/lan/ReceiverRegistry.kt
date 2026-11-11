@@ -75,9 +75,11 @@ sealed class AdmissionResult {
  * 5. Cung cấp API thu hồi (revoke) chủ động từ người gửi để giải phóng slot.
  */
 class ReceiverRegistry(
-    val maxCapacity: Int = AppConstants.FlowControl.MAX_SESSION_RECEIVERS
+    maxCapacity: Int = AppConstants.FlowControl.MAX_SESSION_RECEIVERS
 ) {
     private val lock = Any()
+    var maxCapacity: Int = maxCapacity
+        private set
     private val slots = LinkedHashMap<String, ReceiverSlot>()
 
     /**
@@ -269,9 +271,10 @@ class ReceiverRegistry(
     }
 
     /**
-     * Đóng và dọn dẹp toàn bộ phiên.
+     * Đóng, dọn dẹp toàn bộ phiên và tùy chọn điều chỉnh lại sức chứa tối đa cho phiên tiếp theo.
      */
-    fun clearAll(): Unit = synchronized(lock) {
+    fun reset(newCapacity: Int = maxCapacity): Unit = synchronized(lock) {
+        this.maxCapacity = newCapacity
         for (slot in slots.values) {
             try {
                 slot.activeSocket?.close()
@@ -280,4 +283,9 @@ class ReceiverRegistry(
         }
         slots.clear()
     }
+
+    /**
+     * Đóng và dọn dẹp toàn bộ phiên (giữ nguyên maxCapacity).
+     */
+    fun clearAll(): Unit = reset(maxCapacity)
 }

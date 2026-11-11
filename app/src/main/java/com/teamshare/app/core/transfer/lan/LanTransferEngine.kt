@@ -158,7 +158,7 @@ class LanTransferEngine(
         onPeerConnected: ((DeviceProfile) -> Unit)? = null,
         useTls: Boolean = false,
         serverTimeoutMs: Int = DEFAULT_SERVER_TIMEOUT_MS,
-        maxReceivers: Int = 1,
+        maxReceivers: Int = AppConstants.FlowControl.MAX_SESSION_RECEIVERS,
         callback: TransferProgressCallback? = null,
         onClientProgress: ((DeviceProfile, Long, Long, Long) -> Unit)? = null,
         onClientCompleted: ((DeviceProfile) -> Unit)? = null,
@@ -166,6 +166,7 @@ class LanTransferEngine(
     ): Result<String> = withContext(Dispatchers.IO) {
         require(file.exists() && (file.isFile || file.isDirectory)) { "Tệp hoặc thư mục nguồn không tồn tại: ${file.absolutePath}" }
 
+        receiverRegistry.reset(newCapacity = maxReceivers)
         isCancelled.set(false)
         isPaused.set(false)
         currentState = TransferEngineState.CONNECTING
@@ -212,8 +213,8 @@ class LanTransferEngine(
                     onClientFailed = onClientFailed
                 )
             } else {
-                // Chế độ 1-N Đa người nhận (Kiến trúc v2.2 - Tối đa 5 thiết bị duy nhất trong phiên)
-                val clientSemaphore = Semaphore(permits = AppConstants.FlowControl.MAX_CONCURRENT_OUTGOING_TRANSFERS)
+                // Chế độ 1-N Đa người nhận (Kiến trúc v2.2 - Cấp phát Semaphore theo số lượng máy nhận maxReceivers)
+                val clientSemaphore = Semaphore(permits = maxReceivers)
                 val completedCount = java.util.concurrent.atomic.AtomicInteger(0)
                 val lastSuccessSha = java.util.concurrent.atomic.AtomicReference<String?>(null)
                 val lastError = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
@@ -370,14 +371,14 @@ class LanTransferEngine(
                         streamId,
                         ConnectAcceptedPayload(
                             status = ConnectAcceptedPayload.STATUS_REJECTED,
-                            rejectionReason = "ERR_SESSION_FULL: Phiên chia sẻ đã đạt giới hạn tối đa 5 thiết bị",
+                            rejectionReason = "ERR_SESSION_FULL: Phiên chia sẻ đã đạt giới hạn tối đa ${admission.maxCapacity} thiết bị",
                             reasonCode = ErrorCode.ERR_SESSION_FULL
                         )
                     )
                     serializer.serializeTo(rejectFrame, outputStream)
                     val err = "Từ chối thiết bị ${profile.model} (${profile.fingerprint}): phiên đã đầy (${admission.currentOccupied}/${admission.maxCapacity} slots)"
                     callback?.onError(ErrorCode.ERR_SESSION_FULL, err)
-                    throw DomainError.SessionFull
+                    throw DomainError.SessionFull(maxCapacity = admission.maxCapacity)
                 }
                 is AdmissionResult.Rejected -> {
                     val rejectFrame = serializer.buildConnectAcceptedFrame(

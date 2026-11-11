@@ -450,7 +450,7 @@ fun QrDisplayScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "${uiState.connectedDevices.size} / ${AppConstants.FlowControl.MAX_SESSION_RECEIVERS}",
+                            text = "${uiState.connectedDevices.size} / ${uiState.maxReceivers}",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold

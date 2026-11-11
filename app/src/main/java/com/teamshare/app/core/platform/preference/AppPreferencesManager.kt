@@ -1,6 +1,7 @@
 package com.teamshare.app.core.platform.preference
 
 import android.content.Context
+import com.teamshare.app.core.constant.AppConstants
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +31,11 @@ class AppPreferencesManager(context: Context) {
     )
     val requireBiometricForOpen: StateFlow<Boolean> = _requireBiometricForOpen.asStateFlow()
 
+    private val _maxSessionReceivers = MutableStateFlow(
+        prefs.getInt(KEY_MAX_RECEIVERS, AppConstants.FlowControl.MAX_SESSION_RECEIVERS)
+    )
+    val maxSessionReceivers: StateFlow<Int> = _maxSessionReceivers.asStateFlow()
+
     fun setThemeMode(mode: ThemeMode) {
         prefs.edit().putString(KEY_THEME_MODE, mode.name).apply()
         _themeMode.value = mode
@@ -38,6 +44,12 @@ class AppPreferencesManager(context: Context) {
     fun setRequireBiometricForOpen(required: Boolean) {
         prefs.edit().putBoolean(KEY_REQUIRE_BIOMETRIC, required).apply()
         _requireBiometricForOpen.value = required
+    }
+
+    fun setMaxSessionReceivers(count: Int) {
+        val validCount = count.coerceIn(1, 10)
+        prefs.edit().putInt(KEY_MAX_RECEIVERS, validCount).apply()
+        _maxSessionReceivers.value = validCount
     }
 
     private fun loadThemeMode(): ThemeMode {
@@ -50,9 +62,10 @@ class AppPreferencesManager(context: Context) {
     }
 
     companion object {
-        private const val PREFS_NAME = "teamshare_app_preferences"
-        private const val KEY_THEME_MODE = "key_theme_mode"
-        private const val KEY_REQUIRE_BIOMETRIC = "key_require_biometric"
+        private const val PREFS_NAME = AppConstants.Preferences.PREFS_APP
+        private const val KEY_THEME_MODE = AppConstants.Preferences.KEY_THEME_MODE
+        private const val KEY_REQUIRE_BIOMETRIC = AppConstants.Preferences.KEY_REQUIRE_BIOMETRIC
+        private const val KEY_MAX_RECEIVERS = AppConstants.Preferences.KEY_MAX_RECEIVERS
 
         @Volatile
         private var instance: AppPreferencesManager? = null

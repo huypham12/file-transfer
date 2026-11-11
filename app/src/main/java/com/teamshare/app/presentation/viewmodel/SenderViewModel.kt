@@ -55,13 +55,30 @@ class SenderViewModel(
     private val authenticateBiometricUseCase: AuthenticateBiometricUseCase? = null,
     private val serviceLauncher: ITransferForegroundServiceLauncher? = null,
     private val transferRepository: ITransferRepository? = null,
+    private val preferencesManager: com.teamshare.app.core.platform.preference.AppPreferencesManager? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
     private val scope: CoroutineScope get() = customScope ?: viewModelScope
 
-    private val _uiState = MutableStateFlow(SenderSessionUiState())
+    private val _uiState = MutableStateFlow(
+        SenderSessionUiState(
+            maxReceivers = preferencesManager?.maxSessionReceivers?.value ?: AppConstants.FlowControl.MAX_SESSION_RECEIVERS
+        )
+    )
     val uiState: StateFlow<SenderSessionUiState> = _uiState.asStateFlow()
+
+    init {
+        preferencesManager?.let { prefs ->
+            scope.launch {
+                prefs.maxSessionReceivers.collect { limit ->
+                    if (!_uiState.value.isSharing) {
+                        _uiState.update { it.copy(maxReceivers = limit) }
+                    }
+                }
+            }
+        }
+    }
 
     private var ttlTimerJob: Job? = null
     private var serverJob: Job? = null
@@ -368,7 +385,7 @@ class SenderViewModel(
                 onClientFailed = { peerProfile, error ->
                     onReceiverFailed(peerProfile, error)
                 },
-                maxReceivers = AppConstants.FlowControl.MAX_SESSION_RECEIVERS,
+                maxReceivers = _uiState.value.maxReceivers,
                 serverTimeoutMs = AppConstants.Timeout.SERVER_SOCKET_ACCEPT_TIMEOUT_MS
             )
         }

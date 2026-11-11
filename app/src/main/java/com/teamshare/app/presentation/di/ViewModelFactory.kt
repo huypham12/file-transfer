@@ -93,7 +93,8 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
             relayEngine = relayEngine,
             authenticateBiometricUseCase = com.teamshare.app.domain.usecase.platform.AuthenticateBiometricUseCase(biometricAuthManager),
             serviceLauncher = serviceLauncher,
-            transferRepository = transferRepo
+            transferRepository = transferRepo,
+            preferencesManager = com.teamshare.app.core.platform.preference.AppPreferencesManager.getInstance(context)
         )
     }
 
