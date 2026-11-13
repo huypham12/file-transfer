@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Kịch bản sinh Keystore Ký số Bản phát hành (Release Keystore Generator) cho TeamShare.
+    Kịch bản sinh Keystore Ký số Bản phát hành (Release Keystore Generator) cho filetransfer.
 
 .DESCRIPTION
     Sử dụng công cụ keytool của Java Development Kit (JDK) để khởi tạo cặp khóa
@@ -8,25 +8,25 @@
     hoặc RSA-4096 phục vụ đóng gói và phân phối release APK/AAB.
 
 .PARAMETER KeystorePath
-    Đường dẫn tệp Keystore đầu ra (mặc định: teamshare-release.jks)
+    Đường dẫn tệp Keystore đầu ra (mặc định: filetransfer-release.jks)
 
 .PARAMETER KeyAlias
-    Tên định danh của khóa (mặc định: teamshare_release_key)
+    Tên định danh của khóa (mặc định: filetransfer_release_key)
 
 .PARAMETER ValidityDays
     Thời hạn hiệu lực của chứng chỉ tính bằng ngày (mặc định: 10000 ngày ~ 27 năm)
 #>
 
 param(
-    [string]$KeystorePath = "teamshare-release.jks",
-    [string]$KeyAlias = "teamshare_release_key",
+    [string]$KeystorePath = "filetransfer-release.jks",
+    [string]$KeyAlias = "filetransfer_release_key",
     [int]$ValidityDays = 10000,
-    [string]$StorePassword = "TeamShare@SecureRelease2026",
-    [string]$KeyPassword = "TeamShare@SecureRelease2026"
+    [string]$StorePassword = "filetransfer@SecureRelease2026",
+    [string]$KeyPassword = "filetransfer@SecureRelease2026"
 )
 
 Write-Host "=================================================================" -ForegroundColor Cyan
-Write-Host "    TEAMSHARE RELEASE KEYSTORE GENERATOR (STAGE 8)               " -ForegroundColor Cyan
+Write-Host "    filetransfer RELEASE KEYSTORE GENERATOR (STAGE 8)               " -ForegroundColor Cyan
 Write-Host "=================================================================" -ForegroundColor Cyan
 
 # 1. Tìm kiếm công cụ keytool
@@ -54,7 +54,7 @@ if (Test-Path $KeystorePath) {
 }
 
 # 2. Sinh Keystore với thuật toán EC secp256r1
-$dname = "CN=TeamShare Engineering, OU=Security Division, O=KMA, L=Hanoi, ST=Hanoi, C=VN"
+$dname = "CN=filetransfer Engineering, OU=Security Division, O=KMA, L=Hanoi, ST=Hanoi, C=VN"
 
 Write-Host "Đang sinh cặp khóa ký số ECDSA secp256r1..." -ForegroundColor White
 

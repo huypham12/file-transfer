@@ -1,4 +1,4 @@
-module teamshare/relay
+module filetransfer/relay
 
 go 1.22
 

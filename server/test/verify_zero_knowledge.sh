@@ -6,7 +6,7 @@ echo "=========================================================="
 echo "KIỂM CHỨNG CAM KẾT ZERO-KNOWLEDGE RELAY SERVER"
 echo "=========================================================="
 
-CONTAINER_NAME="teamshare-relay-backend"
+CONTAINER_NAME="filetransfer-relay-backend"
 
 # 1. Kiểm tra tiến trình có mở file write nào không (ngoại trừ stdout/stderr)
 echo "[1] Kiểm tra file descriptors đang mở của tiến trình relay..."

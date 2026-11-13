@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Kịch bản tự động hóa đo kiểm hiệu năng (RAM, CPU, Pin) ứng dụng TeamShare qua ADB
+    Kịch bản tự động hóa đo kiểm hiệu năng (RAM, CPU, Pin) ứng dụng filetransfer qua ADB
     phục vụ báo cáo thực nghiệm đồ án tốt nghiệp KMA.
 
 .DESCRIPTION
@@ -32,7 +32,7 @@ param(
 )
 
 Write-Host "=================================================================" -ForegroundColor Cyan
-Write-Host "   TEAMSHARE ANDROID SYSTEM BENCHMARK PROFILER (STAGE 8)         " -ForegroundColor Cyan
+Write-Host "   filetransfer ANDROID SYSTEM BENCHMARK PROFILER (STAGE 8)         " -ForegroundColor Cyan
 Write-Host "=================================================================" -ForegroundColor Cyan
 Write-Host "Gói ứng dụng mục tiêu: $PackageName" -ForegroundColor Yellow
 Write-Host "Thời lượng đo kiểm:    $DurationSeconds giây (Chu kỳ: ${IntervalSeconds}s)" -ForegroundColor Yellow

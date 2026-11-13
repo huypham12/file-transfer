@@ -1,7 +1,7 @@
 @echo off
-title TeamShare - Zero-Knowledge Relay Server
+title filetransfer - Zero-Knowledge Relay Server
 echo ========================================================
-echo   TeamShare - May chu chuyen tiep Zero-Knowledge Relay
+echo   filetransfer - May chu chuyen tiep Zero-Knowledge Relay
 echo   Cam ket bao mat: Chuyen tiep RAM, khong ghi dia
 echo ========================================================
 echo.

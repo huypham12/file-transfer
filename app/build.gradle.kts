@@ -78,10 +78,10 @@ android {
             isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
 
-            buildConfigField("String", "DEFAULT_RELAY_HOST", "\"relay.teamshare.app\"")
+            buildConfigField("String", "DEFAULT_RELAY_HOST", "\"relay.filetransfer.app\"")
             buildConfigField("int", "DEFAULT_RELAY_PORT", "443")
             buildConfigField("int", "DEFAULT_LAN_PORT", "8889")
-            buildConfigField("String", "RELAY_URL", "\"wss://relay.teamshare.app/v1/stream\"")
+            buildConfigField("String", "RELAY_URL", "\"wss://relay.filetransfer.app/v1/stream\"")
 
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

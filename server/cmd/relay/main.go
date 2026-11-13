@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"teamshare/relay/internal/relay"
+	"filetransfer/relay/internal/relay"
 )
 
 func main() {
@@ -42,28 +42,28 @@ func main() {
 
 	go func() {
 		log.Println("==================================================================")
-		log.Println("  TeamShare Zero-Knowledge Relay Server (Production Service)")
+		log.Println("  filetransfer Zero-Knowledge Relay Server (Production Service)")
 		log.Println("  Cam ket bao mat: Chuyen tiep RAM truc tiep, KHONG LUU TRU DIA")
 		log.Println("==================================================================")
-		log.Printf("[TeamShare Relay] May chu chuyen tiep dang lang nghe tai %s", addr)
-		log.Println("[TeamShare Relay] Stream Endpoint : /v1/stream (WebSocket E2EE)")
-		log.Println("[TeamShare Relay] Health Endpoint : /health    (HTTP JSON)")
+		log.Printf("[filetransfer Relay] May chu chuyen tiep dang lang nghe tai %s", addr)
+		log.Println("[filetransfer Relay] Stream Endpoint : /v1/stream (WebSocket E2EE)")
+		log.Println("[filetransfer Relay] Health Endpoint : /health    (HTTP JSON)")
 
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("[TeamShare Relay] Loi may chu: %v", err)
+			log.Fatalf("[filetransfer Relay] Loi may chu: %v", err)
 		}
 	}()
 
 	<-stopChan
-	log.Println("[TeamShare Relay] Nhan tin hieu dung, dang tat may chu an toan (Graceful Shutdown)...")
+	log.Println("[filetransfer Relay] Nhan tin hieu dung, dang tat may chu an toan (Graceful Shutdown)...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.GracefulStopTimeout)
 	defer cancel()
 
 	hub.CloseAll()
 	if err := server.Shutdown(ctx); err != nil {
-		log.Printf("[TeamShare Relay] Loi khi tat may chu: %v", err)
+		log.Printf("[filetransfer Relay] Loi khi tat may chu: %v", err)
 	}
 
-	log.Println("[TeamShare Relay] May chu da dung hoan toan.")
+	log.Println("[filetransfer Relay] May chu da dung hoan toan.")
 }

@@ -1,6 +1,6 @@
 # =========================================================================
 # QUY TẮC BẢO VỆ VÀ XÁO TRỘN MÃ NGUỒN PROGUARD / R8 (STAGE 8 RELEASE)
-# HỆ THỐNG CỘNG TÁC NHÓM VÀ CHIA SẺ TÀI LIỆU AN TOÀN TEAMSHARE
+# HỆ THỐNG CỘNG TÁC NHÓM VÀ CHIA SẺ TÀI LIỆU AN TOÀN filetransfer
 # =========================================================================
 
 # 1. Bảo vệ Toàn vẹn CSDL Room & Thư viện Native SQLCipher
@@ -9,7 +9,7 @@
     public <init>();
 }
 -keep class * extends androidx.room.RoomOpenHelper
--keep class com.teamshare.app.data.local.db.** { *; }
+-keep class com.filetransfer.app.data.local.db.** { *; }
 -keepclassmembers class * extends androidx.room.RoomDatabase { *; }
 -keep class net.sqlcipher.** { *; }
 -keep class net.sqlcipher.database.** { *; }
@@ -22,15 +22,15 @@
 -dontwarn androidx.security.crypto.**
 
 # 3. Bảo vệ Presentation ViewModels & Dependency Injection Factory
--keep class com.teamshare.app.presentation.viewmodel.** { *; }
--keep class com.teamshare.app.presentation.di.** { *; }
+-keep class com.filetransfer.app.presentation.viewmodel.** { *; }
+-keep class com.filetransfer.app.presentation.di.** { *; }
 -keepclassmembers class * extends androidx.lifecycle.ViewModel {
     public <init>(...);
 }
 
 # 4. Bảo vệ Giao thức Khung tin Nhị phân & Serialization
--keep class com.teamshare.app.core.protocol.** { *; }
--keepclassmembers class com.teamshare.app.core.protocol.** { *; }
+-keep class com.filetransfer.app.core.protocol.** { *; }
+-keepclassmembers class com.filetransfer.app.core.protocol.** { *; }
 -keep class org.json.** { *; }
 
 # 5. Bảo vệ Thư viện Mạng OkHttp & WebSockets
@@ -59,8 +59,8 @@
 -dontwarn com.google.zxing.**
 
 # 9. Bảo vệ Domain Models & Presentation Navigation
--keep class com.teamshare.app.domain.model.** { *; }
--keep class com.teamshare.app.presentation.navigation.** { *; }
+-keep class com.filetransfer.app.domain.model.** { *; }
+-keep class com.filetransfer.app.presentation.navigation.** { *; }
 
 # 10. Tối ưu hóa Chung, Giữ dòng mã phục vụ báo cáo sự cố (Stacktrace)
 -dontusemixedcaseclassnames

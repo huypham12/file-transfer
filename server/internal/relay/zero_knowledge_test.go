@@ -134,7 +134,7 @@ func TestZeroKnowledge_FullTraffic_NoDiskWrites(t *testing.T) {
 	for _, file := range afterFiles {
 		if !existingFiles[file.Name()] {
 			lowerName := strings.ToLower(file.Name())
-			if strings.Contains(lowerName, "relay") || strings.Contains(lowerName, "teamshare") {
+			if strings.Contains(lowerName, "relay") || strings.Contains(lowerName, "filetransfer") {
 				t.Errorf("Phát hiện tệp mới rò rỉ trên đĩa: %s", file.Name())
 			}
 		}

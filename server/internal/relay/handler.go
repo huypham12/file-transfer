@@ -188,7 +188,7 @@ func HandleHealth(hub *Hub) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":        "UP",
-			"service":       "teamshare-zero-knowledge-relay",
+			"service":       "filetransfer-zero-knowledge-relay",
 			"activeBridges": hub.CountActiveBridges(),
 			"hostIp":        GetHostLanIP(),
 			"timestamp":     time.Now().Unix(),

@@ -42,7 +42,7 @@
         android:theme="@style/Theme.Filetranfer">
 
         <activity
-            android:name="com.teamshare.app.presentation.MainActivity"
+            android:name="com.filetransfer.app.presentation.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.Filetranfer">
@@ -54,7 +54,7 @@
 
         <!-- Tiếp nhận chia sẻ tệp từ các ứng dụng khác trên Android OS (Send Intent - SRS FR-MOB-01) -->
         <activity
-            android:name="com.teamshare.app.presentation.ui.share.ShareIntentHandlerActivity"
+            android:name="com.filetransfer.app.presentation.ui.share.ShareIntentHandlerActivity"
             android:exported="true"
             android:label="@string/title_share_target"
             android:theme="@style/Theme.Filetranfer">
@@ -68,7 +68,7 @@
 
         <!-- Dịch vụ Nền tảng Di động duy trì truyền tệp chống Doze Mode & LMK (SAD ADR-08, SRS FR-MOB-03) -->
         <service
-            android:name="com.teamshare.app.core.platform.service.TransferForegroundService"
+            android:name="com.filetransfer.app.core.platform.service.TransferForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 

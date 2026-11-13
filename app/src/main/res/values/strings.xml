@@ -1,6 +1,6 @@
 <resources>
-    <string name="app_name">TeamShare</string>
-    <string name="title_share_target">TeamShare - Chia sẻ vào nhóm</string>
+    <string name="app_name">filetransfer</string>
+    <string name="title_share_target">filetransfer - Chia sẻ vào nhóm</string>
     <string name="notification_channel_transfer_name">Tiến trình truyền tệp</string>
     <string name="notification_channel_transfer_desc">Hiển thị tiến độ truyền tải tệp tin P2P và Relay thời gian thực</string>
     <string name="notification_channel_events_name">Thông báo hoàn tất &amp; Sự kiện</string>
@@ -14,7 +14,7 @@
     <string name="action_cancel">Hủy</string>
 
     <!-- Team List & Workspace -->
-    <string name="team_list_title">TeamShare</string>
+    <string name="team_list_title">filetransfer</string>
     <string name="team_list_search_hint">Tìm kiếm nhóm theo tên hoặc mô tả...</string>
     <string name="team_list_empty_title">Chưa tham gia nhóm nào</string>
     <string name="team_list_empty_subtitle">Tạo nhóm mới để bắt đầu chia sẻ tài liệu an toàn hoặc quét mã QR lời mời từ Trưởng nhóm.</string>
@@ -112,7 +112,7 @@
     <string name="msg_connecting">Đang kết nối...</string>
     <string name="msg_biometric_prompt_title">Xác thực vân tay để mở tệp</string>
     <string name="placeholder_search_events">Tìm kiếm sự kiện, tên tệp, thiết bị...</string>
-    <string name="label_share_code">Mã chia sẻ (teamshare://...)</string>
+    <string name="label_share_code">Mã chia sẻ (filetransfer://...)</string>
     <string name="placeholder_share_code">Dán toàn bộ tin nhắn hoặc mã nhận được</string>
     <string name="tag_lan_p2p">[LAN P2P]</string>
     <string name="tag_internet_e2ee">[Internet E2EE]</string>
@@ -142,7 +142,7 @@
     <string name="receiver_status_completed">Đã hoàn tất</string>
     <string name="receiver_status_failed">Thất bại</string>
     <string name="sender_share_code_copied">Đã sao chép mã chia sẻ vào bộ nhớ tạm</string>
-    <string name="sender_share_sheet_title">Chia sẻ mã tải tệp TeamShare</string>
+    <string name="sender_share_sheet_title">Chia sẻ mã tải tệp filetransfer</string>
     <string name="btn_share_message">Chia sẻ tin nhắn</string>
     <string name="btn_copy_code">Sao chép mã</string>
 
@@ -238,8 +238,8 @@
     <string name="btn_extract_folder">Giải nén vào Tải về</string>
     <string name="btn_save_all_to_downloads">Lưu tất cả vào Tải về</string>
     <string name="btn_browse_files">Duyệt danh sách tệp</string>
-    <string name="msg_folder_extracted_success">Đã giải nén %1$d tệp vào Downloads/TeamShare/%2$s</string>
-    <string name="msg_batch_saved_success">Đã lưu %1$d tệp vào Downloads/TeamShare</string>
+    <string name="msg_folder_extracted_success">Đã giải nén %1$d tệp vào Downloads/filetransfer/%2$s</string>
+    <string name="msg_batch_saved_success">Đã lưu %1$d tệp vào Downloads/filetransfer</string>
     <string name="history_type_folder">Thư mục</string>
     <string name="history_type_batch">%1$d tệp tin</string>
     <string name="dialog_batch_files_title">Danh sách tệp tin (%1$d tệp)</string>
