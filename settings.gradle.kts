@@ -22,6 +22,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "file-tranfer"
+rootProject.name = "filetransfer"
 include(":app")
  

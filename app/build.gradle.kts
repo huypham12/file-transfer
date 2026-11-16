@@ -14,11 +14,11 @@ val localProperties = Properties().apply {
 }
 
 android {
-    namespace = "com.example.file_tranfer"
+    namespace = "com.filetransfer.app"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.example.file_tranfer"
+        applicationId = "com.filetransfer.app"
         minSdk = 24
         targetSdk = 35
         versionCode = 1
