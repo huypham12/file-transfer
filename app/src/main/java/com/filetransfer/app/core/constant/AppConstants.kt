@@ -9,7 +9,6 @@ object AppConstants {
     object Network {
         const val DEFAULT_LAN_PORT = 8889
         const val DEFAULT_RELAY_PORT = 8080
-        const val DEFAULT_SYNC_PORT = 8988
         const val DEFAULT_LOOPBACK_HOST = "10.0.2.2"
         const val DEFAULT_FALLBACK_IP = "127.0.0.1"
 
@@ -136,12 +135,10 @@ object AppConstants {
         const val PART_FILE_PREFIX = ".part_"
         const val BATCH_DIR_PREFIX = "batch_"
         const val SESSION_DIR_PREFIX = "session_"
-        const val TEAM_DIR_PREFIX = "team_"
         const val FILE_PREFIX = "file_"
         const val FOLDER_PREFIX = "folder_"
         const val ZIP_EXTENSION = ".zip"
-        const val TEMP_ZIP_SUFFIX = "_tmp.zip"
-        const val TEAM_SHARE_PUBLIC_FOLDER = "filetransfer"
+        const val PUBLIC_DOWNLOAD_SUBFOLDER = "filetransfer"
     }
 
     object ServiceAction {
@@ -180,7 +177,6 @@ object AppConstants {
 
     object Mime {
         const val ALL = "*/*"
-        const val FOLDER = "resource/folder"
         const val SCHEME_FILE = "file://"
     }
 

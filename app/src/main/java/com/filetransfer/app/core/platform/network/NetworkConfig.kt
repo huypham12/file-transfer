@@ -2,7 +2,7 @@ package com.filetransfer.app.core.platform.network
 
 import android.content.Context
 import android.os.Build
-import com.example.file_tranfer.BuildConfig
+import com.filetransfer.app.BuildConfig
 import com.filetransfer.app.core.constant.AppConstants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,7 +23,6 @@ object NetworkConfig {
     // =========================================================================
     val DEFAULT_LAN_PORT: Int = BuildConfig.DEFAULT_LAN_PORT
     val DEFAULT_RELAY_PORT: Int = BuildConfig.DEFAULT_RELAY_PORT
-    const val DEFAULT_SYNC_PORT = AppConstants.Network.DEFAULT_SYNC_PORT
 
     // =========================================================================
     // 2. MÁY CHỦ VÀ ĐỊA CHỈ MẠNG MẶC ĐỊNH
