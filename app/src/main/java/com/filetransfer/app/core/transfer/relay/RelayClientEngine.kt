@@ -1,4 +1,4 @@
-package com.filetransfer.app.core.transfer.relay
+﻿package com.filetransfer.app.core.transfer.relay
 
 import com.filetransfer.app.core.constant.AppConstants
 import com.filetransfer.app.core.network.relay.AttachStreamRequest
@@ -7,15 +7,15 @@ import com.filetransfer.app.core.network.relay.RelayWebSocketConnection
 import com.filetransfer.app.core.protocol.BinaryFrameParser
 import com.filetransfer.app.core.protocol.ChunkAckPayload
 import com.filetransfer.app.core.protocol.ChunkFrame
+import com.filetransfer.app.core.protocol.ConnectAcceptedPayload
+import com.filetransfer.app.core.protocol.ConnectRequestPayload
 import com.filetransfer.app.core.protocol.ControlSignalPayload
 import com.filetransfer.app.core.protocol.DataChunkPayload
 import com.filetransfer.app.core.protocol.ErrorAlertPayload
 import com.filetransfer.app.core.protocol.FrameSerializer
-import com.filetransfer.app.core.protocol.HandshakeAuthPayload
-import com.filetransfer.app.core.protocol.ManifestResponsePayload
-import com.filetransfer.app.core.protocol.TransferManifestPayload
+import com.filetransfer.app.core.protocol.ManifestItemPayload
+import com.filetransfer.app.core.protocol.RequestStreamPayload
 import com.filetransfer.app.core.protocol.VerifyResultPayload
-import com.filetransfer.app.core.security.crypto.CryptoEngine
 import com.filetransfer.app.core.security.crypto.E2EEncryptionManager
 import com.filetransfer.app.core.security.crypto.E2EKeyExchangePayload
 import com.filetransfer.app.core.security.crypto.Sha256StreamCalculator
@@ -23,13 +23,11 @@ import com.filetransfer.app.core.security.sanitizer.FilenameSanitizer
 import com.filetransfer.app.core.storage.saf.SafeFileDeleter
 import com.filetransfer.app.core.transfer.buffer.BufferPoolManager
 import com.filetransfer.app.core.transfer.checkpoint.CheckpointTracker
-import com.filetransfer.app.core.transfer.lan.TransferEngineState
-import com.filetransfer.app.core.transfer.lan.TransferProgressCallback
+import com.filetransfer.app.core.transfer.TransferEngineState
+import com.filetransfer.app.core.transfer.TransferProgressCallback
 import com.filetransfer.app.data.local.db.dao.TransferSessionDao
 import com.filetransfer.app.domain.model.DeviceProfile
-import com.filetransfer.app.domain.model.DomainError
 import com.filetransfer.app.domain.model.ErrorCode
-import com.filetransfer.app.domain.model.TeamMembershipCredential
 import com.filetransfer.app.domain.model.TransferSession
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -44,12 +42,10 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.EOFException
 import java.io.File
-import java.io.FileInputStream
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
-import java.security.PublicKey
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -113,21 +109,6 @@ class RelayClientEngine(
         return parser.parseNextFrame(bais) ?: throw IOException("Khung tin nhị phân không hợp lệ hoặc bị cắt cụt")
     }
 
-    private fun parseHexOrBytes(hexOrStr: String): ByteArray {
-        return try {
-            val clean = hexOrStr.trim()
-            if (clean.length % 2 == 0 && clean.matches(Regex("^[0-9a-fA-F]+$"))) {
-                ByteArray(clean.length / 2) { i ->
-                    clean.substring(i * 2, i * 2 + 2).toInt(16).toByte()
-                }
-            } else {
-                clean.toByteArray(Charsets.UTF_8)
-            }
-        } catch (_: Exception) {
-            hexOrStr.toByteArray(Charsets.UTF_8)
-        }
-    }
-
     /**
      * Gửi tệp tin qua Relay Server (Sender Flow) với cơ chế tự động thử lại khi mất kết nối.
      */
@@ -136,10 +117,8 @@ class RelayClientEngine(
         session: TransferSession,
         fileChannel: FileChannel,
         expectedSha256: String,
-        localCredential: TeamMembershipCredential? = null,
-        ownerPublicKey: PublicKey? = null,
         callback: TransferProgressCallback? = null,
-        peerValidator: (suspend (HandshakeAuthPayload) -> Boolean)? = null,
+        peerValidator: (suspend (ConnectRequestPayload) -> Boolean)? = null,
         onPeerConnected: ((DeviceProfile) -> Unit)? = null,
         ttlSeconds: Int = 0,
         maxRetries: Int = AppConstants.Retry.MAX_RELAY_RETRIES
@@ -154,8 +133,6 @@ class RelayClientEngine(
                     session = session,
                     fileChannel = fileChannel,
                     expectedSha256 = expectedSha256,
-                    localCredential = localCredential,
-                    ownerPublicKey = ownerPublicKey,
                     callback = callback,
                     peerValidator = peerValidator,
                     onPeerConnected = onPeerConnected,
@@ -194,10 +171,8 @@ class RelayClientEngine(
         session: TransferSession,
         fileChannel: FileChannel,
         expectedSha256: String,
-        localCredential: TeamMembershipCredential? = null,
-        ownerPublicKey: PublicKey? = null,
         callback: TransferProgressCallback? = null,
-        peerValidator: (suspend (HandshakeAuthPayload) -> Boolean)? = null,
+        peerValidator: (suspend (ConnectRequestPayload) -> Boolean)? = null,
         onPeerConnected: ((DeviceProfile) -> Unit)? = null,
         ttlSeconds: Int = 0
     ): Boolean = withContext(Dispatchers.IO) {
@@ -250,12 +225,6 @@ class RelayClientEngine(
             callback?.onSasGenerated(sas)
 
             // 3. Trao đổi xác thực hai chiều qua Binary Frames
-            val effectiveTeamId = localCredential?.teamId?.ifBlank { session.sessionToken } ?: session.sessionToken
-            val effectiveMemberId = localCredential?.memberId ?: "member_${session.sessionId.take(8)}"
-            val effectiveFingerprint = localCredential?.deviceFingerprint ?: session.peerFingerprint
-            val effectiveRole = localCredential?.role?.name ?: "MEMBER"
-            val effectiveSignature = localCredential?.ownerSignature ?: ""
-
             val myManufacturer = try {
                 android.os.Build.MANUFACTURER?.takeIf { it.isNotBlank() } ?: "Android"
             } catch (_: Throwable) {
@@ -267,105 +236,76 @@ class RelayClientEngine(
                 "Generic Device"
             }
 
-            val authPayload = HandshakeAuthPayload(
-                teamId = effectiveTeamId,
-                memberId = effectiveMemberId,
-                deviceFingerprint = effectiveFingerprint,
-                role = effectiveRole,
-                credentialData = effectiveSignature,
-                clientNonce = System.currentTimeMillis().toString(),
+            val connectPayload = ConnectRequestPayload(
+                sessionToken = session.sessionToken,
+                deviceModel = myModel,
                 deviceManufacturer = myManufacturer,
-                deviceModel = myModel
+                deviceFingerprint = session.peerFingerprint.ifBlank { "sender_fp" },
+                clientNonce = System.currentTimeMillis().toString()
             )
-            val authFrame = serializer.buildHandshakeAuthFrame(streamIdInt, authPayload)
+            val authFrame = serializer.buildConnectRequestFrame(streamIdInt, connectPayload)
             connection.sendBinary(serializeFrame(authFrame))
 
             val peerAuthBytes = connection.receiveBinary()
             val peerAuthFrame = parseFrame(peerAuthBytes)
-            val peerAuthPayload = HandshakeAuthPayload.fromBytes(peerAuthFrame.payload)
+            val peerAuthPayload = ConnectRequestPayload.fromBytes(peerAuthFrame.payload)
 
-            // Thẩm định bên nhận: nếu có ownerPublicKey và localCredential thì kiểm tra chữ ký số, ngược lại kiểm tra sessionToken
-            if (ownerPublicKey != null && localCredential != null && localCredential.teamId.isNotBlank()) {
-                val claims = listOf(
-                    "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:${peerAuthPayload.role}",
-                    "${peerAuthPayload.teamId}|${peerAuthPayload.memberId}|${peerAuthPayload.role}",
-                    "${peerAuthPayload.teamId}|${peerAuthPayload.deviceFingerprint}|${peerAuthPayload.role}"
-                )
-                val peerSignatureBytes = parseHexOrBytes(peerAuthPayload.credentialData)
-                var isValidPeer = false
-                for (claim in claims) {
-                    if (CryptoEngine.verifySignature(ownerPublicKey, claim.toByteArray(Charsets.UTF_8), peerSignatureBytes)) {
-                        isValidPeer = true
-                        break
-                    }
-                }
-                if (!isValidPeer && peerAuthPayload.role == "OWNER" && peerAuthPayload.teamId == localCredential.teamId) {
-                    val ownerClaim = "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:OWNER"
-                    isValidPeer = CryptoEngine.verifySignature(ownerPublicKey, ownerClaim.toByteArray(Charsets.UTF_8), peerSignatureBytes)
-                }
-                if (!isValidPeer && peerValidator?.invoke(peerAuthPayload) == true) {
-                    isValidPeer = true
-                }
-                if (!isValidPeer) {
-                    callback?.onError(ErrorCode.ERR_INVALID_CREDENTIAL, "Chứng thư thành viên của bên nhận không hợp lệ (sai chữ ký Owner)")
-                    throw SecurityException("Bên nhận mang chứng thư giả mạo hoặc sai chữ ký số của Owner")
-                }
-            } else {
-                // Thẩm định sessionToken của bên nhận (Stage 3)
-                if (session.sessionToken.isNotBlank() && peerAuthPayload.teamId.isNotBlank() && peerAuthPayload.teamId != session.sessionToken) {
-                    callback?.onError(ErrorCode.ERR_INVALID_CREDENTIAL, "Session token của bên nhận không khớp")
-                    throw SecurityException("Bên nhận mang session token không hợp lệ")
-                }
-                if (peerValidator != null) {
-                    val isApproved = peerValidator.invoke(peerAuthPayload)
-                    if (!isApproved) {
-                        try {
-                            val alertPayload = ErrorAlertPayload(
-                                errorCode = ErrorCode.ERR_DEVICE_REJECTED,
-                                errorMessage = "Yêu cầu kết nối của bạn đã bị người gửi từ chối."
-                            )
-                            val alertFrame = serializer.buildErrorAlertFrame(streamIdInt, alertPayload)
-                            connection.sendBinary(serializeFrame(alertFrame))
-                        } catch (_: Exception) {}
-                        throw SecurityException("${ErrorCode.ERR_DEVICE_REJECTED}: Người gửi đã từ chối yêu cầu kết nối từ thiết bị ${peerAuthPayload.memberId}")
-                    }
+            // Thẩm định sessionToken của bên nhận
+            if (session.sessionToken.isNotBlank() && peerAuthPayload.sessionToken.isNotBlank() && peerAuthPayload.sessionToken != session.sessionToken) {
+                callback?.onError(ErrorCode.ERR_INVALID_CREDENTIAL, "Session token của bên nhận không khớp")
+                throw SecurityException("Bên nhận mang session token không hợp lệ")
+            }
+            if (peerValidator != null) {
+                val isApproved = peerValidator.invoke(peerAuthPayload)
+                if (!isApproved) {
+                    try {
+                        val alertPayload = ErrorAlertPayload(
+                            errorCode = ErrorCode.ERR_DEVICE_REJECTED,
+                            errorMessage = "Yêu cầu kết nối của bạn đã bị người gửi từ chối."
+                        )
+                        val alertFrame = serializer.buildErrorAlertFrame(streamIdInt, alertPayload)
+                        connection.sendBinary(serializeFrame(alertFrame))
+                    } catch (_: Exception) {}
+                    throw SecurityException("${ErrorCode.ERR_DEVICE_REJECTED}: Người gửi đã từ chối yêu cầu kết nối từ thiết bị ${peerAuthPayload.deviceModel}")
                 }
             }
 
             val peerProfile = DeviceProfile(
                 manufacturer = peerAuthPayload.deviceManufacturer.ifBlank { "Android" },
-                model = peerAuthPayload.deviceModel.ifBlank { peerAuthPayload.memberId },
+                model = peerAuthPayload.deviceModel.ifBlank { "Receiver" },
                 fingerprint = peerAuthPayload.deviceFingerprint
             )
             onPeerConnected?.invoke(peerProfile)
 
-            // 4. Gửi TRANSFER_MANIFEST (0x02) sang Receiver (SDD Mục 6.2)
-            val effectiveDocId = session.docId.ifBlank { "file_${session.sessionId.take(8)}" }
-            val manifestPayload = TransferManifestPayload(
-                docId = effectiveDocId,
-                fileName = effectiveDocId,
+            // 4. Gửi CONNECT_ACCEPTED (0x02) sang Receiver (SDD Mục 6.2)
+            val effectiveFileName = if (session.manifestJson.isNotBlank() && session.manifestJson != "[]") {
+                session.manifestJson
+            } else {
+                "file_${session.sessionId.take(8)}"
+            }
+            val manifestItem = ManifestItemPayload(
+                relativePath = effectiveFileName,
                 fileSize = session.totalBytes,
                 mimeType = "application/octet-stream",
-                expectedSha256 = expectedSha256,
-                chunkSize = bufferPool.bufferSize
+                sha256 = expectedSha256
             )
-            val manifestFrame = serializer.buildTransferManifestFrame(streamIdInt, manifestPayload)
+            val acceptedPayload = ConnectAcceptedPayload(
+                status = ConnectAcceptedPayload.STATUS_APPROVED,
+                transferType = session.transferType.name,
+                manifest = listOf(manifestItem)
+            )
+            val manifestFrame = serializer.buildConnectAcceptedFrame(streamIdInt, acceptedPayload)
             connection.sendBinary(serializeFrame(manifestFrame))
 
-            // Đợi phản hồi MANIFEST_RESPONSE (0x03) từ Receiver
+            // Đợi phản hồi REQUEST_STREAM (0x03) từ Receiver
             val responseBytes = connection.receiveBinary()
             val responseFrame = parseFrame(responseBytes)
-            if (responseFrame.msgType != ChunkFrame.TYPE_MANIFEST_RESPONSE) {
-                throw IOException("Khung tin mong đợi MANIFEST_RESPONSE (0x03), nhận được: ${responseFrame.msgType}")
+            if (responseFrame.msgType != ChunkFrame.TYPE_REQUEST_STREAM) {
+                throw IOException("Khung tin mong đợi REQUEST_STREAM (0x03), nhận được: ${responseFrame.msgType}")
             }
-            val manifestResp = ManifestResponsePayload.fromBytes(responseFrame.payload)
-            if (!manifestResp.accepted) {
-                val reason = manifestResp.rejectionReason ?: "Bên nhận từ chối yêu cầu truyền tệp"
-                callback?.onError(ErrorCode.ERR_DEVICE_REJECTED, reason)
-                throw IOException(reason)
-            }
+            val requestStreamPayload = RequestStreamPayload.fromBytes(responseFrame.payload)
 
-            val startOffset = manifestResp.startOffset
+            val startOffset = requestStreamPayload.startOffset
             confirmedOffset.set(startOffset)
             sessionDao?.updateCheckpoint(session.sessionId, startOffset)
             fileChannel.position(startOffset)
@@ -485,7 +425,7 @@ class RelayClientEngine(
                 return@withContext false
             }
 
-            // 6. Đợi VERIFY_RESULT từ Receiver
+            // 7. Đợi VERIFY_RESULT từ Receiver
             currentState = TransferEngineState.VERIFYING
             callback?.onStateChanged(currentState)
             val verifyResult = verifyResultDeferred.await()
@@ -493,15 +433,17 @@ class RelayClientEngine(
             if (verifyResult.status == "SUCCESS") {
                 currentState = TransferEngineState.COMPLETED
                 callback?.onStateChanged(currentState)
-                callback?.onCompleted(session.docId, verifyResult.actualSha256)
+                callback?.onCompleted(effectiveFileName, verifyResult.actualSha256)
                 true
             } else {
                 currentState = TransferEngineState.FAILED
                 callback?.onStateChanged(currentState)
-                callback?.onError(ErrorCode.ERR_CHECKSUM_MISMATCH, "Sai lệch mã băm SHA-256 từ phía nhận")
+                callback?.onError(
+                    ErrorCode.ERR_CHECKSUM_MISMATCH,
+                    "Phía nhận báo sai lệch mã băm SHA-256 (Thực tế nhận: ${verifyResult.actualSha256})"
+                )
                 false
             }
-
         } finally {
             readerJob?.cancel()
             connection.close()
@@ -518,10 +460,8 @@ class RelayClientEngine(
         session: TransferSession,
         targetFile: File,
         expectedSha256: String,
-        localCredential: TeamMembershipCredential? = null,
-        ownerPublicKey: PublicKey? = null,
         callback: TransferProgressCallback? = null,
-        peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null,
+        peerValidator: ((ConnectRequestPayload) -> Boolean)? = null,
         maxRetries: Int = AppConstants.Retry.MAX_RELAY_RETRIES
     ): File? {
         var attempt = 0
@@ -534,8 +474,6 @@ class RelayClientEngine(
                     session = session,
                     targetFile = targetFile,
                     expectedSha256 = expectedSha256,
-                    localCredential = localCredential,
-                    ownerPublicKey = ownerPublicKey,
                     callback = callback,
                     peerValidator = peerValidator
                 )
@@ -561,7 +499,7 @@ class RelayClientEngine(
                 attempt++
                 if (attempt > maxRetries) {
                     currentState = TransferEngineState.FAILED
-                    callback?.onError(ErrorCode.ERR_RELAY_UNAVAILABLE, "ERR_RELAY_UNAVAILABLE: Không thể kết nối tới Relay sau $maxRetries lần thử lại")
+                    callback?.onError(ErrorCode.ERR_RELAY_UNAVAILABLE, "ERR_RELAY_UNAVAILABLE: Không thể nhận từ Relay sau $maxRetries lần thử lại")
                     callback?.onStateChanged(currentState)
                     throw e
                 }
@@ -581,10 +519,8 @@ class RelayClientEngine(
         session: TransferSession,
         targetFile: File,
         expectedSha256: String,
-        localCredential: TeamMembershipCredential? = null,
-        ownerPublicKey: PublicKey? = null,
         callback: TransferProgressCallback? = null,
-        peerValidator: ((HandshakeAuthPayload) -> Boolean)? = null
+        peerValidator: ((ConnectRequestPayload) -> Boolean)? = null
     ): File? = withContext(Dispatchers.IO) {
         isCancelled.set(false)
         isPaused.set(false)
@@ -594,7 +530,10 @@ class RelayClientEngine(
         val connection = RelayWebSocketConnection(okHttpClient)
         activeConnection = connection
 
-        val partFile = File(targetFile.parentFile, "${targetFile.name}.part").also { activePartFile = it }
+        val partFile = File(targetFile.parentFile, "${targetFile.name}.part").also {
+            activePartFile = it
+        }
+
         var raf: RandomAccessFile? = null
         var fileChannel: FileChannel? = null
         val streamIdInt = 1
@@ -633,12 +572,6 @@ class RelayClientEngine(
             callback?.onSasGenerated(sas)
 
             // 3. Trao đổi xác thực hai chiều Handshake Auth
-            val effectiveTeamId = localCredential?.teamId?.ifBlank { session.sessionToken } ?: session.sessionToken
-            val effectiveMemberId = localCredential?.memberId ?: "member_${session.sessionId.take(8)}"
-            val effectiveFingerprint = localCredential?.deviceFingerprint ?: session.peerFingerprint
-            val effectiveRole = localCredential?.role?.name ?: "MEMBER"
-            val effectiveSignature = localCredential?.ownerSignature ?: ""
-
             val myManufacturer = try {
                 android.os.Build.MANUFACTURER?.takeIf { it.isNotBlank() } ?: "Android"
             } catch (_: Throwable) {
@@ -650,59 +583,28 @@ class RelayClientEngine(
                 "Generic Device"
             }
 
-            val authPayload = HandshakeAuthPayload(
-                teamId = effectiveTeamId,
-                memberId = effectiveMemberId,
-                deviceFingerprint = effectiveFingerprint,
-                role = effectiveRole,
-                credentialData = effectiveSignature,
-                clientNonce = System.currentTimeMillis().toString(),
+            val connectPayload = ConnectRequestPayload(
+                sessionToken = session.sessionToken,
+                deviceModel = myModel,
                 deviceManufacturer = myManufacturer,
-                deviceModel = myModel
+                deviceFingerprint = session.peerFingerprint.ifBlank { "receiver_fp" },
+                clientNonce = System.currentTimeMillis().toString()
             )
-            val authFrame = serializer.buildHandshakeAuthFrame(streamIdInt, authPayload)
+            val authFrame = serializer.buildConnectRequestFrame(streamIdInt, connectPayload)
             connection.sendBinary(serializeFrame(authFrame))
 
             val peerAuthBytes = connection.receiveBinary()
             val peerAuthFrame = parseFrame(peerAuthBytes)
-            val peerAuthPayload = HandshakeAuthPayload.fromBytes(peerAuthFrame.payload)
+            val peerAuthPayload = ConnectRequestPayload.fromBytes(peerAuthFrame.payload)
 
-            // Thẩm định bên gửi: nếu có ownerPublicKey và localCredential thì kiểm tra chữ ký số, ngược lại kiểm tra sessionToken
-            if (ownerPublicKey != null && localCredential != null && localCredential.teamId.isNotBlank()) {
-                val claims = listOf(
-                    "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:${peerAuthPayload.role}",
-                    "${peerAuthPayload.teamId}|${peerAuthPayload.memberId}|${peerAuthPayload.role}",
-                    "${peerAuthPayload.teamId}|${peerAuthPayload.deviceFingerprint}|${peerAuthPayload.role}"
-                )
-                val peerSignatureBytes = parseHexOrBytes(peerAuthPayload.credentialData)
-                var isValidPeer = false
-                for (claim in claims) {
-                    if (CryptoEngine.verifySignature(ownerPublicKey, claim.toByteArray(Charsets.UTF_8), peerSignatureBytes)) {
-                        isValidPeer = true
-                        break
-                    }
-                }
-                if (!isValidPeer && peerAuthPayload.role == "OWNER" && peerAuthPayload.teamId == localCredential.teamId) {
-                    val ownerClaim = "${peerAuthPayload.teamId}:${peerAuthPayload.memberId}:${peerAuthPayload.deviceFingerprint}:OWNER"
-                    isValidPeer = CryptoEngine.verifySignature(ownerPublicKey, ownerClaim.toByteArray(Charsets.UTF_8), peerSignatureBytes)
-                }
-                if (!isValidPeer && peerValidator?.invoke(peerAuthPayload) == true) {
-                    isValidPeer = true
-                }
-                if (!isValidPeer) {
-                    callback?.onError(ErrorCode.ERR_INVALID_CREDENTIAL, "Chứng thư thành viên của bên gửi không hợp lệ (sai chữ ký Owner)")
-                    throw SecurityException("Bên gửi mang chứng thư giả mạo hoặc sai chữ ký số của Owner")
-                }
-            } else {
-                if (peerAuthPayload.teamId != session.sessionToken && peerValidator?.invoke(peerAuthPayload) != true) {
-                    if (session.sessionToken.isNotBlank() && peerAuthPayload.teamId.isNotBlank() && peerAuthPayload.teamId != session.sessionToken) {
-                        callback?.onError(ErrorCode.ERR_INVALID_CREDENTIAL, "Session token của bên gửi không khớp")
-                        throw SecurityException("Bên gửi mang session token không hợp lệ")
-                    }
+            if (peerAuthPayload.sessionToken != session.sessionToken && peerValidator?.invoke(peerAuthPayload) != true) {
+                if (session.sessionToken.isNotBlank() && peerAuthPayload.sessionToken.isNotBlank() && peerAuthPayload.sessionToken != session.sessionToken) {
+                    callback?.onError(ErrorCode.ERR_INVALID_CREDENTIAL, "Session token của bên gửi không khớp")
+                    throw SecurityException("Bên gửi mang session token không hợp lệ")
                 }
             }
 
-            // 4. Nhận TRANSFER_MANIFEST (0x02) từ Sender (SDD Mục 6.2)
+            // 4. Nhận CONNECT_ACCEPTED (0x02) từ Sender (SDD Mục 6.2)
             val manifestBytes = connection.receiveBinary()
             val manifestFrame = parseFrame(manifestBytes)
             if (manifestFrame.msgType == ChunkFrame.TYPE_ERROR_ALERT) {
@@ -710,29 +612,32 @@ class RelayClientEngine(
                 callback?.onError(errPayload.errorCode, errPayload.errorMessage)
                 throw SecurityException("${errPayload.errorCode}: ${errPayload.errorMessage}")
             }
-            if (manifestFrame.msgType != ChunkFrame.TYPE_TRANSFER_MANIFEST) {
-                throw IOException("Khung tin mong đợi TRANSFER_MANIFEST (0x02), nhận được: ${manifestFrame.msgType}")
+            if (manifestFrame.msgType != ChunkFrame.TYPE_CONNECT_ACCEPTED) {
+                throw IOException("Khung tin mong đợi CONNECT_ACCEPTED (0x02), nhận được: ${manifestFrame.msgType}")
             }
-            val manifest = TransferManifestPayload.fromBytes(manifestFrame.payload)
+            val accepted = ConnectAcceptedPayload.fromBytes(manifestFrame.payload)
+            if (!accepted.isApproved) {
+                throw SecurityException("Bên gửi đã từ chối kết nối")
+            }
+            val totalFileSize = accepted.manifest.firstOrNull()?.fileSize?.takeIf { it > 0 } ?: session.totalBytes
 
             // Kiểm tra mốc Resume từ tệp tạm .part hiện có và checkpoint DB
             val dbOffset = sessionDao?.getSessionById(session.sessionId)?.confirmedOffset ?: 0L
-            val startOffset = if (partFile.exists() && partFile.length() < manifest.fileSize) {
+            val startOffset = if (partFile.exists() && partFile.length() < totalFileSize) {
                 if (dbOffset > 0 && dbOffset <= partFile.length()) dbOffset else partFile.length()
             } else {
-                if (partFile.exists() && partFile.length() >= manifest.fileSize) {
+                if (partFile.exists() && partFile.length() >= totalFileSize) {
                     partFile.delete()
                 }
                 0L
             }
 
-            // Phản hồi MANIFEST_RESPONSE (0x03) về cho Sender mang startOffset
-            val manifestResp = ManifestResponsePayload(
-                accepted = true,
-                startOffset = startOffset,
-                rejectionReason = null
+            // Phản hồi REQUEST_STREAM (0x03) về cho Sender mang startOffset
+            val streamReq = RequestStreamPayload(
+                sessionId = session.sessionId,
+                startOffset = startOffset
             )
-            val responseFrame = serializer.buildManifestResponseFrame(streamIdInt, manifestResp)
+            val responseFrame = serializer.buildRequestStreamFrame(streamIdInt, streamReq)
             connection.sendBinary(serializeFrame(responseFrame))
 
             // 5. Chuẩn bị file `.part` và vị trí ghi
@@ -749,7 +654,7 @@ class RelayClientEngine(
             currentState = TransferEngineState.TRANSFERRING
             callback?.onStateChanged(currentState)
             var totalBytesReceived = startOffset
-            val totalBytes = manifest.fileSize
+            val totalBytes = totalFileSize
             val startTime = System.currentTimeMillis()
             var connectionFailed = false
             var connectionError: Exception? = null
@@ -824,10 +729,11 @@ class RelayClientEngine(
             callback?.onStateChanged(currentState)
             val actualSha256 = Sha256StreamCalculator.calculateFileSha256(partFile)
 
+            val manifestExpectedSha = accepted.manifest.firstOrNull()?.sha256 ?: ""
             val targetExpectedSha = if (expectedSha256.isNotBlank()) {
                 expectedSha256
             } else {
-                manifest.expectedSha256
+                manifestExpectedSha
             }
 
             val isMatch = targetExpectedSha.isNotBlank() && actualSha256.equals(targetExpectedSha, ignoreCase = true)
@@ -841,8 +747,9 @@ class RelayClientEngine(
             delay(AppConstants.Timeout.VERIFY_FLUSH_DELAY_MS) // Đảm bảo frame VERIFY_RESULT được truyền đi qua mạng trước khi đóng kết nối
 
             if (isMatch) {
-                val finalTargetFile = if (targetFile.name.startsWith(AppConstants.StorageDirectory.FILE_PREFIX) && manifest.fileName.isNotBlank() && manifest.fileName != targetFile.name) {
-                    File(targetFile.parentFile, FilenameSanitizer.sanitize(manifest.fileName))
+                val manifestFileName = accepted.manifest.firstOrNull()?.relativePath ?: ""
+                val finalTargetFile = if (targetFile.name.startsWith(AppConstants.StorageDirectory.FILE_PREFIX) && manifestFileName.isNotBlank() && manifestFileName != targetFile.name) {
+                    File(targetFile.parentFile, FilenameSanitizer.sanitize(manifestFileName))
                 } else {
                     targetFile
                 }

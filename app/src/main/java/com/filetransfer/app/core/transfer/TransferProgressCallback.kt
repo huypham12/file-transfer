@@ -1,7 +1,7 @@
-package com.filetransfer.app.core.transfer.lan
+package com.filetransfer.app.core.transfer
 
 /**
- * Trạng thái vòng đời của Động cơ Truyền LAN (LanTransferEngine).
+ * Trạng thái vòng đời thời gian thực của Động cơ Truyền tải (Transfer Engine: LAN và Relay E2EE).
  */
 enum class TransferEngineState {
     IDLE,
@@ -33,7 +33,7 @@ interface TransferProgressCallback {
     /**
      * Thông báo hoàn tất truyền và xác minh toàn vẹn tệp thành công.
      */
-    fun onCompleted(docId: String, finalSha256: String) {}
+    fun onCompleted(transferId: String, finalSha256: String) {}
 
     /**
      * Thông báo mã xác thực ngắn SAS 6 chữ số khi bắt tay E2EE hoàn tất.

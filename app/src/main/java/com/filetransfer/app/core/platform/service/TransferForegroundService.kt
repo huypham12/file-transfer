@@ -1,4 +1,4 @@
-package com.filetransfer.app.core.platform.service
+﻿package com.filetransfer.app.core.platform.service
 
 import android.app.Service
 import android.content.Context
@@ -10,7 +10,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import com.filetransfer.app.core.constant.AppConstants
-import com.filetransfer.app.core.transfer.lan.TransferEngineState
+import com.filetransfer.app.core.transfer.TransferEngineState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

@@ -1,7 +1,7 @@
-package com.filetransfer.app.core.platform.service
+﻿package com.filetransfer.app.core.platform.service
 
-import com.filetransfer.app.core.transfer.lan.TransferEngineState
-import com.filetransfer.app.core.transfer.lan.TransferProgressCallback
+import com.filetransfer.app.core.transfer.TransferEngineState
+import com.filetransfer.app.core.transfer.TransferProgressCallback
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,7 +37,7 @@ interface ITransferServiceController {
     fun startSession(sessionId: String, documentName: String, totalBytes: Long, isLan: Boolean)
     fun notifyProgress(bytesTransferred: Long, totalBytes: Long, speedBytesPerSec: Long)
     fun notifyStateChanged(state: TransferEngineState)
-    fun notifyCompleted(docId: String, finalSha256: String)
+    fun notifyCompleted(transferId: String, finalSha256: String)
     fun notifyError(errorCode: String, message: String)
 
     fun requestPause()
@@ -129,7 +129,7 @@ object TransferServiceController : ITransferServiceController {
         }
     }
 
-    override fun notifyCompleted(docId: String, finalSha256: String) {
+    override fun notifyCompleted(transferId: String, finalSha256: String) {
         _serviceState.update { current ->
             current.copy(
                 isRunning = false,
@@ -141,7 +141,7 @@ object TransferServiceController : ITransferServiceController {
 
         for (cb in callbacks) {
             try {
-                cb.onCompleted(docId, finalSha256)
+                cb.onCompleted(transferId, finalSha256)
             } catch (e: Exception) {
             }
         }
