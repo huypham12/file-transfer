@@ -18,20 +18,6 @@ class SoftwareKeyManager : IKeyManager {
     private val secureRandom = SecureRandom()
     private var cachedDatabasePassphrase: ByteArray? = null
 
-    override fun generateOwnerMasterKey(teamId: String): PublicKey {
-        val alias = IKeyManager.MASTER_KEY_PREFIX + teamId
-        val keyPair = generateEcKeyPair()
-        keyStoreMap[alias] = keyPair
-        return keyPair.public
-    }
-
-    override fun generateMemberIdentityKey(): PublicKey {
-        val alias = IKeyManager.MEMBER_IDENTITY_KEY_ALIAS
-        val keyPair = generateEcKeyPair()
-        keyStoreMap[alias] = keyPair
-        return keyPair.public
-    }
-
     override fun generateDeviceKeyPair(): PublicKey {
         val alias = IKeyManager.DEVICE_IDENTITY_KEY_ALIAS
         val keyPair = generateEcKeyPair()

@@ -39,16 +39,6 @@ class AndroidKeystoreKeyManager(
     @Volatile
     private var cachedPassphrase: ByteArray? = null
 
-    override fun generateOwnerMasterKey(teamId: String): PublicKey {
-        val alias = IKeyManager.MASTER_KEY_PREFIX + teamId
-        return generateHardwareBackedEcKeyPair(alias)
-    }
-
-    override fun generateMemberIdentityKey(): PublicKey {
-        val alias = IKeyManager.MEMBER_IDENTITY_KEY_ALIAS
-        return generateHardwareBackedEcKeyPair(alias)
-    }
-
     override fun generateDeviceKeyPair(): PublicKey {
         val alias = IKeyManager.DEVICE_IDENTITY_KEY_ALIAS
         return generateHardwareBackedEcKeyPair(alias)

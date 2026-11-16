@@ -17,7 +17,7 @@ class DeviceIdentityManager(
 ) : IDeviceIdentityManager {
 
     companion object {
-        const val DEVICE_KEY_ALIAS = IKeyManager.MEMBER_IDENTITY_KEY_ALIAS
+        const val DEVICE_KEY_ALIAS = IKeyManager.DEVICE_IDENTITY_KEY_ALIAS
     }
 
     private val overrideProfile = AtomicReference<DeviceProfile?>(null)
@@ -62,7 +62,7 @@ class DeviceIdentityManager(
         return try {
             if (keyManager != null) {
                 val pubKey = keyManager.getPublicKey(DEVICE_KEY_ALIAS)
-                    ?: keyManager.generateMemberIdentityKey()
+                    ?: keyManager.generateDeviceKeyPair()
                 val md = MessageDigest.getInstance("SHA-256")
                 val digest = md.digest(pubKey.encoded)
                 digest.joinToString("") { "%02x".format(it) }

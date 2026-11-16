@@ -12,8 +12,6 @@ import java.security.PublicKey
 interface IKeyManager {
 
     companion object {
-        const val MASTER_KEY_PREFIX = "filetransfer_master_key_"
-        const val MEMBER_IDENTITY_KEY_ALIAS = "filetransfer_member_identity_key"
         const val DEVICE_IDENTITY_KEY_ALIAS = "filetransfer_device_identity_key"
         const val DATABASE_PASSPHRASE_ALIAS = "filetransfer_db_passphrase_key"
     }
@@ -21,17 +19,7 @@ interface IKeyManager {
     /**
      * Sinh cặp khóa Định danh Thiết bị ECDSA secp256r1 trong TEE / StrongBox (SDD Mục 9.1).
      */
-    fun generateDeviceKeyPair(): PublicKey = generateMemberIdentityKey()
-
-    /**
-     * Sinh cặp khóa ECDSA secp256r1 cho Trưởng nhóm (Owner Master Key) gắn với một [teamId].
-     */
-    fun generateOwnerMasterKey(teamId: String): PublicKey
-
-    /**
-     * Sinh cặp khóa Danh tính ECDSA secp256r1 cho Thành viên (Member Identity Key).
-     */
-    fun generateMemberIdentityKey(): PublicKey
+    fun generateDeviceKeyPair(): PublicKey
 
     /**
      * Lấy khóa công khai theo alias.
@@ -55,8 +43,7 @@ interface IKeyManager {
      */
     fun signSessionToken(token: String): String {
         val data = token.toByteArray(Charsets.UTF_8)
-        val alias = if (hasKey(DEVICE_IDENTITY_KEY_ALIAS)) DEVICE_IDENTITY_KEY_ALIAS else MEMBER_IDENTITY_KEY_ALIAS
-        val sigBytes = signData(alias, data)
+        val sigBytes = signData(DEVICE_IDENTITY_KEY_ALIAS, data)
         return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(sigBytes)
     }
 
@@ -79,7 +66,7 @@ interface IKeyManager {
     fun getOrCreateDatabasePassphrase(): ByteArray
 
     /**
-     * Xóa bỏ cặp khóa khỏi kho khóa theo alias (dùng khi giải tán nhóm hoặc thu hồi quyền).
+     * Xóa bỏ cặp khóa khỏi kho khóa theo alias.
      */
     fun deleteKey(keyAlias: String): Boolean
 
@@ -88,4 +75,3 @@ interface IKeyManager {
      */
     fun hasKey(keyAlias: String): Boolean
 }
-

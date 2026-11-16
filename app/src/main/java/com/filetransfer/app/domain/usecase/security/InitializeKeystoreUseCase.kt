@@ -19,8 +19,6 @@ class InitializeKeystoreUseCase(
         return try {
             val alias = IKeyManager.DEVICE_IDENTITY_KEY_ALIAS
             val existingKey = keyManager.getPublicKey(alias)
-                ?: keyManager.getPublicKey(IKeyManager.MEMBER_IDENTITY_KEY_ALIAS)
-
             val publicKey = existingKey ?: keyManager.generateDeviceKeyPair()
             Result.success(publicKey)
         } catch (e: Exception) {
