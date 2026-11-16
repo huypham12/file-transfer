@@ -53,7 +53,3 @@ data class SecurityAuditLogEntity(
     val details: String
 )
 
-/**
- * Typealias tương thích ngược với các thành phần cũ trong quá trình refactor.
- */
-typealias AuditEntity = SecurityAuditLogEntity

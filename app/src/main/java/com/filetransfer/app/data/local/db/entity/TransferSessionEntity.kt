@@ -70,7 +70,3 @@ data class TransferSessionEntity(
     val completedAt: Long? = null
 )
 
-/**
- * Typealias đảm bảo tương thích ngược với các thành phần cũ trong quá trình refactor.
- */
-typealias SessionEntity = TransferSessionEntity

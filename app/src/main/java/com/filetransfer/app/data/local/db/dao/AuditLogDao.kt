@@ -29,17 +29,7 @@ interface AuditLogDao {
     @Query("SELECT * FROM security_audit_logs WHERE timestamp > :sinceTimestamp ORDER BY timestamp ASC")
     suspend fun getLogsSince(sinceTimestamp: Long): List<SecurityAuditLogEntity>
 
-    @Query("SELECT * FROM security_audit_logs WHERE timestamp > :sinceTimestamp AND (:teamId = '' OR :teamId IS NOT NULL) ORDER BY timestamp ASC")
-    suspend fun getLogsSince(teamId: String, sinceTimestamp: Long): List<SecurityAuditLogEntity>
-
-    @Query("SELECT * FROM security_audit_logs WHERE (:teamId = '' OR :teamId IS NOT NULL) ORDER BY timestamp DESC")
-    fun getLogsByTeam(teamId: String): Flow<List<SecurityAuditLogEntity>>
-
     @Query("DELETE FROM security_audit_logs")
     suspend fun clearLogs(): Int
 }
 
-/**
- * Typealias đảm bảo tương thích ngược với các thành phần cũ trong quá trình refactor.
- */
-typealias AuditDao = AuditLogDao

@@ -19,7 +19,11 @@ class Converters {
 
     @TypeConverter
     fun toTransferDirection(value: String?): TransferDirection? = value?.let {
-        runCatching { TransferDirection.valueOf(it) }.getOrDefault(TransferDirection.INCOMING)
+        when (it) {
+            "SENDER", "OUTGOING" -> TransferDirection.SENDER
+            "RECEIVER", "INCOMING" -> TransferDirection.RECEIVER
+            else -> runCatching { TransferDirection.valueOf(it) }.getOrDefault(TransferDirection.RECEIVER)
+        }
     }
 
     @TypeConverter
@@ -35,7 +39,11 @@ class Converters {
 
     @TypeConverter
     fun toTransferType(value: String?): TransferType? = value?.let {
-        runCatching { TransferType.valueOf(it) }.getOrDefault(TransferType.SINGLE_FILE)
+        when (it) {
+            "SINGLE_FILE" -> TransferType.SINGLE_FILE
+            "BATCH_FILES", "FOLDER_ZIP" -> TransferType.BATCH_FILES
+            else -> runCatching { TransferType.valueOf(it) }.getOrDefault(TransferType.SINGLE_FILE)
+        }
     }
 
     @TypeConverter
@@ -43,7 +51,11 @@ class Converters {
 
     @TypeConverter
     fun toTransferChannel(value: String?): TransferChannel? = value?.let {
-        runCatching { TransferChannel.valueOf(it) }.getOrDefault(TransferChannel.DIRECT_LAN)
+        when (it) {
+            "DIRECT_LAN" -> TransferChannel.DIRECT_LAN
+            "RELAY_E2EE", "ZERO_KNOWLEDGE_RELAY" -> TransferChannel.RELAY_E2EE
+            else -> runCatching { TransferChannel.valueOf(it) }.getOrDefault(TransferChannel.DIRECT_LAN)
+        }
     }
 
     @TypeConverter

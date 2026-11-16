@@ -33,11 +33,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun transferSessionDao(): TransferSessionDao
     abstract fun auditLogDao(): AuditLogDao
 
-    /**
-     * Tương thích ngược với các thành phần cũ gọi auditDao().
-     */
-    fun auditDao(): AuditLogDao = auditLogDao()
-
     companion object {
         const val DATABASE_NAME = "filetransfer_encrypted.db"
 

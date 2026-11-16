@@ -20,20 +20,6 @@ data class SecurityAuditLog(
     val actorDevice: String = "",
     val channel: String = "",
     val severity: AuditSeverity = AuditSeverity.INFO,
-    val details: String,
-
-    // Deprecated fields with defaults for backward compatibility
-    @Deprecated("Legacy teamId")
-    val teamId: String = "",
-    @Deprecated("Legacy actorId")
-    val actorId: String = "",
-    @Deprecated("Legacy actorName")
-    val actorName: String = "",
-    @Deprecated("Legacy signature")
-    val signature: String = ""
+    val details: String
 )
 
-/**
- * Typealias đảm bảo tương thích với các use case và ViewModel hiện có.
- */
-typealias AuditLog = SecurityAuditLog

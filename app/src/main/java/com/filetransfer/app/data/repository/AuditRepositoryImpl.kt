@@ -49,28 +49,11 @@ class AuditRepositoryImpl(
         }
     }
 
-    override suspend fun recordLog(log: SecurityAuditLog): Unit = logEvent(log)
-
     override fun getRecentLogs(limit: Int): Flow<List<SecurityAuditLog>> {
         return auditDao.getRecentLogs(limit).map { list -> list.map { it.toDomain() } }
     }
 
     override fun getLogsBySession(sessionId: String): Flow<List<SecurityAuditLog>> {
         return auditDao.getLogsBySession(sessionId).map { list -> list.map { it.toDomain() } }
-    }
-
-    override fun getLogsByTeam(teamId: String): Flow<List<SecurityAuditLog>> {
-        return auditDao.getLogsByTeam(teamId).map { list -> list.map { it.toDomain() } }
-    }
-
-    override suspend fun getLogsSince(teamId: String, sinceTimestamp: Long): List<SecurityAuditLog> = withContext(Dispatchers.IO) {
-        auditDao.getLogsSince(teamId, sinceTimestamp).map { it.toDomain() }
-    }
-
-    override suspend fun saveLogs(logs: List<SecurityAuditLog>): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
-            auditDao.insertLogs(logs.map { it.toEntity() })
-            Unit
-        }
     }
 }

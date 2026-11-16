@@ -3,10 +3,9 @@ package com.filetransfer.app.data.local.db.mapper
 import com.filetransfer.app.data.local.db.entity.SecurityAuditLogEntity
 import com.filetransfer.app.data.local.db.entity.TransferSessionEntity
 import com.filetransfer.app.domain.model.ApprovalMode
-import com.filetransfer.app.domain.model.AuditLog
+import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.AuditSeverity
 import com.filetransfer.app.domain.model.AuditEventType
-import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.SessionStatus
 import com.filetransfer.app.domain.model.TransferChannel
 import com.filetransfer.app.domain.model.TransferDirection
@@ -21,12 +20,24 @@ import com.filetransfer.app.domain.model.TransferType
 fun TransferSessionEntity.toDomain(): TransferSession = TransferSession(
     sessionId = sessionId,
     sessionToken = sessionToken,
-    direction = runCatching { TransferDirection.valueOf(direction) }.getOrDefault(TransferDirection.INCOMING),
-    channel = runCatching { TransferChannel.valueOf(channel) }.getOrDefault(TransferChannel.DIRECT_LAN),
+    direction = when (direction) {
+        "SENDER", "OUTGOING" -> TransferDirection.SENDER
+        "RECEIVER", "INCOMING" -> TransferDirection.RECEIVER
+        else -> runCatching { TransferDirection.valueOf(direction) }.getOrDefault(TransferDirection.RECEIVER)
+    },
+    channel = when (channel) {
+        "DIRECT_LAN" -> TransferChannel.DIRECT_LAN
+        "RELAY_E2EE", "ZERO_KNOWLEDGE_RELAY" -> TransferChannel.RELAY_E2EE
+        else -> runCatching { TransferChannel.valueOf(channel) }.getOrDefault(TransferChannel.DIRECT_LAN)
+    },
     peerDeviceModel = peerDeviceModel,
     peerFingerprint = peerFingerprint,
     approvalMode = runCatching { ApprovalMode.valueOf(approvalMode) }.getOrDefault(ApprovalMode.MANUAL_APPROVAL),
-    transferType = runCatching { TransferType.valueOf(transferType) }.getOrDefault(TransferType.SINGLE_FILE),
+    transferType = when (transferType) {
+        "SINGLE_FILE" -> TransferType.SINGLE_FILE
+        "BATCH_FILES", "FOLDER_ZIP" -> TransferType.BATCH_FILES
+        else -> runCatching { TransferType.valueOf(transferType) }.getOrDefault(TransferType.SINGLE_FILE)
+    },
     manifestJson = manifestJson,
     totalBytes = totalBytes,
     confirmedOffset = confirmedOffset,
