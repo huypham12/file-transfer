@@ -51,7 +51,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.file_tranfer.R
+import com.filetransfer.app.R
 import com.filetransfer.app.core.constant.AppConstants
 import com.filetransfer.app.core.platform.network.NetworkConfig
 import com.filetransfer.app.domain.model.TransferType
@@ -135,8 +135,6 @@ fun ReceiverHomeScreen(
                                 }
                             } else if (payload != null && payload.itemCount > 1) {
                                 "batch_${sId.take(8)}.zip"
-                            } else if (payload?.transferType == TransferType.FOLDER_ZIP) {
-                                "folder_${sId.take(8)}.zip"
                             } else {
                                 "file_${sId.take(8)}"
                             }
@@ -238,7 +236,7 @@ fun ReceiverHomeScreen(
                         color = MaterialTheme.colorScheme.primaryContainer,
                         modifier = Modifier.size(56.dp)
                     ) {
-                        val isBatch = payload?.transferType == TransferType.BATCH_FILES || (payload != null && payload.itemCount > 1) || payload?.transferType == TransferType.FOLDER_ZIP
+                        val isBatch = payload?.transferType == TransferType.BATCH_FILES || (payload != null && payload.itemCount > 1)
                         Icon(
                             imageVector = if (isBatch) Icons.Default.FolderZip else Icons.Default.InsertDriveFile,
                             contentDescription = "File Type",

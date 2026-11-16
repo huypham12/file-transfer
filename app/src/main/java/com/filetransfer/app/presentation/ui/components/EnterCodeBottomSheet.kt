@@ -1,4 +1,4 @@
-package com.filetransfer.app.presentation.ui.components
+﻿package com.filetransfer.app.presentation.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -49,7 +49,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.file_tranfer.R
+import com.filetransfer.app.R
 import com.filetransfer.app.core.platform.share.ShareCodeHelper
 import com.filetransfer.app.domain.model.SessionQrPayload
 import com.filetransfer.app.domain.model.TransferChannel

@@ -44,7 +44,7 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
     private val database by lazy { AppDatabase.getInstance(context, keyManager) }
 
     private val transferRepo by lazy { TransferRepositoryImpl(database.transferSessionDao()) }
-    private val auditRepo by lazy { AuditRepositoryImpl(database.auditDao(), database.transferSessionDao()) }
+    private val auditRepo by lazy { AuditRepositoryImpl(database.auditLogDao(), database.transferSessionDao()) }
 
     private val dirManager by lazy { StorageDirectoryManager(context) }
     private val networkMonitor by lazy { AndroidNetworkMonitor(context) }
@@ -127,10 +127,10 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
             transferCoordinator = transferCoordinator,
             openFileSecurelyUseCase = OpenFileSecurelyUseCase(
                 biometricAuthManager = biometricAuthManager,
-                fileProviderGateway = fileProviderGateway,
                 auditRepository = auditRepo
             ),
-            biometricAuthManager = biometricAuthManager
+            biometricAuthManager = biometricAuthManager,
+            fileProviderGateway = fileProviderGateway
         )
     }
 
@@ -147,10 +147,10 @@ class ViewModelFactory(private val context: Context) : ViewModelProvider.Factory
             transferRepository = transferRepo,
             openFileSecurelyUseCase = OpenFileSecurelyUseCase(
                 biometricAuthManager = biometricAuthManager,
-                fileProviderGateway = fileProviderGateway,
                 auditRepository = auditRepo
             ),
-            biometricAuthManager = biometricAuthManager
+            biometricAuthManager = biometricAuthManager,
+            fileProviderGateway = fileProviderGateway
         )
     }
 

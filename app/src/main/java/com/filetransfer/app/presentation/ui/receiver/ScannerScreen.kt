@@ -1,4 +1,4 @@
-package com.filetransfer.app.presentation.ui.receiver
+﻿package com.filetransfer.app.presentation.ui.receiver
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -66,7 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import com.example.file_tranfer.R
+import com.filetransfer.app.R
 import com.filetransfer.app.core.platform.share.ShareCodeHelper
 import com.filetransfer.app.presentation.ui.components.EnterCodeBottomSheet
 import com.filetransfer.app.presentation.ui.components.ErrorBanner

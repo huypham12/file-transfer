@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.filetransfer.app.core.platform.network.NetworkAddressHelper
 import com.filetransfer.app.core.transfer.TransferCoordinator
-import com.filetransfer.app.core.transfer.lan.TransferEngineState
+import com.filetransfer.app.core.transfer.TransferEngineState
 import com.filetransfer.app.domain.model.SessionCmd
 import com.filetransfer.app.domain.model.SessionStatus
 import com.filetransfer.app.domain.model.TransferChannel
@@ -28,7 +28,7 @@ import kotlinx.coroutines.withContext
 import com.filetransfer.app.core.storage.saf.ExportOverwriteMode
 import com.filetransfer.app.core.storage.saf.PublicStorageExporter
 import com.filetransfer.app.core.storage.saf.SafeFileDeleter
-import com.filetransfer.app.core.transfer.lan.TransferProgressCallback
+import com.filetransfer.app.core.transfer.TransferProgressCallback
 import com.filetransfer.app.core.transfer.relay.RelayClientEngine
 import com.filetransfer.app.domain.model.ErrorCode
 
@@ -43,6 +43,7 @@ class TransferViewModel(
     private val transferCoordinator: TransferCoordinator? = null,
     private val openFileSecurelyUseCase: OpenFileSecurelyUseCase? = null,
     private val biometricAuthManager: com.filetransfer.app.core.security.biometric.IBiometricAuthManager? = null,
+    private val fileProviderGateway: com.filetransfer.app.core.storage.saf.FileProviderGateway? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
@@ -72,10 +73,10 @@ class TransferViewModel(
                     sessionId = sessionId,
                     fileName = if (fileName.isNotBlank()) fileName else it.fileName,
                     peerDeviceModel = if (peerDeviceModel.isNotBlank()) peerDeviceModel else it.peerDeviceModel,
-                    transferredBytes = activeSession.bytesTransferred,
+                    transferredBytes = activeSession.confirmedOffset,
                     totalBytes = activeSession.totalBytes,
                     progressPercent = if (activeSession.totalBytes > 0)
-                        (activeSession.bytesTransferred.toFloat() / activeSession.totalBytes.toFloat())
+                        (activeSession.confirmedOffset.toFloat() / activeSession.totalBytes.toFloat())
                     else 0f,
                     channel = activeSession.channel,
                     state = TransferEngineState.TRANSFERRING
@@ -203,7 +204,7 @@ class TransferViewModel(
                 _uiState.update { it.copy(sasCode = sasCode) }
             }
 
-            override fun onCompleted(docId: String, finalSha256: String) {
+            override fun onCompleted(transferId: String, finalSha256: String) {
                 val safeTotal = _uiState.value.totalBytes
                 val (activeSec, avgSpeed, durationFormatted) = calculateCompletionMetrics(safeTotal)
                 _uiState.update { current ->
@@ -314,146 +315,6 @@ class TransferViewModel(
         return Triple(activeSec, avgSpeed, durationFormatted)
     }
 
-    /**
-     * Bắt đầu phiên tải dữ liệu tệp từ thiết bị đối tác qua Coordinator.
-     */
-    fun startDownload(
-        docId: String,
-        fileName: String,
-        fileSize: Long,
-        teamId: String = "",
-        requesterId: String = "",
-        requesterName: String = "",
-        publisherId: String = "",
-        peerHost: String? = null,
-        peerPort: Int = 0,
-        relayUrl: String? = null,
-        expectedSha256: String? = null,
-        peerDeviceModel: String = "",
-        onCompleted: (() -> Unit)? = null
-    ): String {
-        val coordinator = transferCoordinator ?: return "session_dl_$docId"
-        val cleanRequesterId = requesterId.ifBlank { "client_${System.currentTimeMillis() % 100000}" }
-        val sessionId = "session_dl_${docId}_$cleanRequesterId"
-        val relayStreamUrl = relayUrl ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/stream")
-        val effectivePeerHost = peerHost
-        val effectivePeerPort = peerPort
-        val channel = coordinator.selectTransferChannel(effectivePeerHost, effectivePeerPort)
-
-        val session = TransferSession(
-            sessionId = sessionId,
-            docId = docId,
-            peerMemberId = publisherId.ifBlank { peerHost ?: "peer_$docId" },
-            direction = TransferDirection.INCOMING,
-            channel = channel,
-            status = SessionStatus.TRANSFERRING,
-            totalBytes = fileSize,
-            bytesTransferred = 0L
-        )
-
-        _uiState.update {
-            it.copy(
-                sessionId = sessionId,
-                fileName = fileName,
-                peerDeviceModel = peerDeviceModel,
-                totalBytes = fileSize,
-                transferredBytes = 0L,
-                progressPercent = 0f,
-                channel = channel,
-                state = TransferEngineState.CONNECTING,
-                errorMessage = null
-            )
-        }
-
-        scope.launch {
-            val isLan = channel == TransferChannel.DIRECT_LAN
-            val lanPort = if (isLan) {
-                com.filetransfer.app.core.network.tls.TlsSocketFactory.findAvailablePort()
-            } else {
-                0
-            }
-
-            val progressFlow = coordinator.startTransfer(
-                session = session,
-                peerIp = peerHost,
-                port = if (isLan) lanPort else peerPort,
-                relayUrl = relayStreamUrl,
-                streamId = sessionId,
-                documentName = fileName,
-                teamId = teamId,
-                expectedSha256 = expectedSha256
-            )
-
-            observeProgress(progressFlow, fileName, onCompleted)
-        }
-
-        return sessionId
-    }
-
-    /**
-     * Bắt đầu phiên gửi tệp dữ liệu.
-     */
-    fun startUpload(
-        file: File,
-        docId: String,
-        fileName: String = file.name,
-        targetPeerIp: String? = null,
-        targetPort: Int = 0,
-        relayUrl: String? = null,
-        teamId: String = "",
-        expectedSha256: String? = null,
-        peerDeviceModel: String = "",
-        onCompleted: (() -> Unit)? = null
-    ): String {
-        val coordinator = transferCoordinator ?: return "session_ul_$docId"
-        val channel = coordinator.selectTransferChannel(targetPeerIp, targetPort)
-        val sessionId = "session_ul_${docId}_${System.currentTimeMillis() % 100000}"
-        val relayStreamUrl = relayUrl ?: NetworkAddressHelper.getDefaultRelayUrl(endpoint = "v1/stream")
-
-        val session = TransferSession(
-            sessionId = sessionId,
-            docId = docId,
-            peerMemberId = targetPeerIp ?: "relay",
-            direction = TransferDirection.OUTGOING,
-            channel = channel,
-            status = SessionStatus.TRANSFERRING,
-            totalBytes = file.length(),
-            bytesTransferred = 0L
-        )
-
-        _uiState.update {
-            it.copy(
-                sessionId = sessionId,
-                fileName = fileName,
-                peerDeviceModel = peerDeviceModel,
-                totalBytes = file.length(),
-                transferredBytes = 0L,
-                progressPercent = 0f,
-                channel = channel,
-                state = TransferEngineState.CONNECTING,
-                errorMessage = null
-            )
-        }
-
-        scope.launch {
-            val progressFlow = coordinator.startTransfer(
-                session = session,
-                file = file,
-                peerIp = targetPeerIp,
-                port = targetPort,
-                relayUrl = relayStreamUrl,
-                streamId = sessionId,
-                documentName = fileName,
-                teamId = teamId,
-                expectedSha256 = expectedSha256
-            )
-
-            observeProgress(progressFlow, fileName, onCompleted)
-        }
-
-        return sessionId
-    }
-
     fun observeProgress(
         progressFlow: Flow<TransferProgress>,
         fileName: String,
@@ -526,8 +387,31 @@ class TransferViewModel(
 
         scope.launch {
             try {
-                val result = useCase.execute(file = file, requireBiometric = requireBiometric, activity = activity)
-                result.onSuccess { intent ->
+                val result = useCase.execute(
+                    file = file,
+                    requireBiometric = requireBiometric,
+                    authenticate = {
+                        val bio = biometricAuthManager ?: return@execute true
+                        val deferred = kotlinx.coroutines.CompletableDeferred<Boolean>()
+                        bio.authenticate(
+                            activity = activity,
+                            title = "Xác thực mở tài liệu bảo mật",
+                            subtitle = "Vui lòng xác thực vân tay hoặc mã khóa để mở tệp ${file.name}",
+                            negativeButtonText = "Hủy bỏ",
+                            onSuccess = { deferred.complete(true) },
+                            onError = { _, errString -> deferred.completeExceptionally(SecurityException(errString)) },
+                            onFailed = { deferred.completeExceptionally(SecurityException("Xác thực không trùng khớp")) }
+                        )
+                        deferred.await()
+                    }
+                )
+                result.onSuccess { authorizedFile ->
+                    val gateway = fileProviderGateway ?: com.filetransfer.app.core.storage.saf.FileProviderGateway(activity)
+                    val intent = if (authorizedFile.isDirectory) {
+                        gateway.createOpenDirectoryIntent(authorizedFile)
+                    } else {
+                        gateway.createViewIntent(authorizedFile)
+                    }
                     activity.startActivity(intent)
                     onResult(true, null)
                 }.onFailure { err ->
@@ -545,35 +429,6 @@ class TransferViewModel(
                     e.message ?: "Không thể mở tệp tin an toàn"
                 }
                 onResult(false, userFriendlyMsg)
-            }
-        }
-    }
-
-    /**
-     * Mở tệp trực tiếp bằng ứng dụng mặc định qua FileProvider (không bắt buộc vân tay).
-     */
-    fun openFileDirectly(
-        activity: FragmentActivity,
-        file: File,
-        onResult: (Boolean, String?) -> Unit
-    ) {
-        val useCase = openFileSecurelyUseCase
-        if (useCase == null) {
-            onResult(false, "Tính năng mở tệp chưa được cấu hình")
-            return
-        }
-
-        scope.launch {
-            try {
-                val result = useCase.execute(file = file, requireBiometric = false, activity = activity)
-                result.onSuccess { intent ->
-                    activity.startActivity(intent)
-                    onResult(true, null)
-                }.onFailure { err ->
-                    onResult(false, err.message ?: "Không thể mở tệp")
-                }
-            } catch (e: Exception) {
-                onResult(false, e.message ?: "Không thể mở tệp")
             }
         }
     }

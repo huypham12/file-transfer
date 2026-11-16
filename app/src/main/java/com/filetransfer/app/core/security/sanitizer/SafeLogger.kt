@@ -46,7 +46,7 @@ object SafeLogger {
      * Bật/tắt chế độ ghi log debug. Mặc định đồng bộ với BuildConfig.DEBUG.
      */
     var isDebugEnabled: Boolean = try {
-        val clazz = Class.forName("com.example.file_tranfer.BuildConfig")
+        val clazz = Class.forName("com.filetransfer.app.BuildConfig")
         val field = clazz.getField("DEBUG")
         field.getBoolean(null)
     } catch (_: Throwable) {

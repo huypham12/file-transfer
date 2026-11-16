@@ -2,13 +2,13 @@ package com.filetransfer.app.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.file_tranfer.R
+import com.filetransfer.app.R
 import com.filetransfer.app.core.constant.AppConstants
 import com.filetransfer.app.core.platform.network.NetworkAddressHelper
 import com.filetransfer.app.core.platform.network.NetworkConfig
 import com.filetransfer.app.core.platform.service.ITransferForegroundServiceLauncher
 import com.filetransfer.app.core.transfer.lan.LanTransferEngine
-import com.filetransfer.app.core.transfer.lan.TransferProgressCallback
+import com.filetransfer.app.core.transfer.TransferProgressCallback
 import com.filetransfer.app.core.transfer.relay.RelayClientEngine
 import com.filetransfer.app.domain.model.ApprovalMode
 import com.filetransfer.app.domain.model.DeviceProfile
@@ -249,7 +249,7 @@ class SenderViewModel(
 
             val relayQrUrl = NetworkConfig.resolveRelayUrlForQr()
             val senderRelayUrl = NetworkConfig.resolveRelayUrlForSender()
-            val primaryChannel = if (isEmulator) TransferChannel.ZERO_KNOWLEDGE_RELAY else TransferChannel.DIRECT_LAN
+            val primaryChannel = if (isEmulator) TransferChannel.RELAY_E2EE else TransferChannel.DIRECT_LAN
             val streamId = UUID.randomUUID().toString()
 
             val result = createSenderSessionUseCase.execute(
@@ -403,27 +403,13 @@ class SenderViewModel(
         val relay = relayEngine ?: return
         relayJob?.cancel()
         relayJob = scope.launch(Dispatchers.IO) {
-            val isFolder = fileToSend.isDirectory
-            val actualFile = if (isFolder) {
-                val tempZip = File(fileToSend.parentFile ?: File("."), "${fileToSend.name}${AppConstants.StorageDirectory.TEMP_ZIP_SUFFIX}")
-                try {
-                    tempZip.outputStream().use { fos ->
-                        com.filetransfer.app.core.transfer.zip.ZipStreamPacker.packDirectoryToStream(fileToSend, fos)
-                    }
-                    tempZip
-                } catch (_: Exception) {
-                    fileToSend
-                }
-            } else {
-                fileToSend
-            }
+            val actualFile = fileToSend
 
             val dummySession = TransferSession(
                 sessionId = sessionId,
                 sessionToken = sessionToken,
-                docId = actualFile.name,
                 direction = TransferDirection.SENDER,
-                channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+                channel = TransferChannel.RELAY_E2EE,
                 peerDeviceModel = "",
                 peerFingerprint = "",
                 approvalMode = _uiState.value.approvalMode,
@@ -455,7 +441,7 @@ class SenderViewModel(
                                         ?: DeviceProfile(manufacturer = "Relay", model = "Receiver", fingerprint = "relay_peer")
                                     onReceiverProgress(peer, bytesTransferred, totalBytes, speedBytesPerSec)
                                 }
-                                override fun onCompleted(docId: String, finalSha256: String) {
+                                override fun onCompleted(transferId: String, finalSha256: String) {
                                     val peer = _uiState.value.connectedDevices.firstOrNull { it.fingerprint.isNotBlank() }
                                         ?: DeviceProfile(manufacturer = "Relay", model = "Receiver", fingerprint = "relay_peer")
                                     onReceiverCompleted(peer)
@@ -465,13 +451,13 @@ class SenderViewModel(
                                         ?: DeviceProfile(manufacturer = "Relay", model = "Receiver", fingerprint = "relay_peer")
                                     onReceiverFailed(peer, Exception("$errorCode: $message"))
                                 }
-                                override fun onStateChanged(newState: com.filetransfer.app.core.transfer.lan.TransferEngineState) {}
+                                override fun onStateChanged(newState: com.filetransfer.app.core.transfer.TransferEngineState) {}
                             },
                             ttlSeconds = ttl,
                             peerValidator = { peerAuth ->
                                 val peerProfile = DeviceProfile(
                                     manufacturer = peerAuth.deviceManufacturer.ifBlank { "Android" },
-                                    model = peerAuth.deviceModel.ifBlank { peerAuth.memberId },
+                                    model = peerAuth.deviceModel.ifBlank { "Receiver Device" },
                                     fingerprint = peerAuth.deviceFingerprint
                                 )
                                 handleDeviceApproval(peerProfile)
@@ -500,9 +486,7 @@ class SenderViewModel(
                     }
                 }
             } finally {
-                if (isFolder && actualFile.name.endsWith(AppConstants.StorageDirectory.TEMP_ZIP_SUFFIX)) {
-                    try { actualFile.delete() } catch (_: Exception) {}
-                }
+                // Zero staging buffer - không tạo tệp zip tạm trên đĩa
             }
         }
     }

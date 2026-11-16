@@ -1,4 +1,4 @@
-package com.filetransfer.app.presentation.ui.sender
+﻿package com.filetransfer.app.presentation.ui.sender
 
 import android.content.Intent
 import androidx.compose.foundation.Image
@@ -66,7 +66,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.file_tranfer.R
+import com.filetransfer.app.R
 import com.filetransfer.app.core.constant.AppConstants
 import com.filetransfer.app.core.platform.share.ShareCodeHelper
 import com.filetransfer.app.domain.model.ApprovalMode

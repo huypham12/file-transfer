@@ -18,7 +18,7 @@ import com.filetransfer.app.core.storage.saf.SafStorageGateway
  * - SRS FR-MOB-01 (UC-16): Tiếp nhận Intent ACTION_SEND và ACTION_SEND_MULTIPLE.
  * - Bảo lưu quyền đọc an toàn bằng takePersistableUriPermission() qua SafStorageGateway.
  * - Khử độc tên tệp qua FilenameSanitizer chống tấn công Path Traversal.
- * - Chuyển tiếp danh sách tệp vào MainActivity để người dùng chọn Không gian Nhóm nhận tệp.
+ * - Chuyển tiếp danh sách tệp vào MainActivity để người dùng phát mã chia sẻ an toàn.
  */
 class ShareIntentHandlerActivity : Activity() {
 

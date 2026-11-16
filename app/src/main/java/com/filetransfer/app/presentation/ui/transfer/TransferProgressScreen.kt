@@ -1,4 +1,4 @@
-package com.filetransfer.app.presentation.ui.transfer
+﻿package com.filetransfer.app.presentation.ui.transfer
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -69,9 +69,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
-import com.example.file_tranfer.R
+import com.filetransfer.app.R
 import com.filetransfer.app.core.constant.AppConstants
-import com.filetransfer.app.core.transfer.lan.TransferEngineState
+import com.filetransfer.app.core.transfer.TransferEngineState
 import com.filetransfer.app.domain.model.TransferChannel
 import com.filetransfer.app.presentation.ui.components.formatFileSize
 import com.filetransfer.app.presentation.ui.components.getFileIcon

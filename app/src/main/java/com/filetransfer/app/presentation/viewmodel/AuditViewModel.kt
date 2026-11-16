@@ -1,8 +1,8 @@
-package com.filetransfer.app.presentation.viewmodel
+﻿package com.filetransfer.app.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.filetransfer.app.domain.model.AuditLog
+import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.usecase.audit.QuerySecurityAuditUseCase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -31,11 +31,11 @@ class AuditViewModel(
     /**
      * Tải và liên tục quan sát nhật ký kiểm toán an ninh sắp xếp theo thời gian mới nhất.
      */
-    fun loadLogs(teamId: String = "") {
+    fun loadLogs(sessionId: String? = null) {
         auditJob?.cancel()
         auditJob = scope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-            querySecurityAuditUseCase(teamId).collect { logs ->
+            querySecurityAuditUseCase(sessionId).collect { logs ->
                 _uiState.update { current ->
                     current.copy(
                         logs = logs,
@@ -72,7 +72,7 @@ class AuditViewModel(
         }
     }
 
-    private fun applyFilter(logs: List<AuditLog>, severity: String, query: String): List<AuditLog> {
+    private fun applyFilter(logs: List<SecurityAuditLog>, severity: String, query: String): List<SecurityAuditLog> {
         return logs.filter { log ->
             val matchSeverity = if (severity == "ALL") true else log.severity.name.equals(severity, ignoreCase = true)
             val matchQuery = if (query.isBlank()) true else {

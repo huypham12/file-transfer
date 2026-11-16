@@ -45,6 +45,7 @@ class HistoryViewModel(
     private val transferRepository: ITransferRepository,
     private val openFileSecurelyUseCase: OpenFileSecurelyUseCase? = null,
     private val biometricAuthManager: com.filetransfer.app.core.security.biometric.IBiometricAuthManager? = null,
+    private val fileProviderGateway: com.filetransfer.app.core.storage.saf.FileProviderGateway? = null,
     private val customScope: CoroutineScope? = null
 ) : ViewModel() {
 
@@ -95,37 +96,24 @@ class HistoryViewModel(
         }
 
         if (context != null) {
-            val completedDir = File(context.filesDir, "${AppConstants.StorageDirectory.TRANSFERS}/${AppConstants.StorageDirectory.COMPLETED}")
-            if (session.docId.isNotBlank()) {
-                val f = File(completedDir, session.docId)
-                if (f.exists()) return f
-            }
+            val manifestName = runCatching {
+                val array = org.json.JSONArray(session.manifestJson)
+                if (array.length() > 0) array.getJSONObject(0).optString("fileName") else null
+            }.getOrNull()
 
-            // Thử tìm trong outgoing cache nếu là máy gửi
-            val outgoingDir = File(context.cacheDir, "outgoing_shares")
-            if (session.docId.isNotBlank()) {
-                val f = File(outgoingDir, session.docId)
+            if (!manifestName.isNullOrBlank()) {
+                val completedDir = File(context.filesDir, "${AppConstants.StorageDirectory.TRANSFERS}/${AppConstants.StorageDirectory.COMPLETED}")
+                val f = File(completedDir, manifestName)
                 if (f.exists()) return f
+
+                // Thử tìm trong outgoing cache nếu là máy gửi
+                val outgoingDir = File(context.cacheDir, "outgoing_shares")
+                val outgoingFile = File(outgoingDir, manifestName)
+                if (outgoingFile.exists()) return outgoingFile
             }
         }
 
         return null
-    }
-
-    /**
-     * Mở tệp trực tiếp thông qua ứng dụng tương thích.
-     * @deprecated Sử dụng [openFileSecurely] để bảo vệ tài liệu bằng sinh trắc học theo SRS FR-DOC-03 & BR-05.
-     */
-    @Deprecated(
-        message = "Sử dụng openFileSecurely để bảo đảm tuân thủ xác thực sinh trắc học",
-        replaceWith = ReplaceWith("openFileSecurely(activity, session, onResult)")
-    )
-    fun openFileDirectly(
-        activity: FragmentActivity,
-        session: TransferSession,
-        onResult: (Boolean, String?) -> Unit
-    ) {
-        openFileSecurely(activity, session, onResult)
     }
 
     /**
@@ -170,8 +158,31 @@ class HistoryViewModel(
 
         scope.launch {
             try {
-                val result = useCase.execute(file = file, requireBiometric = requireBiometric, activity = activity)
-                result.onSuccess { intent ->
+                val result = useCase.execute(
+                    file = file,
+                    requireBiometric = requireBiometric,
+                    authenticate = {
+                        val bio = biometricAuthManager ?: return@execute true
+                        val deferred = kotlinx.coroutines.CompletableDeferred<Boolean>()
+                        bio.authenticate(
+                            activity = activity,
+                            title = "Xác thực mở tài liệu bảo mật",
+                            subtitle = "Vui lòng xác thực vân tay hoặc mã khóa để mở tệp ${file.name}",
+                            negativeButtonText = "Hủy bỏ",
+                            onSuccess = { deferred.complete(true) },
+                            onError = { _, errString -> deferred.completeExceptionally(SecurityException(errString)) },
+                            onFailed = { deferred.completeExceptionally(SecurityException("Xác thực không trùng khớp")) }
+                        )
+                        deferred.await()
+                    }
+                )
+                result.onSuccess { authorizedFile ->
+                    val gateway = fileProviderGateway ?: com.filetransfer.app.core.storage.saf.FileProviderGateway(activity)
+                    val intent = if (authorizedFile.isDirectory) {
+                        gateway.createOpenDirectoryIntent(authorizedFile)
+                    } else {
+                        gateway.createViewIntent(authorizedFile)
+                    }
                     activity.startActivity(intent)
                     onResult(true, null)
                 }.onFailure { err ->
@@ -183,7 +194,12 @@ class HistoryViewModel(
                     onResult(false, userFriendlyMsg)
                 }
             } catch (e: Exception) {
-                onResult(false, e.message ?: "Không thể mở tệp")
+                val userFriendlyMsg = if (e.message?.contains("0x401") == true) {
+                    "Xác thực danh tính không thành công hoặc đã bị hủy"
+                } else {
+                    e.message ?: "Không thể mở tệp"
+                }
+                onResult(false, userFriendlyMsg)
             }
         }
     }

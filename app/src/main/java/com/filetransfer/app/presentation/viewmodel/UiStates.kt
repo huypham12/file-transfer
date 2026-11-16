@@ -1,10 +1,10 @@
-package com.filetransfer.app.presentation.viewmodel
+﻿package com.filetransfer.app.presentation.viewmodel
 
 import android.graphics.Bitmap
 import com.filetransfer.app.core.constant.AppConstants
-import com.filetransfer.app.core.transfer.lan.TransferEngineState
+import com.filetransfer.app.core.transfer.TransferEngineState
 import com.filetransfer.app.domain.model.ApprovalMode
-import com.filetransfer.app.domain.model.AuditLog
+import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.DeviceProfile
 import com.filetransfer.app.domain.model.SessionQrPayload
 import com.filetransfer.app.domain.model.TransferChannel
@@ -178,8 +178,8 @@ data class TransferUiState(
  * Trạng thái giao diện Màn hình Nhật ký Hoạt động & Kiểm toán An ninh (AuditScreen).
  */
 data class AuditUiState(
-    val logs: List<AuditLog> = emptyList(),
-    val filteredLogs: List<AuditLog> = emptyList(),
+    val logs: List<SecurityAuditLog> = emptyList(),
+    val filteredLogs: List<SecurityAuditLog> = emptyList(),
     val filterSeverity: String = "ALL",
     val searchQuery: String = "",
     val isLoading: Boolean = false,

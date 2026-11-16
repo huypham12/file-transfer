@@ -1,4 +1,4 @@
-package com.filetransfer.app.presentation.ui.components
+﻿package com.filetransfer.app.presentation.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -34,7 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.filetransfer.app.core.transfer.lan.TransferEngineState
+import com.filetransfer.app.core.transfer.TransferEngineState
 import com.filetransfer.app.presentation.ui.transfer.formatSpeed
 import com.filetransfer.app.presentation.viewmodel.TransferUiState
 

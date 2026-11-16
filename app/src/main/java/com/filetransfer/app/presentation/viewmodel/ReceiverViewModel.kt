@@ -1,8 +1,8 @@
-package com.filetransfer.app.presentation.viewmodel
+﻿package com.filetransfer.app.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.file_tranfer.R
+import com.filetransfer.app.R
 import com.filetransfer.app.core.transfer.lan.LanTransferEngine
 import com.filetransfer.app.core.transfer.relay.RelayClientEngine
 import com.filetransfer.app.domain.model.DeviceProfile
@@ -148,7 +148,7 @@ class ReceiverViewModel(
      */
     fun requestConnection(
         targetDir: File,
-        callback: com.filetransfer.app.core.transfer.lan.TransferProgressCallback? = null,
+        callback: com.filetransfer.app.core.transfer.TransferProgressCallback? = null,
         onConnected: ((File) -> Unit)? = null
     ) {
         val payload = _uiState.value.qrPayload ?: return

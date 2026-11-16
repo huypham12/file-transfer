@@ -1,4 +1,4 @@
-package com.filetransfer.app.core.platform.service
+﻿package com.filetransfer.app.core.platform.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -8,7 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import com.example.file_tranfer.R
+import com.filetransfer.app.R
 import com.filetransfer.app.core.constant.AppConstants
 import java.util.Locale
 

@@ -1,8 +1,8 @@
-package com.filetransfer.app.presentation.ui.mapper
+﻿package com.filetransfer.app.presentation.ui.mapper
 
 import android.content.Context
 import androidx.annotation.StringRes
-import com.example.file_tranfer.R
+import com.filetransfer.app.R
 import com.filetransfer.app.domain.model.DomainError
 
 /**

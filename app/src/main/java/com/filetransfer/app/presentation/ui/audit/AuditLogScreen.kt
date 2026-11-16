@@ -1,4 +1,4 @@
-package com.filetransfer.app.presentation.ui.audit
+﻿package com.filetransfer.app.presentation.ui.audit
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -59,8 +59,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.file_tranfer.R
-import com.filetransfer.app.domain.model.AuditLog
+import com.filetransfer.app.R
+import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.AuditSeverity
 import com.filetransfer.app.presentation.ui.theme.SecurityWarningColor
 import com.filetransfer.app.presentation.viewmodel.AuditViewModel
@@ -201,7 +201,7 @@ fun AuditLogScreen(
 }
 
 @Composable
-private fun AuditLogItemCard(log: AuditLog) {
+private fun AuditLogItemCard(log: SecurityAuditLog) {
     var isExpanded by remember { mutableStateOf(false) }
     val formatted = remember(log.details) { AuditLogFormatter.format(log.details) }
 

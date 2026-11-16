@@ -67,7 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
-import com.example.file_tranfer.R
+import com.filetransfer.app.R
 import com.filetransfer.app.domain.model.SessionStatus
 import com.filetransfer.app.domain.model.TransferSession
 import com.filetransfer.app.domain.model.TransferType
@@ -285,9 +285,9 @@ fun TransferHistoryScreen(
 
         if (folderDialogSession != null) {
             val (session, files) = folderDialogSession!!
-            val isFolder = session.transferType == TransferType.FOLDER_ZIP
+            val isFolder = false
             val titleText = if (isFolder) {
-                stringResource(R.string.dialog_folder_files_title, session.docId.ifBlank { "Folder" })
+                stringResource(R.string.dialog_folder_files_title, "Folder")
             } else {
                 stringResource(R.string.dialog_batch_files_title, files.size)
             }
@@ -540,7 +540,7 @@ private fun HistorySessionCard(
         else -> stringResource(R.string.history_status_in_progress) to MaterialTheme.colorScheme.primary
     }
 
-    val isFolder = session.transferType == TransferType.FOLDER_ZIP
+    val isFolder = false
     val isBatch = session.transferType == TransferType.BATCH_FILES
     val channelText = if (session.channel.isLan) {
         stringResource(R.string.history_channel_lan)
@@ -548,12 +548,16 @@ private fun HistorySessionCard(
         stringResource(R.string.history_channel_relay)
     }
 
-    val fileName = session.docId.ifBlank {
-        when {
-            isFolder -> stringResource(R.string.history_type_folder)
-            isBatch -> "Gói nhiều tệp"
-            else -> "Tệp chia sẻ"
-        }
+    val manifestFileName = remember(session.manifestJson) {
+        runCatching {
+            val array = org.json.JSONArray(session.manifestJson)
+            if (array.length() > 0) array.getJSONObject(0).optString("fileName") else null
+        }.getOrNull()
+    }
+    val fileName = manifestFileName?.takeIf { it.isNotBlank() } ?: when {
+        isFolder -> stringResource(R.string.history_type_folder)
+        isBatch -> "Gói nhiều tệp"
+        else -> "Tệp chia sẻ"
     }
 
     Card(
@@ -631,7 +635,7 @@ private fun HistorySessionCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val defaultPeer = if (session.direction == com.filetransfer.app.domain.model.TransferDirection.SENDER) {
+                val defaultPeer = if (session.direction.isSender) {
                     if (session.status == SessionStatus.COMPLETED) "Thiết bị nhận" else "Chờ thiết bị nhận..."
                 } else {
                     "Thiết bị gửi"
