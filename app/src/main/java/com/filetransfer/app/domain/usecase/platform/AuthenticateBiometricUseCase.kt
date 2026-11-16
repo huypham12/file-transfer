@@ -1,4 +1,4 @@
-package com.filetransfer.app.domain.usecase.platform
+﻿package com.filetransfer.app.domain.usecase.platform
 
 import androidx.fragment.app.FragmentActivity
 import com.filetransfer.app.core.security.biometric.IBiometricAuthManager

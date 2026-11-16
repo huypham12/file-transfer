@@ -1,8 +1,8 @@
-package com.filetransfer.app.domain.usecase.transfer
+﻿package com.filetransfer.app.domain.usecase.transfer
 
 import com.filetransfer.app.core.transfer.TransferCoordinator
 import com.filetransfer.app.domain.model.AuditEventType
-import com.filetransfer.app.domain.model.AuditLog
+import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.AuditSeverity
 import com.filetransfer.app.domain.model.SessionStatus
 import com.filetransfer.app.domain.model.TransferSession
@@ -49,7 +49,7 @@ class ResumeTransferUseCase(
 
             // 3. Ghi vết kiểm toán an ninh
             auditRepository?.logEvent(
-                AuditLog(
+                SecurityAuditLog(
                     sessionId = sessionId,
                     actorDevice = "LOCAL_DEVICE",
                     eventType = AuditEventType.TRANSFER_RESUMED,

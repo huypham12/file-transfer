@@ -1,10 +1,10 @@
-package com.filetransfer.app.domain.usecase.transfer
+﻿package com.filetransfer.app.domain.usecase.transfer
 
 import com.filetransfer.app.core.platform.storage.IStorageAuditor
 import com.filetransfer.app.core.platform.storage.StatFsStorageAuditor
 import com.filetransfer.app.core.platform.storage.StorageAuditResult
 import com.filetransfer.app.domain.model.AuditEventType
-import com.filetransfer.app.domain.model.AuditLog
+import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.AuditSeverity
 import com.filetransfer.app.domain.repository.IAuditRepository
 import java.io.File
@@ -33,9 +33,9 @@ class CheckReceiverStorageUseCase(
         val result = storageAuditor.auditStorage(requiredBytes, targetDir)
         if (!result.isSufficient) {
             auditRepository?.logEvent(
-                AuditLog(
+                SecurityAuditLog(
                     sessionId = sessionId,
-                    actorId = "storage_auditor",
+                    actorDevice = "LOCAL_DEVICE",
                     eventType = AuditEventType.SECURITY_ALERT,
                     severity = AuditSeverity.WARNING,
                     details = "Không đủ bộ nhớ lưu trữ: Cần ${result.requiredBytes} bytes + ${result.safetyMarginBytes} bytes buffer, nhưng chỉ còn ${result.availableBytes} bytes trống. Thiếu ${result.shortfallBytes} bytes."

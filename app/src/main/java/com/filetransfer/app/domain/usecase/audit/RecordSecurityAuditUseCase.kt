@@ -1,7 +1,7 @@
-package com.filetransfer.app.domain.usecase.audit
+﻿package com.filetransfer.app.domain.usecase.audit
 
 import com.filetransfer.app.domain.model.AuditEventType
-import com.filetransfer.app.domain.model.AuditLog
+import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.AuditSeverity
 import com.filetransfer.app.domain.repository.IAuditRepository
 
@@ -20,7 +20,7 @@ class RecordSecurityAuditUseCase(
         severity: AuditSeverity = AuditSeverity.INFO
     ): Result<Unit> {
         return try {
-            val log = AuditLog(
+            val log = SecurityAuditLog(
                 sessionId = sessionId,
                 eventType = eventType,
                 actorDevice = actorDevice,
@@ -44,7 +44,7 @@ class RecordSecurityAuditUseCase(
         severity: AuditSeverity = AuditSeverity.INFO
     ): Result<Unit> = execute(eventType, details, sessionId, actorDevice, channel, severity)
 
-    suspend operator fun invoke(log: AuditLog): Result<Unit> {
+    suspend operator fun invoke(log: SecurityAuditLog): Result<Unit> {
         return try {
             auditRepository.logEvent(log)
             Result.success(Unit)

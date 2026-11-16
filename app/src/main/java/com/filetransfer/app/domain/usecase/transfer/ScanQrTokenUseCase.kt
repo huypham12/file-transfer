@@ -1,7 +1,7 @@
-package com.filetransfer.app.domain.usecase.transfer
+﻿package com.filetransfer.app.domain.usecase.transfer
 
 import com.filetransfer.app.domain.model.AuditEventType
-import com.filetransfer.app.domain.model.AuditLog
+import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.AuditSeverity
 import com.filetransfer.app.domain.model.SessionQrPayload
 import com.filetransfer.app.domain.repository.IAuditRepository
@@ -27,9 +27,9 @@ class ScanQrTokenUseCase(
             // Kiểm tra thời hạn hiệu lực (TTL 5 phút theo SDD 6.5 & 8.1)
             if (payload.isExpired) {
                 auditRepository?.logEvent(
-                    AuditLog(
+                    SecurityAuditLog(
                         sessionId = payload.sessionId,
-                        actorId = "qr_scanner",
+                        actorDevice = "LOCAL_DEVICE",
                         eventType = AuditEventType.SECURITY_ALERT,
                         severity = AuditSeverity.WARNING,
                         details = "Quét phải mã QR đã hết hạn hiệu lực (Mã lỗi 0x103: ERR_QR_EXPIRED)"

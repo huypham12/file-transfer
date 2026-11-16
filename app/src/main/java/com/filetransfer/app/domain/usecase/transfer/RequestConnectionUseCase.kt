@@ -3,12 +3,12 @@ package com.filetransfer.app.domain.usecase.transfer
 import com.filetransfer.app.core.constant.AppConstants
 import com.filetransfer.app.core.platform.network.NetworkConfig
 import com.filetransfer.app.core.security.sanitizer.FilenameSanitizer
-import com.filetransfer.app.core.transfer.lan.TransferProgressCallback
+import com.filetransfer.app.core.transfer.TransferProgressCallback
 import com.filetransfer.app.core.transfer.lan.LanTransferEngine
 import com.filetransfer.app.core.transfer.relay.RelayClientEngine
 import com.filetransfer.app.core.transfer.zip.SafeStreamExtractor
 import com.filetransfer.app.domain.model.AuditEventType
-import com.filetransfer.app.domain.model.AuditLog
+import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.AuditSeverity
 import com.filetransfer.app.domain.model.DeviceProfile
 import com.filetransfer.app.domain.model.DomainError
@@ -83,17 +83,17 @@ class RequestConnectionUseCase(
         transferRepository.createSession(session)
 
         auditRepository?.logEvent(
-            AuditLog(
+            SecurityAuditLog(
                 sessionId = payload.sessionId,
-                actorId = myProfile.model,
+                actorDevice = myProfile.model,
                 eventType = AuditEventType.DEVICE_CONNECTED,
                 severity = AuditSeverity.INFO,
                 details = "Đã gửi yêu cầu kết nối tới ${payload.senderIp}:${payload.senderPort} từ thiết bị ${myProfile.model}"
             )
         )
 
-        // 3. Nếu mã QR chỉ định kênh ZERO_KNOWLEDGE_RELAY, kết nối thẳng qua Relay
-        if (payload.channel == TransferChannel.ZERO_KNOWLEDGE_RELAY && effectiveRelay != null) {
+        // 3. Nếu mã QR chỉ định kênh Relay, kết nối thẳng qua Relay
+        if (payload.channel.isRelay && effectiveRelay != null) {
             return receiveViaRelay(payload, session, myProfile, targetDirectory, effectiveRelay, callback)
         }
 
@@ -118,9 +118,9 @@ class RequestConnectionUseCase(
             }
             transferRepository.updateSessionStatus(payload.sessionId, SessionStatus.COMPLETED)
             auditRepository?.logEvent(
-                AuditLog(
+                SecurityAuditLog(
                     sessionId = payload.sessionId,
-                    actorId = myProfile.model,
+                    actorDevice = myProfile.model,
                     eventType = AuditEventType.TRANSFER_COMPLETED,
                     severity = AuditSeverity.INFO,
                     details = "Truyền nhận thành công tệp/thư mục qua mạng LAN từ ${payload.senderDeviceModel}"
@@ -142,9 +142,9 @@ class RequestConnectionUseCase(
         // TỰ ĐỘNG CHUYỂN TIẾP DỰ PHÒNG (TRANSPARENT FAILOVER SANG RELAY SERVER)
         if (isNetworkUnreachable && effectiveRelay != null) {
             auditRepository?.logEvent(
-                AuditLog(
+                SecurityAuditLog(
                     sessionId = payload.sessionId,
-                    actorId = myProfile.model,
+                    actorDevice = myProfile.model,
                     eventType = AuditEventType.DEVICE_CONNECTED,
                     severity = AuditSeverity.WARNING,
                     details = "Kết nối LAN tới ${payload.senderIp}:${payload.senderPort} không phản hồi. Tự động chuyển tiếp qua Zero-Knowledge Relay Server..."
@@ -177,9 +177,9 @@ class RequestConnectionUseCase(
         }
 
         auditRepository?.logEvent(
-            AuditLog(
+            SecurityAuditLog(
                 sessionId = payload.sessionId,
-                actorId = myProfile.model,
+                actorDevice = myProfile.model,
                 eventType = eventType,
                 severity = severity,
                 details = friendlyDetails
@@ -202,21 +202,17 @@ class RequestConnectionUseCase(
         val targetRelayUrl = NetworkConfig.resolveRelayUrlForReceiver(payload.relayUrl)
 
         auditRepository?.logEvent(
-            AuditLog(
+            SecurityAuditLog(
                 sessionId = payload.sessionId,
-                actorId = myProfile.model,
+                actorDevice = myProfile.model,
                 eventType = AuditEventType.DEVICE_CONNECTED,
                 severity = AuditSeverity.INFO,
                 details = "Đang kết nối nhận tệp qua Zero-Knowledge Relay Server ($targetRelayUrl)..."
             )
         )
 
-        val isArchive = payload.transferType == TransferType.FOLDER_ZIP || payload.transferType == TransferType.BATCH_FILES
+        val isArchive = payload.transferType == TransferType.BATCH_FILES
         val targetFileName = when (payload.transferType) {
-            TransferType.FOLDER_ZIP -> {
-                if (payload.fileName.isNotBlank()) "${FilenameSanitizer.sanitize(payload.fileName)}${AppConstants.StorageDirectory.ZIP_EXTENSION}"
-                else "${AppConstants.StorageDirectory.FOLDER_PREFIX}${payload.sessionId.take(8)}${AppConstants.StorageDirectory.ZIP_EXTENSION}"
-            }
             TransferType.BATCH_FILES -> "${AppConstants.StorageDirectory.BATCH_DIR_PREFIX}${payload.sessionId.take(8)}${AppConstants.StorageDirectory.ZIP_EXTENSION}"
             else -> {
                 if (payload.fileName.isNotBlank()) {
@@ -229,7 +225,7 @@ class RequestConnectionUseCase(
         val targetFile = File(targetDirectory, targetFileName)
 
         val relaySession = session.copy(
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY
+            channel = TransferChannel.RELAY_E2EE
         )
 
         return try {
@@ -242,13 +238,9 @@ class RequestConnectionUseCase(
             )
 
             if (downloadedFile != null && downloadedFile.exists()) {
-                // Nếu là tệp Zip nén thư mục hoặc gói nhiều tệp (batch), tự động giải nén an toàn
+                // Nếu là gói nhiều tệp (batch), tự động giải nén an toàn
                 val finalFile = if (isArchive) {
-                    val folderPrefix = if (payload.transferType == TransferType.FOLDER_ZIP) {
-                        AppConstants.StorageDirectory.FOLDER_PREFIX
-                    } else {
-                        AppConstants.StorageDirectory.BATCH_DIR_PREFIX
-                    }
+                    val folderPrefix = AppConstants.StorageDirectory.BATCH_DIR_PREFIX
                     val targetFolderName = if (payload.fileName.isNotBlank()) {
                         FilenameSanitizer.sanitize(payload.fileName)
                     } else {
@@ -272,9 +264,9 @@ class RequestConnectionUseCase(
                 transferRepository.updateSessionFile(payload.sessionId, finalFile.absolutePath)
                 transferRepository.updateSessionStatus(payload.sessionId, SessionStatus.COMPLETED)
                 auditRepository?.logEvent(
-                    AuditLog(
+                    SecurityAuditLog(
                         sessionId = payload.sessionId,
-                        actorId = myProfile.model,
+                        actorDevice = myProfile.model,
                         eventType = AuditEventType.TRANSFER_COMPLETED,
                         severity = AuditSeverity.INFO,
                         details = "Truyền nhận thành công tệp/thư mục từ ${payload.senderDeviceModel} qua Zero-Knowledge Relay Server"

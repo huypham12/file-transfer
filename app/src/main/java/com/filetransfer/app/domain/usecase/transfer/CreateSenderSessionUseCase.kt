@@ -1,4 +1,4 @@
-package com.filetransfer.app.domain.usecase.transfer
+﻿package com.filetransfer.app.domain.usecase.transfer
 
 import com.filetransfer.app.core.constant.AppConstants
 import com.filetransfer.app.core.platform.device.IDeviceIdentityManager
@@ -6,7 +6,7 @@ import com.filetransfer.app.core.platform.network.NetworkConfig
 import com.filetransfer.app.core.security.crypto.Sha256StreamCalculator
 import com.filetransfer.app.domain.model.ApprovalMode
 import com.filetransfer.app.domain.model.AuditEventType
-import com.filetransfer.app.domain.model.AuditLog
+import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.AuditSeverity
 import com.filetransfer.app.domain.model.ManifestItem
 import com.filetransfer.app.domain.model.SessionQrPayload
@@ -125,9 +125,9 @@ class CreateSenderSessionUseCase(
             transferRepository.createSession(session)
 
             auditRepository?.logEvent(
-                AuditLog(
+                SecurityAuditLog(
                     sessionId = sessionId,
-                    actorId = deviceProfile.model,
+                    actorDevice = deviceProfile.model,
                     eventType = AuditEventType.SESSION_CREATED,
                     severity = AuditSeverity.INFO,
                     details = "Đã khởi tạo phiên chia sẻ 1-N (Token: $sessionToken, Tổng dung lượng: $totalBytes bytes, Chế độ: ${approvalMode.name})"

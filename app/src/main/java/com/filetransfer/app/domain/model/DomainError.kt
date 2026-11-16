@@ -114,8 +114,8 @@ sealed class DomainError(
         fun fromCode(code: String, fallbackDetail: String = ""): DomainError {
             return when (code) {
                 ErrorCode.ERR_INVALID_CREDENTIAL -> InvalidCredential
-                ErrorCode.ERR_DEVICE_REJECTED, ErrorCode.ERR_MEMBER_REVOKED -> DeviceRejected
-                ErrorCode.ERR_SESSION_EXPIRED, ErrorCode.ERR_INVITATION_EXPIRED -> SessionExpired
+                ErrorCode.ERR_DEVICE_REJECTED -> DeviceRejected
+                ErrorCode.ERR_SESSION_EXPIRED -> SessionExpired
                 ErrorCode.ERR_INVALID_ROLE -> InvalidRole
                 ErrorCode.ERR_SESSION_FULL -> SessionFull
                 ErrorCode.ERR_RELAY_UNAVAILABLE -> RelayUnavailable
@@ -136,9 +136,7 @@ sealed class DomainError(
             for (code in listOf(
                 ErrorCode.ERR_INVALID_CREDENTIAL,
                 ErrorCode.ERR_DEVICE_REJECTED,
-                ErrorCode.ERR_MEMBER_REVOKED,
                 ErrorCode.ERR_SESSION_EXPIRED,
-                ErrorCode.ERR_INVITATION_EXPIRED,
                 ErrorCode.ERR_INVALID_ROLE,
                 ErrorCode.ERR_SESSION_FULL,
                 ErrorCode.ERR_RELAY_UNAVAILABLE,

@@ -5,15 +5,11 @@ package com.filetransfer.app.domain.model
  */
 enum class TransferDirection {
     SENDER,
-    RECEIVER,
-    INCOMING, // Backward compatibility alias
-    OUTGOING; // Backward compatibility alias
+    RECEIVER;
 
-    val isSender: Boolean get() = this == SENDER || this == OUTGOING
-    val isReceiver: Boolean get() = this == RECEIVER || this == INCOMING
+    val isSender: Boolean get() = this == SENDER
+    val isReceiver: Boolean get() = this == RECEIVER
 }
-
-typealias SessionDirection = TransferDirection
 
 /**
  * Chế độ phê duyệt khi máy nhận kết nối tới phiên phát mã QR (FR-SND-04).
@@ -28,9 +24,7 @@ enum class ApprovalMode {
  */
 enum class TransferType {
     SINGLE_FILE,
-    BATCH_FILES,
-    @Deprecated("Chỉ giữ lại để duy trì tương thích ngược dữ liệu Room DB cũ")
-    FOLDER_ZIP
+    BATCH_FILES
 }
 
 /**
@@ -38,38 +32,10 @@ enum class TransferType {
  */
 enum class TransferChannel {
     DIRECT_LAN,
-    RELAY_E2EE,
-    ZERO_KNOWLEDGE_RELAY; // Backward compatibility alias
+    RELAY_E2EE;
 
     val isLan: Boolean get() = this == DIRECT_LAN
-    val isRelay: Boolean get() = this == RELAY_E2EE || this == ZERO_KNOWLEDGE_RELAY
-}
-
-typealias ChannelType = TransferChannel
-
-/**
- * Trạng thái của Không gian Nhóm cộng tác (Legacy).
- */
-enum class TeamStatus {
-    ACTIVE,
-    DISBANDED
-}
-
-/**
- * Vai trò của thành viên trong nhóm cộng tác (RBAC Legacy).
- */
-enum class MemberRole {
-    OWNER,
-    MEMBER
-}
-
-/**
- * Trạng thái tệp tin trên máy cục bộ so với không gian nhóm (Legacy).
- */
-enum class DownloadStatus {
-    NOT_DOWNLOADED,
-    DOWNLOADING,
-    COMPLETED
+    val isRelay: Boolean get() = this == RELAY_E2EE
 }
 
 /**
@@ -100,7 +66,6 @@ enum class AuditSeverity {
  * Các loại sự kiện được ghi vết trong nhật ký kiểm toán an ninh bất biến (SDD Chương 5).
  */
 enum class AuditEventType {
-    // 1-N Drop Session Events
     SESSION_CREATED,
     SESSION_APPROVED,
     SESSION_REJECTED,
@@ -112,31 +77,7 @@ enum class AuditEventType {
     TRANSFER_CANCELLED,
     CHECKSUM_VERIFIED,
     CHECKSUM_FAILED,
-    SECURITY_ALERT,
-
-    // Legacy Events (Backward compatibility)
-    @Deprecated("Legacy team event") TEAM_CREATED,
-    @Deprecated("Legacy team event") TEAM_DISBANDED,
-    @Deprecated("Legacy team event") INVITATION_GENERATED,
-    @Deprecated("Legacy team event") MEMBER_JOINED,
-    @Deprecated("Legacy team event") MEMBER_REVOKED,
-    @Deprecated("Legacy team event") DOCUMENT_PUBLISHED
-}
-
-/**
- * Mã loại khung tin nhị phân (Binary Frame MsgType) theo SDD Chương 6.
- */
-object FrameType {
-    const val HANDSHAKE_AUTH: Byte = 0x01
-    const val TRANSFER_MANIFEST: Byte = 0x02
-    const val MANIFEST_RESPONSE: Byte = 0x03
-    const val DATA_CHUNK: Byte = 0x04
-    const val CHUNK_ACK: Byte = 0x05
-    const val CONTROL_SIGNAL: Byte = 0x06
-    const val REVOKE_SIGNAL: Byte = 0x07
-    const val VERIFY_RESULT: Byte = 0x08
-    const val ERROR_ALERT: Byte = 0x08
-    const val CONNECT_PENDING: Byte = 0x09
+    SECURITY_ALERT
 }
 
 /**
@@ -145,9 +86,7 @@ object FrameType {
 object ErrorCode {
     const val ERR_INVALID_CREDENTIAL = "0x101"
     const val ERR_DEVICE_REJECTED = "0x102"
-    const val ERR_MEMBER_REVOKED = "0x102" // Alias tương thích ngược
     const val ERR_SESSION_EXPIRED = "0x103"
-    const val ERR_INVITATION_EXPIRED = "0x103" // Alias tương thích ngược
     const val ERR_INVALID_ROLE = "0x104"
     const val ERR_SESSION_FULL = "0x105"
     const val ERR_RELAY_UNAVAILABLE = "0x201"

@@ -1,7 +1,7 @@
-package com.filetransfer.app.domain.usecase.transfer
+﻿package com.filetransfer.app.domain.usecase.transfer
 
 import com.filetransfer.app.core.transfer.TransferCoordinator
-import com.filetransfer.app.domain.model.AuditLog
+import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.AuditEventType
 import com.filetransfer.app.domain.model.AuditSeverity
 import com.filetransfer.app.domain.model.SessionCmd
@@ -32,9 +32,9 @@ class ControlSessionUseCase(
                 SessionCmd.PAUSE -> {
                     transferCoordinator.pauseSession(sessionId)
                     auditRepository?.logEvent(
-                        AuditLog(
-                            teamId = "",
-                            actorId = "user_control",
+                        SecurityAuditLog(
+                            sessionId = sessionId,
+                            actorDevice = "LOCAL_DEVICE",
                             eventType = AuditEventType.TRANSFER_PAUSED,
                             severity = AuditSeverity.INFO,
                             details = "Người dùng tạm dừng phiên truyền $sessionId"

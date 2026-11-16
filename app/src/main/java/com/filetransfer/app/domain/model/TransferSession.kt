@@ -38,15 +38,7 @@ data class TransferSession(
     val status: SessionStatus = SessionStatus.PENDING,
     val errorCode: String? = null,
     val startedAt: Long = System.currentTimeMillis(),
-    val completedAt: Long? = null,
-
-    // Deprecated fields with defaults for backward compatibility
-    @Deprecated("Legacy docId from Team architecture")
-    val docId: String = "",
-    @Deprecated("Legacy peerMemberId, use peerDeviceModel / peerFingerprint")
-    val peerMemberId: String = "",
-    @Deprecated("Use confirmedOffset as source of truth")
-    val bytesTransferred: Long = confirmedOffset
+    val completedAt: Long? = null
 ) {
     val progressPercent: Float
         get() = when {

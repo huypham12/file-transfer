@@ -1,8 +1,8 @@
-package com.filetransfer.app.domain.usecase.transfer
+﻿package com.filetransfer.app.domain.usecase.transfer
 
 import com.filetransfer.app.domain.model.ApprovalMode
 import com.filetransfer.app.domain.model.AuditEventType
-import com.filetransfer.app.domain.model.AuditLog
+import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.AuditSeverity
 import com.filetransfer.app.domain.repository.IAuditRepository
 import com.filetransfer.app.domain.repository.ITransferRepository
@@ -27,9 +27,9 @@ class ManageApprovalModeUseCase(
         transferRepository.updateApprovalMode(sessionId, mode)
 
         auditRepository?.logEvent(
-            AuditLog(
+            SecurityAuditLog(
                 sessionId = sessionId,
-                actorId = "sender_ui",
+                actorDevice = "LOCAL_DEVICE",
                 eventType = AuditEventType.SESSION_APPROVED,
                 severity = AuditSeverity.INFO,
                 details = "Đã cập nhật chế độ phê duyệt thiết bị sang: ${mode.name}"

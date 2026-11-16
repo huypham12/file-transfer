@@ -1,6 +1,6 @@
-package com.filetransfer.app.domain.model
+﻿package com.filetransfer.app.domain.model
 
-import com.filetransfer.app.core.transfer.lan.TransferEngineState
+import com.filetransfer.app.core.transfer.TransferEngineState
 
 /**
  * Mô hình dữ liệu thông báo tiến trình truyền tải tệp P2P thời gian thực.
