@@ -1,4 +1,4 @@
-package com.filetransfer.app.presentation.viewmodel
+﻿package com.filetransfer.app.presentation.viewmodel
 
 import com.filetransfer.app.data.local.db.dao.InMemoryTransferSessionDao
 import com.filetransfer.app.data.repository.TransferRepositoryImpl
@@ -54,7 +54,7 @@ class HistoryViewModelTest {
                 peerFingerprint = "fp_xiaomi14",
                 approvalMode = ApprovalMode.AUTO_ACCEPT,
                 transferType = TransferType.SINGLE_FILE,
-                docId = "bao_cao_quy_4.pdf",
+                manifestJson = """[{"fileName":"bao_cao_quy_4.pdf","fileSize":2097152}]""",
                 totalBytes = 2097152L,
                 status = SessionStatus.COMPLETED
             )
@@ -66,12 +66,12 @@ class HistoryViewModelTest {
                 sessionId = "sent_001",
                 sessionToken = "token_002",
                 direction = TransferDirection.SENDER,
-                channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+                channel = TransferChannel.RELAY_E2EE,
                 peerDeviceModel = "Pixel 8 Pro",
                 peerFingerprint = "fp_pixel8",
                 approvalMode = ApprovalMode.MANUAL_APPROVAL,
-                transferType = TransferType.FOLDER_ZIP,
-                docId = "source_code.zip",
+                transferType = TransferType.BATCH_FILES,
+                manifestJson = """[{"fileName":"source_code.zip","fileSize":10485760}]""",
                 totalBytes = 10485760L,
                 status = SessionStatus.COMPLETED
             )
@@ -88,7 +88,7 @@ class HistoryViewModelTest {
                 peerFingerprint = "fp_s24",
                 approvalMode = ApprovalMode.MANUAL_APPROVAL,
                 transferType = TransferType.SINGLE_FILE,
-                docId = "video_4k.mp4",
+                manifestJson = """[{"fileName":"video_4k.mp4","fileSize":52428800}]""",
                 totalBytes = 52428800L,
                 status = SessionStatus.FAILED
             )
@@ -130,8 +130,7 @@ class HistoryViewModelTest {
             sessionId = "test_sess",
             direction = TransferDirection.RECEIVER,
             totalBytes = testFile.length(),
-            tempFilePath = testFile.absolutePath,
-            docId = testFile.name
+            tempFilePath = testFile.absolutePath
         )
 
         val resolved = viewModel.resolveSessionFile(

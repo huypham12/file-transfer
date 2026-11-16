@@ -35,7 +35,6 @@ import com.filetransfer.app.data.local.db.dao.TransferSessionDaoTest
 import com.filetransfer.app.data.local.db.mapper.MapperTest
 import com.filetransfer.app.data.repository.TransferAndAuditRepositoryTest
 import com.filetransfer.app.domain.model.TransferSessionTest
-import com.filetransfer.app.domain.statemachine.SessionStateMachineTest
 import com.filetransfer.app.domain.usecase.SessionUseCasesTest
 import com.filetransfer.app.domain.usecase.platform.OpenFileSecurelyUseCaseTest
 import com.filetransfer.app.e2e.LanTransferE2ETest
@@ -119,7 +118,6 @@ import org.junit.runners.Suite
 
     // 7. Domain Layer
     TransferSessionTest::class,
-    SessionStateMachineTest::class,
     SessionUseCasesTest::class,
     OpenFileSecurelyUseCaseTest::class,
 

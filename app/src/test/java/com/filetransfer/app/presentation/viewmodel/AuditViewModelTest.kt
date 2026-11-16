@@ -1,9 +1,9 @@
-package com.filetransfer.app.presentation.viewmodel
+﻿package com.filetransfer.app.presentation.viewmodel
 
 import com.filetransfer.app.data.local.db.dao.InMemoryAuditLogDao
 import com.filetransfer.app.data.repository.AuditRepositoryImpl
 import com.filetransfer.app.domain.model.AuditEventType
-import com.filetransfer.app.domain.model.AuditLog
+import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.AuditSeverity
 import com.filetransfer.app.domain.usecase.audit.QuerySecurityAuditUseCase
 import kotlinx.coroutines.CoroutineScope
@@ -36,7 +36,7 @@ class AuditViewModelTest {
 
     private suspend fun insertSampleLogs() {
         auditRepository.logEvent(
-            AuditLog(
+            SecurityAuditLog(
                 sessionId = "sess_001",
                 eventType = AuditEventType.SESSION_CREATED,
                 actorDevice = "Xiaomi Redmi Turbo 4 Pro",
@@ -45,7 +45,7 @@ class AuditViewModelTest {
             )
         )
         auditRepository.logEvent(
-            AuditLog(
+            SecurityAuditLog(
                 sessionId = "sess_001",
                 eventType = AuditEventType.SECURITY_ALERT,
                 actorDevice = "Unknown Scanner",
@@ -54,7 +54,7 @@ class AuditViewModelTest {
             )
         )
         auditRepository.logEvent(
-            AuditLog(
+            SecurityAuditLog(
                 sessionId = "sess_002",
                 eventType = AuditEventType.TRANSFER_COMPLETED,
                 actorDevice = "Samsung Galaxy S23",

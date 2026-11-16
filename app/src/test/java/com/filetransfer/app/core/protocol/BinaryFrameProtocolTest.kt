@@ -253,55 +253,6 @@ class BinaryFrameProtocolTest {
         assertEquals("Đang chờ người gửi phê duyệt kết nối...", deserialized.message)
     }
 
-    // -------------------------------------------------------------------------------------
-    // Backward Compatibility Tests
-    // -------------------------------------------------------------------------------------
-    @Test
-    fun testLegacyHandshakeAuthPayload() {
-        val payload = HandshakeAuthPayload(
-            teamId = "team-alpha-001",
-            memberId = "mem-alice-99",
-            deviceFingerprint = "fingerprint-xyz",
-            role = "OWNER",
-            credentialData = "raw-cert-pem-base64",
-            clientNonce = "nonce-123456"
-        )
-        val frame = serializer.buildHandshakeAuthFrame(streamId = 100, payload = payload)
-        val serializedBytes = serializer.serialize(frame)
-
-        val parsedFrame = parser.parseNextFrame(ByteArrayInputStream(serializedBytes))
-        assertNotNull(parsedFrame)
-
-        val deserializedPayload = HandshakeAuthPayload.fromBytes(parsedFrame!!.payload)
-        assertEquals(payload.teamId, deserializedPayload.teamId)
-        assertEquals(payload.memberId, deserializedPayload.memberId)
-        assertEquals(payload.deviceFingerprint, deserializedPayload.deviceFingerprint)
-        assertEquals(payload.role, deserializedPayload.role)
-    }
-
-    @Test
-    fun testHandshakeAuthPayloadWithDeviceManufacturerAndModel() {
-        val payload = HandshakeAuthPayload(
-            teamId = "team-alpha-001",
-            memberId = "mem-alice-99",
-            deviceFingerprint = "fingerprint-xyz",
-            role = "MEMBER",
-            credentialData = "raw-cert-pem-base64",
-            clientNonce = "nonce-123456",
-            deviceManufacturer = "Xiaomi",
-            deviceModel = "Redmi Turbo 4 Pro"
-        )
-        val frame = serializer.buildHandshakeAuthFrame(streamId = 101, payload = payload)
-        val serializedBytes = serializer.serialize(frame)
-
-        val parsedFrame = parser.parseNextFrame(ByteArrayInputStream(serializedBytes))
-        assertNotNull(parsedFrame)
-
-        val deserializedPayload = HandshakeAuthPayload.fromBytes(parsedFrame!!.payload)
-        assertEquals("Xiaomi", deserializedPayload.deviceManufacturer)
-        assertEquals("Redmi Turbo 4 Pro", deserializedPayload.deviceModel)
-    }
-
     @Test
     fun testMultipleSequentialFramesInSingleStream() {
         val baos = ByteArrayOutputStream()

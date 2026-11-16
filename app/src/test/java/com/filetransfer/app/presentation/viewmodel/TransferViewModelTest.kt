@@ -1,4 +1,4 @@
-package com.filetransfer.app.presentation.viewmodel
+﻿package com.filetransfer.app.presentation.viewmodel
 
 import com.filetransfer.app.core.platform.network.INetworkMonitor
 import com.filetransfer.app.core.platform.network.NetworkState
@@ -8,8 +8,8 @@ import com.filetransfer.app.core.platform.service.TransferServiceState
 import com.filetransfer.app.core.security.keystore.SoftwareKeyManager
 import com.filetransfer.app.core.transfer.TransferCoordinator
 import com.filetransfer.app.core.transfer.lan.LanTransferEngine
-import com.filetransfer.app.core.transfer.lan.TransferEngineState
-import com.filetransfer.app.core.transfer.lan.TransferProgressCallback
+import com.filetransfer.app.core.transfer.TransferEngineState
+import com.filetransfer.app.core.transfer.TransferProgressCallback
 import com.filetransfer.app.core.transfer.relay.RelayClientEngine
 import com.filetransfer.app.data.local.db.dao.InMemoryAuditLogDao
 import com.filetransfer.app.data.local.db.dao.InMemoryTransferSessionDao
@@ -48,7 +48,7 @@ class FakeController : ITransferServiceController {
     override fun startSession(sessionId: String, documentName: String, totalBytes: Long, isLan: Boolean) {}
     override fun notifyProgress(bytesTransferred: Long, totalBytes: Long, speedBytesPerSec: Long) {}
     override fun notifyStateChanged(state: TransferEngineState) {}
-    override fun notifyCompleted(docId: String, finalSha256: String) {}
+    override fun notifyCompleted(transferId: String, finalSha256: String) {}
     override fun notifyError(errorCode: String, message: String) {}
     override fun requestPause() {}
     override fun requestResume() {}

@@ -31,7 +31,7 @@ class MapperTest {
             peerDeviceModel = "Xiaomi Redmi Turbo 4 Pro",
             peerFingerprint = "fp_abc1234567890",
             approvalMode = ApprovalMode.MANUAL_APPROVAL,
-            transferType = TransferType.FOLDER_ZIP,
+            transferType = TransferType.BATCH_FILES,
             manifestJson = "[{\"relativePath\":\"docs/report.pdf\",\"fileSize\":1048576}]",
             totalBytes = 10485760L,
             confirmedOffset = 5242880L,
@@ -51,7 +51,7 @@ class MapperTest {
         assertEquals("Xiaomi Redmi Turbo 4 Pro", entity.peerDeviceModel)
         assertEquals("fp_abc1234567890", entity.peerFingerprint)
         assertEquals("MANUAL_APPROVAL", entity.approvalMode)
-        assertEquals("FOLDER_ZIP", entity.transferType)
+        assertEquals("BATCH_FILES", entity.transferType)
         assertEquals(10485760L, entity.totalBytes)
         assertEquals(5242880L, entity.confirmedOffset)
         assertEquals("TRANSFERRING", entity.status)
@@ -123,7 +123,7 @@ class MapperTest {
 
         val domain = corruptEntity.toDomain()
         assertNotNull(domain)
-        assertEquals(TransferDirection.INCOMING, domain.direction)
+        assertEquals(TransferDirection.RECEIVER, domain.direction)
         assertEquals(TransferChannel.DIRECT_LAN, domain.channel)
         assertEquals(ApprovalMode.MANUAL_APPROVAL, domain.approvalMode)
         assertEquals(TransferType.SINGLE_FILE, domain.transferType)

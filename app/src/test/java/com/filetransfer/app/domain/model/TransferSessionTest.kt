@@ -1,4 +1,4 @@
-package com.filetransfer.app.domain.model
+﻿package com.filetransfer.app.domain.model
 
 import org.junit.Assert.*
 import org.junit.Test
@@ -9,12 +9,10 @@ class TransferSessionTest {
     fun testProgressCalculation() {
         val session = TransferSession(
             sessionId = "session-001",
-            docId = "doc-456",
-            peerMemberId = "mem-2",
-            direction = TransferDirection.OUTGOING,
+            peerDeviceModel = "Pixel 8",
+            direction = TransferDirection.SENDER,
             channel = TransferChannel.DIRECT_LAN,
             totalBytes = 100_000L,
-            bytesTransferred = 50_000L,
             confirmedOffset = 50_000L,
             status = SessionStatus.TRANSFERRING
         )
@@ -28,9 +26,8 @@ class TransferSessionTest {
     fun testCanResumeInPausedOrFailed() {
         val runningSession = TransferSession(
             sessionId = "session-001",
-            docId = "doc-456",
-            peerMemberId = "mem-2",
-            direction = TransferDirection.INCOMING,
+            peerDeviceModel = "Pixel 8",
+            direction = TransferDirection.RECEIVER,
             totalBytes = 200_000L,
             confirmedOffset = 100_000L,
             status = SessionStatus.TRANSFERRING
@@ -53,9 +50,8 @@ class TransferSessionTest {
     fun testCanRetryProperty() {
         val session = TransferSession(
             sessionId = "session-002",
-            docId = "doc-789",
-            peerMemberId = "mem-3",
-            direction = TransferDirection.OUTGOING,
+            peerDeviceModel = "Galaxy S24",
+            direction = TransferDirection.SENDER,
             totalBytes = 50_000L,
             status = SessionStatus.TRANSFERRING
         )

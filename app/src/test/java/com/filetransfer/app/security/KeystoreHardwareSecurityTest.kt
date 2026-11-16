@@ -22,7 +22,7 @@ class KeystoreHardwareSecurityTest {
         val keyManager = SoftwareKeyManager()
 
         // 1. Kiểm tra cặp khóa được sinh
-        val publicKey = keyManager.generateMemberIdentityKey()
+        val publicKey = keyManager.generateDeviceKeyPair()
         assertNotNull(publicKey)
         assertEquals("EC", publicKey.algorithm)
 
@@ -32,8 +32,8 @@ class KeystoreHardwareSecurityTest {
         }
 
         // 2. Kiểm thử ký số trên dữ liệu mẫu
-        val originalData = "CHỨNG THƯ THÀNH VIÊN filetransfer - OWASP MASVS VERIFICATION".toByteArray(StandardCharsets.UTF_8)
-        val signature = keyManager.signData(IKeyManager.MEMBER_IDENTITY_KEY_ALIAS, originalData)
+        val originalData = "ĐỊNH DANH THIẾT BỊ filetransfer - OWASP MASVS VERIFICATION".toByteArray(StandardCharsets.UTF_8)
+        val signature = keyManager.signData(IKeyManager.DEVICE_IDENTITY_KEY_ALIAS, originalData)
         assertNotNull(signature)
         assertTrue("Chữ ký ECDSA DER/P1363 phải có độ dài hợp lệ (> 64 bytes)", signature.size >= 64)
 
@@ -57,17 +57,17 @@ class KeystoreHardwareSecurityTest {
     }
 
     @Test
-    fun testOwnerMasterKey_UniquePerTeam() {
-        val keyManager = SoftwareKeyManager()
-        val team1PubKey = keyManager.generateOwnerMasterKey("team_alpha_001")
-        val team2PubKey = keyManager.generateOwnerMasterKey("team_beta_002")
+    fun testDeviceIdentityKey_SessionTokenSigning() {
+        val keyManager1 = SoftwareKeyManager()
+        val keyManager2 = SoftwareKeyManager()
 
-        assertNotNull(team1PubKey)
-        assertNotNull(team2PubKey)
+        val pubKey1 = keyManager1.generateDeviceKeyPair()
+        val pubKey2 = keyManager2.generateDeviceKeyPair()
 
-        // Mỗi nhóm phải có một cặp khóa Master Key độc lập
-        val team1Data = "TEAM 1 DATA".toByteArray()
-        val sig1 = keyManager.signData(IKeyManager.MASTER_KEY_PREFIX + "team_alpha_001", team1Data)
-        assertTrue(keyManager.verifySignature(team1PubKey, team1Data, sig1))
+        val token = "session_token_xyz_98765"
+        val sig1 = keyManager1.signSessionToken(token)
+
+        assertTrue(keyManager1.verifySessionToken(token, sig1, pubKey1))
+        assertFalse("Khóa thiết bị khác không được xác thực thành công chữ ký của thiết bị 1", keyManager1.verifySessionToken(token, sig1, pubKey2))
     }
 }

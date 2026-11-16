@@ -1,7 +1,7 @@
-package com.filetransfer.app.core.platform.service
+﻿package com.filetransfer.app.core.platform.service
 
-import com.filetransfer.app.core.transfer.lan.TransferEngineState
-import com.filetransfer.app.core.transfer.lan.TransferProgressCallback
+import com.filetransfer.app.core.transfer.TransferEngineState
+import com.filetransfer.app.core.transfer.TransferProgressCallback
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -88,7 +88,7 @@ class TransferForegroundServiceTest {
         val errorCalled = AtomicBoolean(false)
 
         val testCallback = object : TransferProgressCallback {
-            override fun onCompleted(docId: String, finalSha256: String) {
+            override fun onCompleted(transferId: String, finalSha256: String) {
                 completedCalled.set(true)
             }
 

@@ -1,12 +1,11 @@
-package com.filetransfer.app.data.repository
+﻿package com.filetransfer.app.data.repository
 
 import com.filetransfer.app.data.local.db.dao.InMemoryAuditLogDao
 import com.filetransfer.app.data.local.db.dao.InMemoryTransferSessionDao
 import com.filetransfer.app.domain.model.ApprovalMode
-import com.filetransfer.app.domain.model.AuditLog
+import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.AuditSeverity
 import com.filetransfer.app.domain.model.AuditEventType
-import com.filetransfer.app.domain.model.SecurityAuditLog
 import com.filetransfer.app.domain.model.SessionStatus
 import com.filetransfer.app.domain.model.TransferChannel
 import com.filetransfer.app.domain.model.TransferDirection
@@ -114,7 +113,7 @@ class TransferAndAuditRepositoryTest {
         )
 
         auditRepository.logEvent(log1)
-        auditRepository.recordLog(log2)
+        auditRepository.logEvent(log2)
 
         val recentLogs = auditRepository.getRecentLogs(10).first()
         assertEquals(2, recentLogs.size)

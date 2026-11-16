@@ -1,4 +1,4 @@
-package com.filetransfer.app.core.transfer
+﻿package com.filetransfer.app.core.transfer
 
 import com.filetransfer.app.core.platform.network.INetworkMonitor
 import com.filetransfer.app.core.platform.network.NetworkState
@@ -7,8 +7,8 @@ import com.filetransfer.app.core.platform.service.ITransferServiceController
 import com.filetransfer.app.core.platform.service.TransferServiceState
 import com.filetransfer.app.core.security.keystore.SoftwareKeyManager
 import com.filetransfer.app.core.transfer.lan.LanTransferEngine
-import com.filetransfer.app.core.transfer.lan.TransferEngineState
-import com.filetransfer.app.core.transfer.lan.TransferProgressCallback
+import com.filetransfer.app.core.transfer.TransferEngineState
+import com.filetransfer.app.core.transfer.TransferProgressCallback
 import com.filetransfer.app.core.transfer.relay.RelayClientEngine
 import com.filetransfer.app.domain.model.SessionStatus
 import com.filetransfer.app.domain.model.TransferChannel
@@ -20,16 +20,15 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.system.measureTimeMillis
 
 class FakeNetworkMonitor(
     initialState: NetworkState = NetworkState(
@@ -130,7 +129,7 @@ class FakeServiceController : ITransferServiceController {
     override fun notifyStateChanged(state: TransferEngineState) {
         _serviceState.value = _serviceState.value.copy(engineState = state)
     }
-    override fun notifyCompleted(docId: String, finalSha256: String) {
+    override fun notifyCompleted(transferId: String, finalSha256: String) {
         _serviceState.value = _serviceState.value.copy(finalSha256 = finalSha256, isRunning = false)
     }
     override fun notifyError(errorCode: String, message: String) {
@@ -187,7 +186,7 @@ class TransferCoordinatorTest {
             NetworkState(type = NetworkType.CELLULAR, isConnected = true)
         )
         val channel = coordinator.selectTransferChannel("192.168.1.50")
-        assertEquals(TransferChannel.ZERO_KNOWLEDGE_RELAY, channel)
+        assertEquals(TransferChannel.RELAY_E2EE, channel)
     }
 
     @Test
@@ -196,16 +195,14 @@ class TransferCoordinatorTest {
             NetworkState(type = NetworkType.WIFI_SAME_LAN, isConnected = true)
         )
         val channel = coordinator.selectTransferChannel(null)
-        assertEquals(TransferChannel.ZERO_KNOWLEDGE_RELAY, channel)
+        assertEquals(TransferChannel.RELAY_E2EE, channel)
     }
 
     @Test
     fun testPauseAndResumeSession() = runBlocking {
         val session = TransferSession(
             sessionId = "sess_001",
-            docId = "doc_001",
-            peerMemberId = "mem_002",
-            direction = TransferDirection.OUTGOING,
+            direction = TransferDirection.SENDER,
             totalBytes = 1024L
         )
         transferRepository.createSession(session)
@@ -225,9 +222,7 @@ class TransferCoordinatorTest {
     fun testCancelSession() = runBlocking {
         val session = TransferSession(
             sessionId = "sess_002",
-            docId = "doc_002",
-            peerMemberId = "mem_003",
-            direction = TransferDirection.INCOMING,
+            direction = TransferDirection.RECEIVER,
             totalBytes = 2048L
         )
         transferRepository.createSession(session)
@@ -239,94 +234,19 @@ class TransferCoordinatorTest {
     }
 
     @Test
-    fun testCancelSessionForMemberTerminatesWithin200ms() = runBlocking {
+    fun testRegisterAndGetActiveSession() {
         val session = TransferSession(
-            sessionId = "sess_rapid",
-            docId = "doc_rapid",
-            peerMemberId = "bad_actor_999",
-            direction = TransferDirection.OUTGOING,
+            sessionId = "sess_active_100",
+            direction = TransferDirection.SENDER,
             totalBytes = 4096L
         )
-        transferRepository.createSession(session)
+        coordinator.registerActiveSession(session)
 
-        val durationMs = measureTimeMillis {
-            coordinator.cancelSessionForMember("bad_actor_999")
-        }
+        val retrieved = coordinator.getActiveSession("sess_active_100")
+        assertNotNull(retrieved)
+        assertEquals("sess_active_100", retrieved?.sessionId)
+        assertEquals(4096L, retrieved?.totalBytes)
 
-        assertTrue("Hủy phiên thành viên bị revoke phải hoàn tất trong < 200ms (thực tế: ${durationMs}ms)", durationMs < 200)
-    }
-
-    @Test
-    fun testCancelSessionsForTeam() = runBlocking {
-        val session1 = TransferSession(
-            sessionId = "sess_team_a_1",
-            docId = "doc_a",
-            peerMemberId = "mem_a",
-            direction = TransferDirection.OUTGOING,
-            totalBytes = 1000L
-        )
-        val session2 = TransferSession(
-            sessionId = "sess_team_b_1",
-            docId = "doc_b",
-            peerMemberId = "mem_b",
-            direction = TransferDirection.OUTGOING,
-            totalBytes = 2000L
-        )
-        transferRepository.createSession(session1)
-        transferRepository.createSession(session2)
-
-        coordinator.startTransfer(session1, peerIp = "192.168.1.10", teamId = "team_alpha")
-        coordinator.startTransfer(session2, peerIp = "192.168.1.20", teamId = "team_beta")
-
-        coordinator.cancelSessionsForTeam("team_alpha")
-
-        assertEquals(SessionStatus.CANCELLED, transferRepository.getSessionById("sess_team_a_1")?.status)
-    }
-
-    @Test
-    fun testRelayFallbackMasterKeyAliasLookup() = runBlocking {
-        val teamId = "team_relay_test"
-        keyManager.generateOwnerMasterKey(teamId)
-
-        val session = TransferSession(
-            sessionId = "sess_relay_test",
-            docId = "doc_relay_test",
-            peerMemberId = "mem_relay",
-            direction = TransferDirection.INCOMING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
-            totalBytes = 5000L
-        )
-        transferRepository.createSession(session)
-
-        // Không truyền ownerPublicKey, dựa vào fallback KeyStore
-        val flow = coordinator.startTransfer(
-            session = session,
-            teamId = teamId,
-            ownerPublicKey = null
-        )
-
-        // Lấy event đầu tiên (hoặc hoàn tất/lỗi) để chứng minh không ném lỗi sai alias
-        val firstProgress = flow.first()
-        // Kênh truyền phải là ZERO_KNOWLEDGE_RELAY
-        assertEquals(TransferChannel.ZERO_KNOWLEDGE_RELAY, firstProgress.channel)
-    }
-
-    @Test
-    fun testCheckpointThrottlingOnlyWritesWhenDeltaAboveThreshold() = runBlocking {
-        val session = TransferSession(
-            sessionId = "sess_throttle_01",
-            docId = "doc_throttle",
-            peerMemberId = "mem_throttle",
-            direction = TransferDirection.OUTGOING,
-            totalBytes = 10 * 1024 * 1024L // 10MB
-        )
-        transferRepository.createSession(session)
-
-        val initialCalls = transferRepository.updateCheckpointCallCount
-
-        // Giả lập callback onProgress thông qua startTransfer flow
-        // Chúng ta kiểm tra cơ chế điều tiết thông qua coordinator pauseSession đảm bảo checkpoint được lưu
-        coordinator.pauseSession("sess_throttle_01")
-        assertEquals(SessionStatus.PAUSED, transferRepository.getSessionById("sess_throttle_01")?.status)
+        assertNull(coordinator.getActiveSession("non_existent_session"))
     }
 }

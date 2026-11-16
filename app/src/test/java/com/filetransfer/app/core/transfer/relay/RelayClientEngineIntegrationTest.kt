@@ -1,4 +1,4 @@
-package com.filetransfer.app.core.transfer.relay
+﻿package com.filetransfer.app.core.transfer.relay
 
 import com.filetransfer.app.core.network.relay.AttachStreamRequest
 import com.filetransfer.app.core.network.relay.AttachStreamResponse
@@ -8,10 +8,8 @@ import com.filetransfer.app.core.security.crypto.CryptoEngine
 import com.filetransfer.app.core.security.crypto.E2EEncryptionManager
 import com.filetransfer.app.core.security.crypto.Sha256StreamCalculator
 import com.filetransfer.app.core.transfer.buffer.BufferPoolManager
-import com.filetransfer.app.core.transfer.lan.TransferEngineState
-import com.filetransfer.app.core.transfer.lan.TransferProgressCallback
-import com.filetransfer.app.domain.model.MemberRole
-import com.filetransfer.app.domain.model.TeamMembershipCredential
+import com.filetransfer.app.core.transfer.TransferEngineState
+import com.filetransfer.app.core.transfer.TransferProgressCallback
 import com.filetransfer.app.domain.model.TransferChannel
 import com.filetransfer.app.domain.model.TransferDirection
 import com.filetransfer.app.domain.model.TransferSession
@@ -58,13 +56,11 @@ class RelayClientEngineIntegrationTest {
     val tempFolder = TemporaryFolder()
 
     private lateinit var mockWebServer: MockWebServer
-    private lateinit var ownerKeyPair: KeyPair
 
     private val capturedBinaryFrames = CopyOnWriteArrayList<ByteArray>()
 
     @Before
     fun setUp() {
-        ownerKeyPair = CryptoEngine.generateEcdhKeyPair()
         mockWebServer = MockWebServer()
         capturedBinaryFrames.clear()
     }
@@ -183,37 +179,13 @@ class RelayClientEngineIntegrationTest {
         mockWebServer.start()
     }
 
-    private fun createCredential(
-        teamId: String,
-        memberId: String,
-        role: MemberRole = MemberRole.MEMBER
-    ): TeamMembershipCredential {
-        val deviceFp = UUID.randomUUID().toString().replace("-", "")
-        val dataToSign = "$teamId:$memberId:$deviceFp:${role.name}".toByteArray(Charsets.UTF_8)
-        val signatureBytes = CryptoEngine.signDataWithPrivateKey(ownerKeyPair.private, dataToSign)
-        val signature = signatureBytes.joinToString("") { "%02x".format(it) }
-
-        return TeamMembershipCredential(
-            teamId = teamId,
-            memberId = memberId,
-            deviceFingerprint = deviceFp,
-            role = role,
-            issuedAt = System.currentTimeMillis(),
-            ownerSignature = signature
-        )
-    }
-
     @Test
     fun testSuccessfulFileTransferThroughRelayWithE2EE() = runBlocking {
         setupMockRelayServer()
         val relayUrl = mockWebServer.url("/v1/stream").toString()
 
-        val teamId = UUID.randomUUID().toString()
-        val docId = UUID.randomUUID().toString()
+        val sessionToken = "relay-e2ee-secret-token"
         val sessionId = UUID.randomUUID().toString()
-
-        val senderCred = createCredential(teamId, "member-sender-01")
-        val receiverCred = createCredential(teamId, "member-receiver-02")
 
         // 1. Tạo tệp nguồn 128KB với dữ liệu ngẫu nhiên
         val sourceFile = tempFolder.newFile("source_secret_document.dat")
@@ -228,20 +200,18 @@ class RelayClientEngineIntegrationTest {
 
         val senderSession = TransferSession(
             sessionId = sessionId,
-            docId = docId,
-            peerMemberId = receiverCred.memberId,
-            direction = TransferDirection.OUTGOING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            sessionToken = sessionToken,
+            direction = TransferDirection.SENDER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = sourceFile.length(),
             confirmedOffset = 0L
         )
 
         val receiverSession = TransferSession(
             sessionId = sessionId,
-            docId = docId,
-            peerMemberId = senderCred.memberId,
-            direction = TransferDirection.INCOMING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            sessionToken = sessionToken,
+            direction = TransferDirection.RECEIVER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = sourceFile.length(),
             confirmedOffset = 0L
         )
@@ -272,8 +242,6 @@ class RelayClientEngineIntegrationTest {
                     session = senderSession,
                     fileChannel = channel,
                     expectedSha256 = expectedSha256,
-                    localCredential = senderCred,
-                    ownerPublicKey = ownerKeyPair.public,
                     callback = senderCallback
                 )
             }
@@ -285,8 +253,6 @@ class RelayClientEngineIntegrationTest {
                 session = receiverSession,
                 targetFile = targetFile,
                 expectedSha256 = expectedSha256,
-                localCredential = receiverCred,
-                ownerPublicKey = ownerKeyPair.public,
                 callback = receiverCallback
             )
         }
@@ -311,26 +277,13 @@ class RelayClientEngineIntegrationTest {
     }
 
     @Test
-    fun testPeerInvalidCredentialRejected() = runBlocking {
+    fun testPeerInvalidSessionTokenRejected() = runBlocking {
         setupMockRelayServer()
         val relayUrl = mockWebServer.url("/v1/stream").toString()
 
-        val teamId = UUID.randomUUID().toString()
         val sessionId = UUID.randomUUID().toString()
-
-        val senderCred = createCredential(teamId, "member-sender-01")
-        // Giả mạo chữ ký cho receiver
-        val fakeKeyPair = CryptoEngine.generateEcdhKeyPair()
-        val fakeSignatureBytes = CryptoEngine.signDataWithPrivateKey(fakeKeyPair.private, "fake".toByteArray())
-        val fakeSignature = fakeSignatureBytes.joinToString("") { "%02x".format(it) }
-        val fakeReceiverCred = TeamMembershipCredential(
-            teamId = teamId,
-            memberId = "fake-member",
-            deviceFingerprint = "deadbeef",
-            role = MemberRole.MEMBER,
-            issuedAt = System.currentTimeMillis(),
-            ownerSignature = fakeSignature
-        )
+        val correctToken = "valid-token-123456"
+        val wrongToken = "invalid-token-654321"
 
         val sourceFile = tempFolder.newFile("test_source.dat")
         RandomAccessFile(sourceFile, "rw").use { it.write(ByteArray(1024)) }
@@ -338,20 +291,18 @@ class RelayClientEngineIntegrationTest {
 
         val senderSession = TransferSession(
             sessionId = sessionId,
-            docId = "doc1",
-            peerMemberId = fakeReceiverCred.memberId,
-            direction = TransferDirection.OUTGOING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            sessionToken = correctToken,
+            direction = TransferDirection.SENDER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = 1024L,
             confirmedOffset = 0L
         )
 
         val receiverSession = TransferSession(
             sessionId = sessionId,
-            docId = "doc1",
-            peerMemberId = senderCred.memberId,
-            direction = TransferDirection.INCOMING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            sessionToken = wrongToken,
+            direction = TransferDirection.RECEIVER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = 1024L,
             confirmedOffset = 0L
         )
@@ -366,9 +317,7 @@ class RelayClientEngineIntegrationTest {
                         relayWsUrl = relayUrl,
                         session = senderSession,
                         fileChannel = channel,
-                        expectedSha256 = "dummyHash",
-                        localCredential = senderCred,
-                        ownerPublicKey = ownerKeyPair.public
+                        expectedSha256 = "dummyHash"
                     )
                 }
             } catch (e: Exception) {
@@ -382,9 +331,7 @@ class RelayClientEngineIntegrationTest {
                     relayWsUrl = relayUrl,
                     session = receiverSession,
                     targetFile = targetFile,
-                    expectedSha256 = "dummyHash",
-                    localCredential = fakeReceiverCred,
-                    ownerPublicKey = ownerKeyPair.public
+                    expectedSha256 = "dummyHash"
                 )
             } catch (e: Exception) {
                 e
@@ -394,7 +341,7 @@ class RelayClientEngineIntegrationTest {
         val resSender = senderJob.await()
         val resReceiver = receiverJob.await()
 
-        assertTrue("Phải ném ngoại lệ SecurityException do chứng thư giả mạo",
+        assertTrue("Phải ném ngoại lệ SecurityException do token không khớp",
             resSender is SecurityException || resReceiver is SecurityException || resSender is Exception || resReceiver is Exception)
     }
 
@@ -403,11 +350,8 @@ class RelayClientEngineIntegrationTest {
         setupMockRelayServer()
         val relayUrl = mockWebServer.url("/v1/stream").toString()
 
-        val teamId = UUID.randomUUID().toString()
         val sessionId = UUID.randomUUID().toString()
-
-        val senderCred = createCredential(teamId, "member-sender-01")
-        val receiverCred = createCredential(teamId, "member-receiver-02")
+        val sessionToken = "corrupt-token"
 
         val sourceFile = tempFolder.newFile("source_corrupted.dat")
         val sourceData = ByteArray(32 * 1024) { 0x55.toByte() }
@@ -418,20 +362,18 @@ class RelayClientEngineIntegrationTest {
 
         val senderSession = TransferSession(
             sessionId = sessionId,
-            docId = "doc_corrupt",
-            peerMemberId = receiverCred.memberId,
-            direction = TransferDirection.OUTGOING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            sessionToken = sessionToken,
+            direction = TransferDirection.SENDER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = sourceFile.length(),
             confirmedOffset = 0L
         )
 
         val receiverSession = TransferSession(
             sessionId = sessionId,
-            docId = "doc_corrupt",
-            peerMemberId = senderCred.memberId,
-            direction = TransferDirection.INCOMING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            sessionToken = sessionToken,
+            direction = TransferDirection.RECEIVER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = sourceFile.length(),
             confirmedOffset = 0L
         )
@@ -445,9 +387,7 @@ class RelayClientEngineIntegrationTest {
                     relayWsUrl = relayUrl,
                     session = senderSession,
                     fileChannel = channel,
-                    expectedSha256 = wrongExpectedSha256,
-                    localCredential = senderCred,
-                    ownerPublicKey = ownerKeyPair.public
+                    expectedSha256 = wrongExpectedSha256
                 )
             }
         }
@@ -457,9 +397,7 @@ class RelayClientEngineIntegrationTest {
                 relayWsUrl = relayUrl,
                 session = receiverSession,
                 targetFile = targetFile,
-                expectedSha256 = wrongExpectedSha256,
-                localCredential = receiverCred,
-                ownerPublicKey = ownerKeyPair.public
+                expectedSha256 = wrongExpectedSha256
             )
         }
 
@@ -479,19 +417,16 @@ class RelayClientEngineIntegrationTest {
     fun testRetryMechanismWhenRelayTemporarilyDown() = runBlocking {
         // Đặt URL tới cổng không ai lắng nghe
         val deadUrl = "ws://127.0.0.1:49999/v1/stream"
-        val teamId = UUID.randomUUID().toString()
         val sessionId = UUID.randomUUID().toString()
-        val senderCred = createCredential(teamId, "member-sender-01")
 
         val sourceFile = tempFolder.newFile("dummy.dat")
         RandomAccessFile(sourceFile, "rw").use { it.write(ByteArray(100)) }
 
         val session = TransferSession(
             sessionId = sessionId,
-            docId = "doc1",
-            peerMemberId = "peer",
-            direction = TransferDirection.OUTGOING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            sessionToken = "retry-token",
+            direction = TransferDirection.SENDER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = 100L,
             confirmedOffset = 0L
         )
@@ -512,8 +447,6 @@ class RelayClientEngineIntegrationTest {
                         session = session,
                         fileChannel = channel,
                         expectedSha256 = "dummyHash",
-                        localCredential = senderCred,
-                        ownerPublicKey = ownerKeyPair.public,
                         callback = callback,
                         maxRetries = 2
                     )
@@ -529,11 +462,8 @@ class RelayClientEngineIntegrationTest {
         setupMockRelayServer()
         val relayUrl = mockWebServer.url("/v1/stream").toString()
 
-        val teamId = UUID.randomUUID().toString()
         val sessionId = UUID.randomUUID().toString()
-
-        val senderCred = createCredential(teamId, "member-sender-01")
-        val receiverCred = createCredential(teamId, "member-receiver-02")
+        val sessionToken = "sas-token"
 
         val sourceFile = tempFolder.newFile("sas_test_source.dat")
         RandomAccessFile(sourceFile, "rw").use { it.write(ByteArray(1024)) }
@@ -541,20 +471,18 @@ class RelayClientEngineIntegrationTest {
 
         val senderSession = TransferSession(
             sessionId = sessionId,
-            docId = "doc_sas",
-            peerMemberId = receiverCred.memberId,
-            direction = TransferDirection.OUTGOING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            sessionToken = sessionToken,
+            direction = TransferDirection.SENDER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = 1024L,
             confirmedOffset = 0L
         )
 
         val receiverSession = TransferSession(
             sessionId = sessionId,
-            docId = "doc_sas",
-            peerMemberId = senderCred.memberId,
-            direction = TransferDirection.INCOMING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            sessionToken = sessionToken,
+            direction = TransferDirection.RECEIVER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = 1024L,
             confirmedOffset = 0L
         )
@@ -584,8 +512,6 @@ class RelayClientEngineIntegrationTest {
                     session = senderSession,
                     fileChannel = channel,
                     expectedSha256 = "dummyHash",
-                    localCredential = senderCred,
-                    ownerPublicKey = ownerKeyPair.public,
                     callback = senderCallback
                 )
             }
@@ -597,8 +523,6 @@ class RelayClientEngineIntegrationTest {
                 session = receiverSession,
                 targetFile = targetFile,
                 expectedSha256 = "dummyHash",
-                localCredential = receiverCred,
-                ownerPublicKey = ownerKeyPair.public,
                 callback = receiverCallback
             )
         }
@@ -617,11 +541,8 @@ class RelayClientEngineIntegrationTest {
         setupMockRelayServer()
         val relayUrl = mockWebServer.url("/v1/stream").toString()
 
-        val teamId = UUID.randomUUID().toString()
         val sessionId = UUID.randomUUID().toString()
-
-        val senderCred = createCredential(teamId, "member-sender-01")
-        val receiverCred = createCredential(teamId, "member-receiver-02")
+        val sessionToken = "token_resume"
 
         val totalSize = 128 * 1024 // 128KB
         val sourceFile = tempFolder.newFile("resume_source.dat")
@@ -657,7 +578,7 @@ class RelayClientEngineIntegrationTest {
                     sessionId = sessionId,
                     sessionToken = "token_resume",
                     direction = "OUTGOING",
-                    channel = "ZERO_KNOWLEDGE_RELAY",
+                    channel = "RELAY_E2EE",
                     peerDeviceModel = "TestModel",
                     peerFingerprint = "fp_peer",
                     status = "TRANSFERRING",
@@ -674,20 +595,18 @@ class RelayClientEngineIntegrationTest {
 
         val senderSession = TransferSession(
             sessionId = sessionId,
-            docId = "doc_resume",
-            peerMemberId = receiverCred.memberId,
-            direction = TransferDirection.OUTGOING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            sessionToken = sessionToken,
+            direction = TransferDirection.SENDER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = totalSize.toLong(),
             confirmedOffset = 0L // Tham số session ban đầu là 0L, nhưng DAO có 64KB
         )
 
         val receiverSession = TransferSession(
             sessionId = sessionId,
-            docId = "doc_resume",
-            peerMemberId = senderCred.memberId,
-            direction = TransferDirection.INCOMING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            sessionToken = sessionToken,
+            direction = TransferDirection.RECEIVER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = totalSize.toLong(),
             confirmedOffset = 0L
         )
@@ -701,9 +620,7 @@ class RelayClientEngineIntegrationTest {
                     relayWsUrl = relayUrl,
                     session = senderSession,
                     fileChannel = channel,
-                    expectedSha256 = expectedSha256,
-                    localCredential = senderCred,
-                    ownerPublicKey = ownerKeyPair.public
+                    expectedSha256 = expectedSha256
                 )
             }
         }
@@ -713,9 +630,7 @@ class RelayClientEngineIntegrationTest {
                 relayWsUrl = relayUrl,
                 session = receiverSession,
                 targetFile = targetFile,
-                expectedSha256 = expectedSha256,
-                localCredential = receiverCred,
-                ownerPublicKey = ownerKeyPair.public
+                expectedSha256 = expectedSha256
             )
         }
 
@@ -747,8 +662,8 @@ class RelayClientEngineIntegrationTest {
         val senderSession = TransferSession(
             sessionId = sessionId,
             sessionToken = token,
-            direction = TransferDirection.OUTGOING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            direction = TransferDirection.SENDER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = sourceFile.length(),
             confirmedOffset = 0L
         )
@@ -756,8 +671,8 @@ class RelayClientEngineIntegrationTest {
         val receiverSession = TransferSession(
             sessionId = sessionId,
             sessionToken = token,
-            direction = TransferDirection.INCOMING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            direction = TransferDirection.RECEIVER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = sourceFile.length(),
             confirmedOffset = 0L
         )
@@ -814,8 +729,8 @@ class RelayClientEngineIntegrationTest {
         val senderSession = TransferSession(
             sessionId = sessionId,
             sessionToken = token,
-            direction = TransferDirection.OUTGOING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            direction = TransferDirection.SENDER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = sourceFile.length(),
             confirmedOffset = 0L
         )
@@ -823,8 +738,8 @@ class RelayClientEngineIntegrationTest {
         val receiverSession = TransferSession(
             sessionId = sessionId,
             sessionToken = token,
-            direction = TransferDirection.INCOMING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            direction = TransferDirection.RECEIVER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = sourceFile.length(),
             confirmedOffset = 0L
         )
@@ -892,8 +807,8 @@ class RelayClientEngineIntegrationTest {
         val senderSession = TransferSession(
             sessionId = sessionId,
             sessionToken = token,
-            direction = TransferDirection.OUTGOING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            direction = TransferDirection.SENDER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = compressedLength, // Sender gửi payload nén thực tế
             confirmedOffset = 0L
         )
@@ -901,8 +816,8 @@ class RelayClientEngineIntegrationTest {
         val receiverSession = TransferSession(
             sessionId = sessionId,
             sessionToken = token,
-            direction = TransferDirection.INCOMING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            direction = TransferDirection.RECEIVER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = uncompressedRawSum, // Receiver mang session.totalBytes từ QR lớn hơn
             confirmedOffset = 0L
         )
@@ -954,8 +869,8 @@ class RelayClientEngineIntegrationTest {
         val senderSession = TransferSession(
             sessionId = sessionId,
             sessionToken = token,
-            direction = TransferDirection.OUTGOING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            direction = TransferDirection.SENDER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = sourceFile.length(),
             confirmedOffset = 0L
         )
@@ -963,8 +878,8 @@ class RelayClientEngineIntegrationTest {
         val receiverSession = TransferSession(
             sessionId = sessionId,
             sessionToken = token,
-            direction = TransferDirection.INCOMING,
-            channel = TransferChannel.ZERO_KNOWLEDGE_RELAY,
+            direction = TransferDirection.RECEIVER,
+            channel = TransferChannel.RELAY_E2EE,
             totalBytes = sourceFile.length(),
             confirmedOffset = 0L
         )

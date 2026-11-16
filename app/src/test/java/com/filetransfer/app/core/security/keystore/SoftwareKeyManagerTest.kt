@@ -14,41 +14,44 @@ class SoftwareKeyManagerTest {
     }
 
     @Test
-    fun testGenerateOwnerMasterKeyAndSignVerify() {
-        val teamId = "team_security_999"
-        val masterKey = keyManager.generateOwnerMasterKey(teamId)
-        val alias = IKeyManager.MASTER_KEY_PREFIX + teamId
+    fun testGenerateDeviceKeyPairAndSignVerify() {
+        val devicePubKey = keyManager.generateDeviceKeyPair()
+        val alias = IKeyManager.DEVICE_IDENTITY_KEY_ALIAS
 
-        assertNotNull(masterKey)
+        assertNotNull(devicePubKey)
         assertTrue(keyManager.hasKey(alias))
-        assertEquals(masterKey, keyManager.getPublicKey(alias))
+        assertEquals(devicePubKey, keyManager.getPublicKey(alias))
 
-        val dataToSign = "Lời mời tham gia nhóm nghiên cứu bảo mật".toByteArray()
+        val dataToSign = "Dữ liệu xác thực phiên truyền tải Secure Drop".toByteArray()
         val signature = keyManager.signData(alias, dataToSign)
 
         assertNotNull(signature)
         assertTrue(signature.isNotEmpty())
 
         // Xác minh chữ ký đúng
-        val isVerified = keyManager.verifySignature(masterKey, dataToSign, signature)
+        val isVerified = keyManager.verifySignature(devicePubKey, dataToSign, signature)
         assertTrue("Chữ ký hợp lệ phải được xác thực thành công", isVerified)
 
         // Xác minh chữ ký khi dữ liệu bị giả mạo
-        val tamperedData = "Lời mời tham gia nhóm đã bị kẻ xấu can thiệp".toByteArray()
-        val isTamperedVerified = keyManager.verifySignature(masterKey, tamperedData, signature)
+        val tamperedData = "Dữ liệu phiên truyền tải đã bị kẻ xấu can thiệp".toByteArray()
+        val isTamperedVerified = keyManager.verifySignature(devicePubKey, tamperedData, signature)
         assertFalse("Chữ ký trên dữ liệu giả mạo phải bị từ chối", isTamperedVerified)
     }
 
     @Test
-    fun testGenerateMemberIdentityKey() {
-        val memberPubKey = keyManager.generateMemberIdentityKey()
-        assertNotNull(memberPubKey)
-        assertTrue(keyManager.hasKey(IKeyManager.MEMBER_IDENTITY_KEY_ALIAS))
+    fun testSignAndVerifySessionToken() {
+        val devicePubKey = keyManager.generateDeviceKeyPair()
+        val sessionToken = "session_token_abc_12345"
 
-        val credentialPayload = "member_id_001;device_fp_abc".toByteArray()
-        val signature = keyManager.signData(IKeyManager.MEMBER_IDENTITY_KEY_ALIAS, credentialPayload)
+        val signatureBase64 = keyManager.signSessionToken(sessionToken)
+        assertNotNull(signatureBase64)
+        assertTrue(signatureBase64.isNotBlank())
 
-        assertTrue(keyManager.verifySignature(memberPubKey, credentialPayload, signature))
+        val isValid = keyManager.verifySessionToken(sessionToken, signatureBase64, devicePubKey)
+        assertTrue("Chữ ký số session token phải hợp lệ", isValid)
+
+        val isTamperedValid = keyManager.verifySessionToken("wrong_token", signatureBase64, devicePubKey)
+        assertFalse("Chữ ký với token sai phải bị từ chối", isTamperedValid)
     }
 
     @Test
@@ -63,10 +66,9 @@ class SoftwareKeyManagerTest {
 
     @Test
     fun testDeleteKey() {
-        val teamId = "team_to_disband"
-        val alias = IKeyManager.MASTER_KEY_PREFIX + teamId
+        val alias = IKeyManager.DEVICE_IDENTITY_KEY_ALIAS
 
-        keyManager.generateOwnerMasterKey(teamId)
+        keyManager.generateDeviceKeyPair()
         assertTrue(keyManager.hasKey(alias))
 
         val deleted = keyManager.deleteKey(alias)
@@ -75,4 +77,3 @@ class SoftwareKeyManagerTest {
         assertNull(keyManager.getPublicKey(alias))
     }
 }
-

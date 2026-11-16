@@ -198,14 +198,6 @@ class InMemoryAuditLogDao : AuditLogDao {
         return logs.filter { it.timestamp > sinceTimestamp }.sortedBy { it.timestamp }
     }
 
-    override suspend fun getLogsSince(teamId: String, sinceTimestamp: Long): List<SecurityAuditLogEntity> {
-        return getLogsSince(sinceTimestamp)
-    }
-
-    override fun getLogsByTeam(teamId: String): Flow<List<SecurityAuditLogEntity>> {
-        return getRecentLogs(100)
-    }
-
     override suspend fun clearLogs(): Int {
         val size = logs.size
         logs.clear()

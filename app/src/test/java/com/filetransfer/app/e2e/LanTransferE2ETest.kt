@@ -1,10 +1,10 @@
-package com.filetransfer.app.e2e
+﻿package com.filetransfer.app.e2e
 
 import com.filetransfer.app.core.network.tls.TlsSocketFactory
 import com.filetransfer.app.core.security.crypto.Sha256StreamCalculator
 import com.filetransfer.app.core.transfer.lan.LanTransferEngine
-import com.filetransfer.app.core.transfer.lan.TransferEngineState
-import com.filetransfer.app.core.transfer.lan.TransferProgressCallback
+import com.filetransfer.app.core.transfer.TransferEngineState
+import com.filetransfer.app.core.transfer.TransferProgressCallback
 import com.filetransfer.app.domain.model.ApprovalMode
 import com.filetransfer.app.domain.model.AuditEventType
 import com.filetransfer.app.domain.model.AuditSeverity
