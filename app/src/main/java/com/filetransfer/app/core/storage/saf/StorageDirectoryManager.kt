@@ -30,28 +30,12 @@ class StorageDirectoryManager(private val context: Context) {
     }
 
     /**
-     * Lấy thư mục chứa các tệp đã tải hoàn chỉnh của một nhóm cụ thể (tương thích ngược).
-     */
-    fun getTeamCompletedDir(teamId: String): File {
-        if (teamId.isBlank()) return completedRootDir
-        val sanitizedTeamId = teamId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        return File(completedRootDir, "${AppConstants.StorageDirectory.TEAM_DIR_PREFIX}$sanitizedTeamId").apply { mkdirs() }
-    }
-
-    /**
-     * Tạo đường dẫn tệp đích hoàn chỉnh sau khi tải xong.
-     */
-    fun getCompletedFile(teamId: String = "", fileName: String): File {
-        return File(getTeamCompletedDir(teamId), fileName)
-    }
-
-    /**
      * Lấy đường dẫn tệp tạm dở dang (.part) trong quá trình nhận dữ liệu stream.
      */
-    fun getTempPartFile(sessionId: String, docId: String): File {
+    fun getTempPartFile(sessionId: String, fileName: String = ""): File {
         val sanitizedSession = sessionId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        val sanitizedDoc = docId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        return File(transfersDir, "${AppConstants.StorageDirectory.PART_FILE_PREFIX}${sanitizedSession}_${sanitizedDoc}")
+        val suffix = if (fileName.isNotBlank()) "_${fileName.replace(Regex("[^a-zA-Z0-9_.-]"), "_")}" else ""
+        return File(transfersDir, "${AppConstants.StorageDirectory.PART_FILE_PREFIX}${sanitizedSession}${suffix}")
     }
 
     /**

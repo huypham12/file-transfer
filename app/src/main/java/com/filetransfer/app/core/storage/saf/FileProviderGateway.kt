@@ -1,4 +1,4 @@
-package com.filetransfer.app.core.storage.saf
+﻿package com.filetransfer.app.core.storage.saf
 
 import android.content.Context
 import android.content.Intent
@@ -18,7 +18,7 @@ open class FileProviderGateway(
 ) {
 
     companion object {
-        val DEFAULT_AUTHORITY: String = com.example.file_tranfer.BuildConfig.FILE_PROVIDER_AUTHORITY
+        val DEFAULT_AUTHORITY: String = com.filetransfer.app.BuildConfig.FILE_PROVIDER_AUTHORITY
     }
 
     /**

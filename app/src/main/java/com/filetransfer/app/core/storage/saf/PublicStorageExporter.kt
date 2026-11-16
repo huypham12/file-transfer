@@ -55,9 +55,9 @@ class PublicStorageExporter(private val context: Context) {
         return try {
             val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val targetFolder = if (!subDir.isNullOrBlank()) {
-                File(downloadsDir, "${AppConstants.StorageDirectory.TEAM_SHARE_PUBLIC_FOLDER}/$subDir")
+                File(downloadsDir, "${AppConstants.StorageDirectory.PUBLIC_DOWNLOAD_SUBFOLDER}/$subDir")
             } else {
-                File(downloadsDir, AppConstants.StorageDirectory.TEAM_SHARE_PUBLIC_FOLDER)
+                File(downloadsDir, AppConstants.StorageDirectory.PUBLIC_DOWNLOAD_SUBFOLDER)
             }
             File(targetFolder, sanitizedName).exists()
         } catch (_: Throwable) {
@@ -114,9 +114,9 @@ class PublicStorageExporter(private val context: Context) {
                 @Suppress("DEPRECATION")
                 val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 val targetFolder = if (!subDir.isNullOrBlank()) {
-                    File(downloadsDir, "${AppConstants.StorageDirectory.TEAM_SHARE_PUBLIC_FOLDER}/$subDir")
+                    File(downloadsDir, "${AppConstants.StorageDirectory.PUBLIC_DOWNLOAD_SUBFOLDER}/$subDir")
                 } else {
-                    File(downloadsDir, AppConstants.StorageDirectory.TEAM_SHARE_PUBLIC_FOLDER)
+                    File(downloadsDir, AppConstants.StorageDirectory.PUBLIC_DOWNLOAD_SUBFOLDER)
                 }.apply { mkdirs() }
 
                 val destFile = File(targetFolder, sanitizedName)
@@ -232,7 +232,7 @@ class PublicStorageExporter(private val context: Context) {
                         } else {
                             @Suppress("DEPRECATION")
                             val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                            val targetDir = File(downloadsDir, "${AppConstants.StorageDirectory.TEAM_SHARE_PUBLIC_FOLDER}/$subDir").apply { mkdirs() }
+                            val targetDir = File(downloadsDir, "${AppConstants.StorageDirectory.PUBLIC_DOWNLOAD_SUBFOLDER}/$subDir").apply { mkdirs() }
                             val dest = File(targetDir, fileName)
                             FileOutputStream(dest).use { fos ->
                                 zis.copyTo(fos)
@@ -252,9 +252,9 @@ class PublicStorageExporter(private val context: Context) {
 
     private fun buildRelativePath(subDir: String?): String {
         return if (!subDir.isNullOrBlank()) {
-            "${Environment.DIRECTORY_DOWNLOADS}/${AppConstants.StorageDirectory.TEAM_SHARE_PUBLIC_FOLDER}/$subDir"
+            "${Environment.DIRECTORY_DOWNLOADS}/${AppConstants.StorageDirectory.PUBLIC_DOWNLOAD_SUBFOLDER}/$subDir"
         } else {
-            "${Environment.DIRECTORY_DOWNLOADS}/${AppConstants.StorageDirectory.TEAM_SHARE_PUBLIC_FOLDER}"
+            "${Environment.DIRECTORY_DOWNLOADS}/${AppConstants.StorageDirectory.PUBLIC_DOWNLOAD_SUBFOLDER}"
         }
     }
 }
